@@ -120,6 +120,7 @@ not touch production persistence:
 ```text
 market-data-service smoke-rest
 market-data-service smoke-backfill --minutes 120
+market-data-service audit-continuity --ticker BTCUSDT.P --start 0 --end 3600000
 ```
 
 `smoke-backfill` fetches a small closed BTCUSDT 1m interval from Bybit REST,
@@ -127,6 +128,10 @@ runs `BackfillStreamHistory`, replays the same window to prove duplicate
 classification, reopens SQLite for persistence checks, and performs a basic
 1m continuity assertion. This assertion is smoke-only; full continuity proof
 remains the future audit/gap-repair workflow.
+
+`audit-continuity` reads canonical candles for one explicit stream and
+half-open range, reports missing 1m intervals, and does not change stream state
+or attempt repair.
 
 ## Architecture decisions
 

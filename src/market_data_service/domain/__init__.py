@@ -9,6 +9,11 @@ from market_data_service.domain.candle_validation import (
 )
 from market_data_service.domain.candles import CanonicalCandle, ObservationSource, ObservedCandle
 from market_data_service.domain.classification import IngestionClassification
+from market_data_service.domain.continuity import (
+    ContinuityReport,
+    GapRange,
+    build_continuity_report,
+)
 from market_data_service.domain.decimal_values import (
     DecimalInput,
     InvalidDecimalValue,
@@ -51,8 +56,10 @@ __all__ = [
     "CandleValidationCode",
     "CandleValidationIssue",
     "CanonicalCandle",
+    "ContinuityReport",
     "DecimalInput",
     "Gap",
+    "GapRange",
     "HistoryPolicy",
     "IngestionClassification",
     "InstrumentCoverage",
@@ -69,6 +76,7 @@ __all__ = [
     "TimeWindow",
     "TimeframeSpec",
     "align_to_grid",
+    "build_continuity_report",
     "can_transition",
     "ceil_to_grid",
     "classify_against_existing",

@@ -20,6 +20,14 @@ class CanonicalStorageUnitOfWork(Protocol):
 
     def get_candle(self, stream: StreamKey, open_time_ms: int) -> CanonicalCandle | None: ...
 
+    def list_candles(
+        self,
+        stream: StreamKey,
+        *,
+        start_time_ms: int,
+        end_time_ms: int,
+    ) -> tuple[CanonicalCandle, ...]: ...
+
     def insert_candle(self, candle: CanonicalCandle) -> None: ...
 
     def replace_candle(self, candle: CanonicalCandle) -> None: ...

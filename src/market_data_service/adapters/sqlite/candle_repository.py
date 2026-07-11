@@ -36,6 +36,40 @@ class SqliteCandleRepository:
             committed_at_ms=row["committed_at_ms"],
         )
 
+    def list_range(
+        self,
+        stream: StreamKey,
+        *,
+        start_time_ms: int,
+        end_time_ms: int,
+    ) -> tuple[CanonicalCandle, ...]:
+        stream_id = self._catalog.stream_id(stream)
+        rows = self._connection.execute(
+            """
+            SELECT *
+            FROM candles
+            WHERE stream_id = ? AND open_time_ms >= ? AND open_time_ms < ?
+            ORDER BY open_time_ms
+            """,
+            (stream_id, start_time_ms, end_time_ms),
+        ).fetchall()
+        step_ms = get_timeframe(stream.timeframe).duration_ms
+        return tuple(
+            CanonicalCandle(
+                stream=stream,
+                open_time_ms=row["open_time_ms"],
+                close_time_ms=row["open_time_ms"] + step_ms - 1,
+                open=row["open_value"],
+                high=row["high_value"],
+                low=row["low_value"],
+                close=row["close_value"],
+                volume=row["volume_value"],
+                source=ObservationSource(row["source"]),
+                committed_at_ms=row["committed_at_ms"],
+            )
+            for row in rows
+        )
+
     def insert(self, candle: CanonicalCandle) -> None:
         self._connection.execute(
             """

@@ -43,6 +43,19 @@ class SqliteUnitOfWork:
     def get_candle(self, stream: StreamKey, open_time_ms: int) -> CanonicalCandle | None:
         return self._candles.get(stream, open_time_ms)
 
+    def list_candles(
+        self,
+        stream: StreamKey,
+        *,
+        start_time_ms: int,
+        end_time_ms: int,
+    ) -> tuple[CanonicalCandle, ...]:
+        return self._candles.list_range(
+            stream,
+            start_time_ms=start_time_ms,
+            end_time_ms=end_time_ms,
+        )
+
     def insert_candle(self, candle: CanonicalCandle) -> None:
         self._candles.insert(candle)
 

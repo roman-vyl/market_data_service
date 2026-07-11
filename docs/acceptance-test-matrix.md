@@ -91,6 +91,9 @@ It is intentionally defined before SQLite, Bybit REST, WebSocket, and HTTP adapt
 | GAP-06 | Repair succeeds | Application integration | Re-audit returns no gaps before readiness. |
 | GAP-07 | Repair leaves a gap | Application integration | Stream remains non-ready and the problem is quarantined. |
 | GAP-08 | REST returns rows outside requested window | Application integration | Ignore/reject unexpected rows and record diagnostics. |
+| GAP-09 | Audit explicit stored range | SQLite/application integration | Read canonical candles for one stream/range and return a continuity report without state changes. |
+| GAP-10 | Empty audited range | SQLite/application integration | Return non-continuous with a gap covering the checked range. |
+| GAP-11 | Multi-stream continuity audit | SQLite/application integration | BTC and ETH reports are independent and one stream's gaps do not affect another report. |
 
 ## G. Persisted state machine and restart
 
