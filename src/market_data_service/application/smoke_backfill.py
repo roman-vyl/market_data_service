@@ -6,7 +6,6 @@ from dataclasses import dataclass
 
 from market_data_service.application.backfill_stream import BackfillStreamHistory
 from market_data_service.application.backfill_types import BackfillStreamRequest
-from market_data_service.application.import_window import ImportHistoricalWindow
 from market_data_service.domain.identity import StreamKey
 from market_data_service.domain.windows import TimeWindow
 
@@ -32,9 +31,8 @@ def run_backfill_smoke_workflow(
     stream: StreamKey,
     window: TimeWindow,
     backfill: BackfillStreamHistory,
-    duplicate_replay: ImportHistoricalWindow,
 ) -> SmokeBackfillWorkflowResult:
-    """Run bounded backfill once, then replay the same window for duplicate proof."""
+    """Run bounded backfill twice over the same window for duplicate proof."""
 
     first = backfill.execute(
         BackfillStreamRequest(
@@ -49,8 +47,25 @@ def run_backfill_smoke_workflow(
     if not first.window_results:
         raise RuntimeError("backfill smoke did not import a window")
 
+    duplicate = backfill.execute(
+        BackfillStreamRequest(
+            stream=stream,
+            start_time_ms=window.start_ms,
+            end_time_ms=window.end_ms,
+            max_windows=1,
+            resume_from_latest_committed=False,
+        )
+    )
+    if duplicate.error_code is not None:
+        raise RuntimeError(
+            f"backfill duplicate smoke failed: {duplicate.error_code}: "
+            f"{duplicate.error_detail}"
+        )
+    if not duplicate.window_results:
+        raise RuntimeError("backfill duplicate smoke did not import a window")
+
     first_window = first.window_results[0]
-    duplicate = duplicate_replay.execute(stream, window)
+    duplicate_window = duplicate.window_results[0]
     return SmokeBackfillWorkflowResult(
         stream=stream,
         window=window,
@@ -59,9 +74,9 @@ def run_backfill_smoke_workflow(
         first_duplicates=first_window.duplicates,
         first_corrected=first_window.corrected,
         first_rejected=first_window.rejected,
-        duplicate_observed=duplicate.observed,
-        duplicate_committed=duplicate.committed,
-        duplicate_duplicates=duplicate.duplicates,
-        duplicate_corrected=duplicate.corrected,
-        duplicate_rejected=duplicate.rejected,
+        duplicate_observed=duplicate_window.observed,
+        duplicate_committed=duplicate_window.committed,
+        duplicate_duplicates=duplicate_window.duplicates,
+        duplicate_corrected=duplicate_window.corrected,
+        duplicate_rejected=duplicate_window.rejected,
     )

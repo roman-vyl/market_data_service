@@ -79,7 +79,6 @@ def test_smoke_backfill_workflow_persists_duplicates_and_continuity(tmp_path: Pa
         stream=stream,
         window=TimeWindow(0, 180_000),
         backfill=backfill,
-        duplicate_replay=importer,
     )
     persistence = inspect_persistence(database, stream)
 

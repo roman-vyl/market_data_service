@@ -124,7 +124,6 @@ def run_smoke_backfill(
         stream=stream,
         window=window,
         backfill=backfill,
-        duplicate_replay=importer,
     )
     persistence = inspect_persistence(database_path, stream)
     return SmokeBackfillResult(
@@ -157,7 +156,7 @@ def _print_result(result: SmokeBackfillResult) -> None:
         f"rejected={workflow.first_rejected}"
     )
     print(
-        "duplicate_replay "
+        "second_backfill "
         f"observed={workflow.duplicate_observed} committed={workflow.duplicate_committed} "
         f"duplicate={workflow.duplicate_duplicates} corrected={workflow.duplicate_corrected} "
         f"rejected={workflow.duplicate_rejected}"

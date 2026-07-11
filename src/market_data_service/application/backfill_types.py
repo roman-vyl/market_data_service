@@ -16,6 +16,7 @@ class BackfillStreamRequest:
     start_time_ms: int
     end_time_ms: int
     max_windows: int
+    resume_from_latest_committed: bool = True
 
     def __post_init__(self) -> None:
         if self.start_time_ms >= self.end_time_ms:

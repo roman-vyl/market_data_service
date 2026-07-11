@@ -178,6 +178,8 @@ class BackfillStreamHistory:
             unit_of_work.commit()
 
     def _resume_start(self, request: BackfillStreamRequest) -> int:
+        if not request.resume_from_latest_committed:
+            return request.start_time_ms
         step_ms = get_timeframe(request.stream.timeframe).duration_ms
         with self._unit_of_work_factory() as unit_of_work:
             snapshot = unit_of_work.get_stream_state(request.stream)
