@@ -6,7 +6,10 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from market_data_service.adapters.bybit.errors import BybitApiError, BybitPayloadError
-from market_data_service.adapters.bybit.http_transport import JsonHttpTransport, UrllibJsonHttpTransport
+from market_data_service.adapters.bybit.http_transport import (
+    JsonHttpTransport,
+    UrllibJsonHttpTransport,
+)
 from market_data_service.adapters.bybit.kline_parser import parse_kline_rows
 from market_data_service.domain.candles import ObservedCandle
 from market_data_service.domain.identity import StreamKey

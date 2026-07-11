@@ -16,7 +16,16 @@ The backend is explicitly multi-instrument. The checked-in deployment example en
 
 ## Status
 
-Phase 1 SQLite vertical slice is implemented. Canonical ingestion, duplicate/correction handling, atomic stream-state persistence, rollback, restart persistence, and multi-stream isolation are covered by integration tests. Bybit connectivity and HTTP API are not implemented yet.
+The SQLite vertical slice, Bybit REST market-data adapter, REST smoke verification,
+and bounded historical backfill runner are implemented. Canonical ingestion,
+duplicate/correction handling, atomic stream-state persistence, rollback, restart
+persistence, and multi-stream isolation are covered by integration tests.
+
+Not implemented yet:
+
+- Bybit WebSocket realtime ingestion;
+- external HTTP API;
+- live consumer runtime.
 
 ## Planned first vertical slice
 
@@ -80,7 +89,8 @@ The skeleton now encodes the strongest preserved old-engine semantics in code:
 - explicit ingestion classifications;
 - named application use-case and infrastructure port boundaries.
 
-The contracts now have a first SQLite persistence implementation; network behavior remains deferred.
+The contracts now have SQLite persistence plus bounded Bybit REST ingestion.
+WebSocket realtime delivery and the external HTTP API remain deferred.
 
 ## Step 2 decision
 
@@ -100,7 +110,7 @@ Consumer recovery is readiness-first. Bootstrap, catch-up, and repair do not req
 
 ## Sequential REST backfill
 
-Version 1 performs historical REST work sequentially and in finite command-sized chunks. Deep bootstrap is resumable and does not require a parallel scheduler. See `docs/sequential-backfill.md`.
+Version 1 performs historical REST work sequentially and in finite command-sized chunks. One REST response window is committed atomically. Deep bootstrap is resumable from the latest committed candle and does not require a parallel scheduler. Continuity is proven later by audit. See `docs/sequential-backfill.md`.
 
 ## Architecture decisions
 

@@ -439,7 +439,7 @@ See `docs/source-reuse-audit.md`.
 
 ## 20A. Sequential bounded backfill
 
-Version 1 deliberately avoids a parallel multi-stream REST scheduler. Deep history is loaded through finite administrative runs. One bounded REST window is processed at a time, and `--all` visits configured streams sequentially in deterministic order with a per-stream window budget. Completed data is durable and later runs resume from actual candles and stream state. Unlimited deep bootstrap is not part of normal service startup.
+Version 1 deliberately avoids a parallel multi-stream REST scheduler. Deep history is loaded through finite administrative runs. One bounded REST window is processed and committed atomically at a time, and `--all` visits configured streams sequentially in deterministic order with a per-stream window budget. Completed data is durable and later runs resume from the latest committed candle in stream state. That resume point is not a continuity proof; audit remains responsible for detecting gaps. Unlimited deep bootstrap is not part of normal service startup.
 
 ## 21. Implementation phases
 

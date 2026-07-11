@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+from market_data_service.ports.market_data_source import RecoverableMarketDataFailure
+
 
 class BybitMarketDataError(RuntimeError):
     """Base error for Bybit market-data operations."""
 
 
-class BybitHttpError(BybitMarketDataError):
+class BybitHttpError(BybitMarketDataError, RecoverableMarketDataFailure):
     """HTTP transport failed or returned an unusable status."""
 
 

@@ -14,7 +14,12 @@ JsonObject = dict[str, Any]
 
 
 class JsonHttpTransport(Protocol):
-    def get_json(self, url: str, params: dict[str, str | int], timeout_seconds: float) -> JsonObject: ...
+    def get_json(
+        self,
+        url: str,
+        params: dict[str, str | int],
+        timeout_seconds: float,
+    ) -> JsonObject: ...
 
 
 class UrllibJsonHttpTransport:
@@ -28,7 +33,7 @@ class UrllibJsonHttpTransport:
     ) -> JsonObject:
         request_url = f"{url}?{urlencode(params)}"
         try:
-            with urlopen(request_url, timeout=timeout_seconds) as response:  # noqa: S310
+            with urlopen(request_url, timeout=timeout_seconds) as response:
                 payload = json.loads(response.read().decode("utf-8"))
         except (HTTPError, URLError, TimeoutError) as exc:
             raise BybitHttpError(f"GET {request_url} failed: {exc}") from exc

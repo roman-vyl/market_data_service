@@ -270,8 +270,8 @@ Required behavior:
 3. Persist that candle time as the canonical lower bound.
 4. Split the full interval into bounded Bybit REST request windows.
 5. Process windows in deterministic chronological order.
-6. Persist progress so a crash resumes from durable state rather than restarting the entire download.
-7. Audit the completed range for internal gaps.
+6. Persist progress as the latest successfully committed candle so a crash resumes from durable state rather than restarting the entire download.
+7. Audit the completed range for internal gaps; backfill progress alone does not prove continuity.
 8. Repair gaps before the stream becomes ready.
 9. Continue appending closed minute candles after bootstrap.
 
@@ -302,4 +302,4 @@ All scenarios map to the states and legal transitions in `docs/stream-state-mach
 
 ## Operator-bounded deep bootstrap
 
-Deep full-history loading is performed by finite administrative commands. A run may target one ticker or all enabled streams and must stop after its explicit REST-window budget. An interrupted or completed run never discards committed candles. Normal daemon startup performs only bounded catch-up and does not launch an unlimited multi-year bootstrap.
+Deep full-history loading is performed by finite administrative commands. A run may target one ticker or all enabled streams and must stop after its explicit REST-window budget. One REST window commits atomically. An interrupted or completed run never discards committed candles, and a later run resumes after the latest committed candle. Normal daemon startup performs only bounded catch-up and does not launch an unlimited multi-year bootstrap.

@@ -1,6 +1,5 @@
-from pathlib import Path
 import re
-
+from pathlib import Path
 
 MATRIX_PATH = Path("docs/acceptance-test-matrix.md")
 REQUIRED_PREFIXES = {
@@ -32,7 +31,7 @@ def test_acceptance_matrix_covers_all_required_areas() -> None:
     text = MATRIX_PATH.read_text(encoding="utf-8")
     scenario_ids = re.findall(r"\| ([A-Z]{2,3})-\d{2} \|", text)
 
-    assert REQUIRED_PREFIXES <= set(scenario_ids)
+    assert set(scenario_ids) >= REQUIRED_PREFIXES
 
 
 def test_acceptance_matrix_names_first_real_milestones() -> None:

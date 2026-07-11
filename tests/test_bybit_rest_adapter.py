@@ -7,7 +7,11 @@ from typing import Any
 import pytest
 
 from market_data_service.adapters.bybit import BybitApiError, BybitRestCandleSource
-from market_data_service.adapters.sqlite import SqliteUnitOfWork, initialize_database, register_stream
+from market_data_service.adapters.sqlite import (
+    SqliteUnitOfWork,
+    initialize_database,
+    register_stream,
+)
 from market_data_service.application.import_window import ImportHistoricalWindow
 from market_data_service.application.ingest import IngestObservedCandle
 from market_data_service.domain import InstrumentKey, StreamKey, TimeWindow

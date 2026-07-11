@@ -5,8 +5,8 @@ from decimal import Decimal
 import pytest
 
 from market_data_service.domain import (
-    CanonicalCandle,
     CandleValidationCode,
+    CanonicalCandle,
     IngestionClassification,
     InstrumentKey,
     InvalidDecimalValue,
@@ -55,7 +55,12 @@ def test_storage_parser_rejects_noncanonical_text() -> None:
         parse_canonical_decimal_text("1.500")
 
 
-def _observed(*, source: ObservationSource, close: str = "100.2500", volume: str = "12.3400") -> ObservedCandle:
+def _observed(
+    *,
+    source: ObservationSource,
+    close: str = "100.2500",
+    volume: str = "12.3400",
+) -> ObservedCandle:
     return ObservedCandle(
         stream=StreamKey(InstrumentKey("BTCUSDT.P"), "1m"),
         open_time_ms=60_000,

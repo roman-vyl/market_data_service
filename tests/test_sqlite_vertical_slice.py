@@ -140,25 +140,33 @@ def test_invalid_and_unconfigured_observations_do_not_write(tmp_path: Path) -> N
     assert invalid_result.classification is IngestionClassification.REJECTED_UNCONFIRMED
     assert unknown_result.classification is IngestionClassification.REJECTED_UNCONFIGURED
 
+    connection = sqlite3.connect(path)
+    try:
+        row = connection.execute(
+            "SELECT reason_code FROM quarantine ORDER BY id DESC LIMIT 1"
+        ).fetchone()
+        assert row == ("candle_validation_failed",)
+    finally:
+        connection.close()
+
 
 def test_transaction_rolls_back_candle_and_state_together(tmp_path: Path) -> None:
     path = tmp_path / "market.sqlite"
     stream = _stream()
     _prepare(path, stream)
 
-    with pytest.raises(RuntimeError):
-        with SqliteUnitOfWork(path) as unit_of_work:
-            canonical = _candle(stream)
-            from market_data_service.domain.candles import CanonicalCandle
+    with pytest.raises(RuntimeError), SqliteUnitOfWork(path) as unit_of_work:
+        canonical = _candle(stream)
+        from market_data_service.domain.candles import CanonicalCandle
 
-            unit_of_work.insert_candle(
-                CanonicalCandle.from_observation(canonical, committed_at_ms=100)
-            )
-            state = unit_of_work.get_stream_state(stream)
-            unit_of_work.save_stream_state(
-                replace(state, latest_committed_open_time_ms=0, updated_at_ms=100)
-            )
-            raise RuntimeError("force rollback")
+        unit_of_work.insert_candle(
+            CanonicalCandle.from_observation(canonical, committed_at_ms=100)
+        )
+        state = unit_of_work.get_stream_state(stream)
+        unit_of_work.save_stream_state(
+            replace(state, latest_committed_open_time_ms=0, updated_at_ms=100)
+        )
+        raise RuntimeError("force rollback")
 
     with SqliteUnitOfWork(path) as unit_of_work:
         assert unit_of_work.get_candle(stream, 0) is None

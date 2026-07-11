@@ -18,6 +18,11 @@ from market_data_service.domain.decimal_values import (
 )
 from market_data_service.domain.gaps import Gap, find_gaps, iter_fetch_windows
 from market_data_service.domain.identity import InstrumentKey, StreamKey
+from market_data_service.domain.instruments import (
+    HistoryPolicy,
+    InstrumentCoverage,
+    InstrumentMetadata,
+)
 from market_data_service.domain.readiness import (
     StreamReadiness,
     project_stream_readiness,
@@ -29,11 +34,6 @@ from market_data_service.domain.stream_state import (
     StreamStateSnapshot,
     can_transition,
     transition_stream_state,
-)
-from market_data_service.domain.instruments import (
-    HistoryPolicy,
-    InstrumentCoverage,
-    InstrumentMetadata,
 )
 from market_data_service.domain.timeframes import (
     TimeframeSpec,
@@ -48,9 +48,9 @@ __all__ = [
     "BackfillBudget",
     "BackfillRequest",
     "BackfillSelection",
-    "CanonicalCandle",
     "CandleValidationCode",
     "CandleValidationIssue",
+    "CanonicalCandle",
     "DecimalInput",
     "Gap",
     "HistoryPolicy",
@@ -58,14 +58,14 @@ __all__ = [
     "InstrumentCoverage",
     "InstrumentKey",
     "InstrumentMetadata",
-    "InvalidStreamTransition",
-    "StreamLifecycleState",
-    "StreamReadiness",
-    "StreamStateSnapshot",
     "InvalidDecimalValue",
+    "InvalidStreamTransition",
     "ObservationSource",
     "ObservedCandle",
     "StreamKey",
+    "StreamLifecycleState",
+    "StreamReadiness",
+    "StreamStateSnapshot",
     "TimeWindow",
     "TimeframeSpec",
     "align_to_grid",

@@ -18,7 +18,9 @@ def test_normative_contract_uses_readiness_and_consumer_owned_cursor() -> None:
 
 
 def test_open_spec_does_not_require_event_cursor_api() -> None:
-    spec = Path("openspec/changes/market-data-service-v1/specs/market-data-service-v1/spec.md").read_text()
+    spec = Path(
+        "openspec/changes/market-data-service-v1/specs/market-data-service-v1/spec.md"
+    ).read_text()
     tasks = Path("openspec/changes/market-data-service-v1/tasks.md").read_text()
     assert "event cursor endpoint" not in tasks.lower()
     assert "server-owned consumer offsets" in spec

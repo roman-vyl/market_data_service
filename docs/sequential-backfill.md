@@ -4,7 +4,7 @@
 
 Version 1 does not implement a parallel REST scheduler.
 
-Historical REST work is sequential by default. One bounded response window is fetched, validated, committed, and completed before the next request begins.
+Historical REST work is sequential by default. One bounded response window is fetched, validated, committed in one storage transaction, and completed before the next request begins.
 
 ## Why
 
@@ -77,15 +77,19 @@ Schema v1 does not add a backfill-job table.
 Resume planning uses:
 
 - configured stream identity;
-- `stream_state.earliest_available_open_time_ms`;
-- actual `MIN` and `MAX` candle timestamps;
+- `stream_state.latest_committed_open_time_ms`;
 - a continuity audit when required.
 
 Committed candles are never discarded merely because a command stopped or failed.
 
+`latest_committed_open_time_ms` means only the latest candle successfully
+persisted through canonical ingestion. It does not prove that every earlier
+grid point is present. Backfill may finish with history loaded and audit still
+pending; continuity proof belongs to the later audit/gap-repair workflow.
+
 ## Failure isolation
 
-A failed stream records its error and does not erase progress from another stream.
+Recoverable REST/source failures move the affected stream to `degraded` and do not erase progress from another stream. Fatal invariant, configuration, schema, or storage-corruption failures move the affected stream to `failed`.
 
 For an `--all` administrative run, the command may continue to later streams after recording a recoverable failure. The final command result must report every stream outcome rather than hiding partial failure.
 

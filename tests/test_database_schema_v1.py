@@ -3,9 +3,12 @@ from __future__ import annotations
 import sqlite3
 from pathlib import Path
 
-
 ROOT = Path(__file__).resolve().parents[1]
 SCHEMA = ROOT / "src/market_data_service/adapters/sqlite/schema_v1.sql"
+INSERT_INSTRUMENT_SQL = """
+INSERT INTO instruments(ticker, exchange_symbol, created_at_ms, updated_at_ms)
+VALUES (?, ?, 1, 1)
+"""
 
 
 def _open_db() -> sqlite3.Connection:
@@ -38,7 +41,7 @@ def test_schema_v1_creates_only_approved_tables() -> None:
 def test_candle_key_is_unique_per_stream_and_open_time() -> None:
     connection = _open_db()
     connection.execute(
-        "INSERT INTO instruments(ticker, exchange_symbol, created_at_ms, updated_at_ms) VALUES (?, ?, 1, 1)",
+        INSERT_INSTRUMENT_SQL,
         ("BTCUSDT.P", "BTCUSDT"),
     )
     instrument_id = connection.execute("SELECT id FROM instruments").fetchone()[0]
@@ -60,15 +63,13 @@ def test_candle_key_is_unique_per_stream_and_open_time() -> None:
 
 def test_instrument_ticker_and_exchange_symbol_are_unique() -> None:
     connection = _open_db()
-    connection.execute(
-        "INSERT INTO instruments(ticker, exchange_symbol, created_at_ms, updated_at_ms) VALUES ('BTCUSDT.P', 'BTCUSDT', 1, 1)"
-    )
-    for statement in (
-        "INSERT INTO instruments(ticker, exchange_symbol, created_at_ms, updated_at_ms) VALUES ('BTCUSDT.P', 'OTHER', 1, 1)",
-        "INSERT INTO instruments(ticker, exchange_symbol, created_at_ms, updated_at_ms) VALUES ('OTHER.P', 'BTCUSDT', 1, 1)",
+    connection.execute(INSERT_INSTRUMENT_SQL, ("BTCUSDT.P", "BTCUSDT"))
+    for values in (
+        ("BTCUSDT.P", "OTHER"),
+        ("OTHER.P", "BTCUSDT"),
     ):
         try:
-            connection.execute(statement)
+            connection.execute(INSERT_INSTRUMENT_SQL, values)
         except sqlite3.IntegrityError:
             continue
         raise AssertionError("ticker and exchange_symbol must each be unique")
@@ -100,9 +101,7 @@ def test_stream_state_schema_accepts_connecting_and_tracks_state_change_time() -
     columns = {row[1] for row in connection.execute("PRAGMA table_info(stream_state)")}
     assert "state_changed_at_ms" in columns
 
-    connection.execute(
-        "INSERT INTO instruments(ticker, exchange_symbol, created_at_ms, updated_at_ms) VALUES ('BTCUSDT.P', 'BTCUSDT', 1, 1)"
-    )
+    connection.execute(INSERT_INSTRUMENT_SQL, ("BTCUSDT.P", "BTCUSDT"))
     instrument_id = connection.execute("SELECT id FROM instruments").fetchone()[0]
     connection.execute(
         "INSERT INTO streams(instrument_id, timeframe, created_at_ms) VALUES (?, '1m', 1)",
@@ -110,7 +109,10 @@ def test_stream_state_schema_accepts_connecting_and_tracks_state_change_time() -
     )
     stream_id = connection.execute("SELECT id FROM streams").fetchone()[0]
     connection.execute(
-        "INSERT INTO stream_state(stream_id, state, state_changed_at_ms, updated_at_ms) VALUES (?, 'connecting', 1, 1)",
+        """
+        INSERT INTO stream_state(stream_id, state, state_changed_at_ms, updated_at_ms)
+        VALUES (?, 'connecting', 1, 1)
+        """,
         (stream_id,),
     )
     assert connection.execute(

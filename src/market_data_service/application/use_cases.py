@@ -1,6 +1,5 @@
 """Named application use-case boundaries."""
 
-from market_data_service.application.ingest import IngestObservedCandle
 
 
 class ResolveEarliestAvailableCandle:

@@ -35,7 +35,7 @@ def plan_sequential_backfill(
     if request.stream is not None:
         if request.stream not in unique_streams:
             raise ValueError(f"stream is not configured: {request.stream}")
-        selected = (request.stream,)
+        selected: tuple[StreamKey, ...] = (request.stream,)
     else:
         if not unique_streams:
             raise ValueError("no configured streams available for backfill")

@@ -3,9 +3,8 @@
 from __future__ import annotations
 
 from decimal import Decimal, InvalidOperation
-from typing import TypeAlias
 
-DecimalInput: TypeAlias = Decimal | str | int
+type DecimalInput = Decimal | str | int
 
 
 class InvalidDecimalValue(ValueError):

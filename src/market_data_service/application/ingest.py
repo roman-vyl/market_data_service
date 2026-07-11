@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass, replace
-from typing import Callable
 
 from market_data_service.domain.candle_comparison import classify_against_existing
 from market_data_service.domain.candle_validation import validate_observed_candle
@@ -28,31 +28,59 @@ class IngestObservedCandle:
         self._unit_of_work_factory = unit_of_work_factory
 
     def execute(self, candle: ObservedCandle, *, committed_at_ms: int) -> IngestionResult:
+        with self._unit_of_work_factory() as unit_of_work:
+            result = self.execute_in_unit_of_work(
+                unit_of_work,
+                candle,
+                committed_at_ms=committed_at_ms,
+            )
+            unit_of_work.commit()
+            return result
+
+    @staticmethod
+    def execute_in_unit_of_work(
+        unit_of_work: CanonicalStorageUnitOfWork,
+        candle: ObservedCandle,
+        *,
+        committed_at_ms: int,
+    ) -> IngestionResult:
+        """Apply the canonical ingestion decision inside an existing transaction."""
+
         issues = validate_observed_candle(candle)
+        if not unit_of_work.stream_exists(candle.stream):
+            return IngestionResult(IngestionClassification.REJECTED_UNCONFIGURED)
+
         if issues:
             classification = (
                 IngestionClassification.REJECTED_UNCONFIRMED
                 if any(issue.code.value == "unconfirmed" for issue in issues)
                 else IngestionClassification.REJECTED_INVALID
             )
-            return IngestionResult(classification, tuple(issue.code.value for issue in issues))
+            issue_codes = tuple(issue.code.value for issue in issues)
+            start_ms = max(0, candle.open_time_ms)
+            end_ms = max(start_ms + 1, candle.close_time_ms + 1)
+            unit_of_work.record_quarantine(
+                stream=candle.stream,
+                start_ms=start_ms,
+                end_ms=end_ms,
+                reason_code="candle_validation_failed",
+                detail="; ".join(f"{issue.code.value}: {issue.detail}" for issue in issues),
+                payload_json=None,
+                created_at_ms=committed_at_ms,
+            )
+            return IngestionResult(classification, issue_codes)
 
-        with self._unit_of_work_factory() as unit_of_work:
-            if not unit_of_work.stream_exists(candle.stream):
-                return IngestionResult(IngestionClassification.REJECTED_UNCONFIGURED)
+        existing = unit_of_work.get_candle(candle.stream, candle.open_time_ms)
+        classification = classify_against_existing(existing, candle)
+        canonical = CanonicalCandle.from_observation(candle, committed_at_ms=committed_at_ms)
 
-            existing = unit_of_work.get_candle(candle.stream, candle.open_time_ms)
-            classification = classify_against_existing(existing, candle)
-            canonical = CanonicalCandle.from_observation(candle, committed_at_ms=committed_at_ms)
+        if classification is IngestionClassification.COMMITTED:
+            unit_of_work.insert_candle(canonical)
+            IngestObservedCandle._advance_stream_state(unit_of_work, canonical)
+        elif classification is IngestionClassification.CORRECTED:
+            IngestObservedCandle._handle_correction(unit_of_work, existing, canonical)
 
-            if classification is IngestionClassification.COMMITTED:
-                unit_of_work.insert_candle(canonical)
-                self._advance_stream_state(unit_of_work, canonical)
-            elif classification is IngestionClassification.CORRECTED:
-                self._handle_correction(unit_of_work, existing, canonical)
-
-            unit_of_work.commit()
-            return IngestionResult(classification)
+        return IngestionResult(classification)
 
     @staticmethod
     def _advance_stream_state(

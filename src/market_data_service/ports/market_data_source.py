@@ -10,6 +10,10 @@ from market_data_service.domain.identity import InstrumentKey, StreamKey
 from market_data_service.domain.windows import TimeWindow
 
 
+class RecoverableMarketDataFailure:
+    """Marker for transient source failures that a later run may recover."""
+
+
 class InstrumentMetadataSource(Protocol):
     def get_launch_time_ms(self, instrument: InstrumentKey) -> int: ...
 

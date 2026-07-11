@@ -26,6 +26,8 @@ Persisted `ready` is revalidated after restart.
 ## Consequences
 
 - BTC and ETH failures are isolated.
+- Recoverable bootstrap REST failures use `degraded` and may resume to `bootstrapping`.
+- `failed` is reserved for states requiring manual inspection, such as corrupt storage, invalid configuration, or impossible invariants.
 - Repair always returns through audit before readiness.
 - Aggregate readiness is strict across required streams.
 

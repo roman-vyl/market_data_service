@@ -86,7 +86,7 @@ Version 1 intentionally has no event-log table, consumer cursor, bootstrap-windo
 
 A realtime candle mutation and its `stream_state` update share one transaction.
 
-One bounded Bybit REST response window is the historical transaction boundary. Restart resumes from stored data and is followed by continuity audit and repair.
+One bounded Bybit REST response window is the historical transaction boundary. Restart resumes from the latest committed candle and is followed by continuity audit and repair. The resume point is durable progress, not proof that the historical grid is gap-free.
 
 ## Recovery
 
@@ -107,7 +107,7 @@ OHLCV values are Python `Decimal` in the domain and canonical non-exponential de
 
 The lifecycle contract is implemented as small pure domain modules, not a universal manager. `domain/stream_state.py` owns state names and legal transitions; `domain/readiness.py` owns readiness projection. Application use cases justify transitions, while SQLite only persists validated snapshots.
 
-Normal initialization is `uninitialized -> bootstrapping -> auditing -> connecting -> ready`, with `auditing -> repairing -> auditing` when gaps exist. Runtime failure uses `ready -> degraded -> auditing|connecting -> ready`. Persisted ready is always re-proven after restart.
+Normal initialization is `uninitialized -> bootstrapping -> auditing -> connecting -> ready`, with `auditing -> repairing -> auditing` when gaps exist. Temporary REST failure during bootstrap uses `bootstrapping -> degraded -> bootstrapping`; fatal invariant or storage failures use `failed`. Runtime failure uses `ready -> degraded -> auditing|connecting -> ready`. Persisted ready is always re-proven after restart.
 
 ## Readiness-first consumer contract
 
@@ -115,4 +115,4 @@ Schema v1 has no event log or server-owned consumer cursor. Bootstrap, catch-up,
 
 ## Sequential backfill
 
-Version 1 uses finite sequential REST runs rather than a parallel scheduler. One bounded window is the unit of fetch, ingestion, and commit. Administrative commands may select one stream or all streams in deterministic configuration order and must enforce an explicit per-run window budget. Normal service startup does not perform unlimited deep bootstrap.
+Version 1 uses finite sequential REST runs rather than a parallel scheduler. One bounded window is the unit of fetch, ingestion, and atomic commit. Administrative commands may select one stream or all streams in deterministic configuration order and must enforce an explicit per-run window budget. Normal service startup does not perform unlimited deep bootstrap.

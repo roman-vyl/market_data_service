@@ -75,6 +75,14 @@ persisted state
   -> ready
 ```
 
+Bootstrap REST loss:
+
+```text
+bootstrapping
+  -> degraded
+  -> bootstrapping
+```
+
 Runtime loss:
 
 ```text
@@ -103,6 +111,7 @@ It is not a gap journal, retry queue, bootstrap-window history, or event log.
 ## Restart semantics
 
 - Crash in `bootstrapping`: resume from the actual maximum committed candle, then audit the full required range.
+- Temporary REST/source failure during bootstrap: enter `degraded`; a later administrative run may return to `bootstrapping`.
 - Crash in `auditing`: rerun the audit.
 - Crash in `repairing`: rerun audit, derive actual remaining gaps, then repair.
 - Crash in `connecting`: reconnect and run the trailing REST check again.

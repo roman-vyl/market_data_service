@@ -73,6 +73,26 @@ def test_degraded_error_is_cleared_after_recovery_transition() -> None:
     assert snapshot.last_error_detail is None
 
 
+def test_degraded_bootstrap_can_resume_to_bootstrapping() -> None:
+    snapshot = _snapshot("BTCUSDT.P", StreamLifecycleState.BOOTSTRAPPING)
+    snapshot = transition_stream_state(
+        snapshot,
+        StreamLifecycleState.DEGRADED,
+        changed_at_ms=101,
+        error_code="BybitHttpError",
+        error_detail="HTTP 429",
+    )
+
+    recovered = transition_stream_state(
+        snapshot,
+        StreamLifecycleState.BOOTSTRAPPING,
+        changed_at_ms=102,
+    )
+
+    assert recovered.state is StreamLifecycleState.BOOTSTRAPPING
+    assert recovered.last_error_code is None
+
+
 def test_failed_requires_explicit_recovery_transition() -> None:
     snapshot = _snapshot("BTCUSDT.P", StreamLifecycleState.FAILED)
     with pytest.raises(InvalidStreamTransition):

@@ -47,7 +47,9 @@ class InstrumentCoverage:
         object.__setattr__(self, "exchange_symbol", metadata.exchange_symbol)
         if not self.canonical_timeframes:
             raise ValueError("canonical_timeframes must not be empty")
-        normalized = tuple(StreamKey(self.instrument, value).timeframe for value in self.canonical_timeframes)
+        normalized = tuple(
+            StreamKey(self.instrument, value).timeframe for value in self.canonical_timeframes
+        )
         if len(set(normalized)) != len(normalized):
             raise ValueError("canonical_timeframes must not contain duplicates")
         if "1m" not in normalized:
@@ -56,4 +58,6 @@ class InstrumentCoverage:
 
     @property
     def stream_keys(self) -> tuple[StreamKey, ...]:
-        return tuple(StreamKey(self.instrument, timeframe) for timeframe in self.canonical_timeframes)
+        return tuple(
+            StreamKey(self.instrument, timeframe) for timeframe in self.canonical_timeframes
+        )

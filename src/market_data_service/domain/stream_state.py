@@ -47,6 +47,7 @@ _ALLOWED_TRANSITIONS: dict[StreamLifecycleState, frozenset[StreamLifecycleState]
     ),
     StreamLifecycleState.DEGRADED: frozenset(
         {
+            StreamLifecycleState.BOOTSTRAPPING,
             StreamLifecycleState.AUDITING,
             StreamLifecycleState.CONNECTING,
             StreamLifecycleState.FAILED,
