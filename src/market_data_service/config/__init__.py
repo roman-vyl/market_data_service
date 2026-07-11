@@ -1,0 +1,1 @@
+"""Validated service configuration boundary."""

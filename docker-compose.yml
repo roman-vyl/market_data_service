@@ -1,0 +1,11 @@
+services:
+  market-data-service:
+    build:
+      context: .
+    container_name: market-data-service
+    restart: unless-stopped
+    volumes:
+      - market-data-service-data:/data
+
+volumes:
+  market-data-service-data:
