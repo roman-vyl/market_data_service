@@ -13,7 +13,6 @@ from market_data_service.adapters.sqlite import (
     register_stream,
 )
 from market_data_service.application.import_window import ImportHistoricalWindow
-from market_data_service.application.ingest import IngestObservedCandle
 from market_data_service.domain import InstrumentKey, StreamKey, TimeWindow
 
 
@@ -121,7 +120,7 @@ def test_window_import_into_sqlite_is_idempotent(tmp_path: Path) -> None:
     )
     importer = ImportHistoricalWindow(
         source,
-        IngestObservedCandle(lambda: SqliteUnitOfWork(path)),
+        lambda: SqliteUnitOfWork(path),
         FakeClock(180000),
     )
 

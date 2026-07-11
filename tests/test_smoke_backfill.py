@@ -1,0 +1,99 @@
+from __future__ import annotations
+
+from dataclasses import dataclass
+from pathlib import Path
+
+from market_data_service.adapters.sqlite import (
+    SqliteUnitOfWork,
+    initialize_database,
+    register_stream,
+)
+from market_data_service.application.backfill_stream import BackfillStreamHistory
+from market_data_service.application.import_window import ImportHistoricalWindow
+from market_data_service.application.smoke_backfill import run_backfill_smoke_workflow
+from market_data_service.domain import (
+    InstrumentKey,
+    ObservationSource,
+    ObservedCandle,
+    StreamKey,
+    TimeWindow,
+)
+from market_data_service.entrypoints.smoke_support import inspect_persistence, is_contiguous_1m
+
+
+@dataclass
+class FakeClock:
+    value: int = 1_000_000
+
+    def now_ms(self) -> int:
+        current = self.value
+        self.value += 1
+        return current
+
+
+class FakeHistoricalSource:
+    def fetch_closed_candles(
+        self,
+        stream: StreamKey,
+        window: TimeWindow,
+        *,
+        observed_at_ms: int,
+    ) -> tuple[ObservedCandle, ...]:
+        return tuple(
+            ObservedCandle(
+                stream=stream,
+                open_time_ms=open_time_ms,
+                close_time_ms=open_time_ms + 59_999,
+                open="100",
+                high="102",
+                low="99",
+                close="101",
+                volume="1.5",
+                confirmed=True,
+                observed_at_ms=observed_at_ms,
+                source=ObservationSource.BYBIT_REST,
+            )
+            for open_time_ms in range(window.start_ms, window.end_ms, 60_000)
+        )
+
+
+def test_smoke_backfill_workflow_persists_duplicates_and_continuity(tmp_path: Path) -> None:
+    database = tmp_path / "smoke.sqlite3"
+    stream = StreamKey(InstrumentKey("BTCUSDT.P"), "1m")
+    clock = FakeClock()
+    initialize_database(database)
+    register_stream(database, stream, exchange_symbol="BTCUSDT", now_ms=clock.now_ms())
+
+    def unit_of_work_factory() -> SqliteUnitOfWork:
+        return SqliteUnitOfWork(database)
+
+    importer = ImportHistoricalWindow(FakeHistoricalSource(), unit_of_work_factory, clock)
+    backfill = BackfillStreamHistory(
+        importer,
+        unit_of_work_factory,
+        clock,
+        max_candles_per_window=1000,
+    )
+
+    result = run_backfill_smoke_workflow(
+        stream=stream,
+        window=TimeWindow(0, 180_000),
+        backfill=backfill,
+        duplicate_replay=importer,
+    )
+    persistence = inspect_persistence(database, stream)
+
+    assert (result.first_observed, result.first_committed, result.first_duplicates) == (3, 3, 0)
+    assert (result.duplicate_observed, result.duplicate_committed) == (3, 0)
+    assert result.duplicate_duplicates == 3
+    assert persistence.schema_version == "1"
+    assert persistence.candles == 3
+    assert persistence.stream_state_rows == 1
+    assert persistence.latest_committed_open_time_ms == 120_000
+    assert persistence.quarantine_rows == 0
+    assert is_contiguous_1m(persistence.open_times_ms)
+
+
+def test_smoke_continuity_assertion_detects_missing_minute() -> None:
+    assert is_contiguous_1m((0, 60_000, 120_000))
+    assert not is_contiguous_1m((0, 120_000))

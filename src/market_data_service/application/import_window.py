@@ -1,4 +1,4 @@
-"""Fetch one bounded historical window and pass every candle through ingestion."""
+"""Fetch one bounded historical window and ingest it atomically."""
 
 from __future__ import annotations
 
@@ -28,47 +28,6 @@ class Clock(Protocol):
 
 
 class ImportHistoricalWindow:
-    """Small orchestration boundary for one REST window."""
-
-    def __init__(
-        self,
-        source: HistoricalCandleSource,
-        ingest: IngestObservedCandle,
-        clock: Clock,
-    ) -> None:
-        self._source = source
-        self._ingest = ingest
-        self._clock = clock
-
-    def execute(self, stream: StreamKey, window: TimeWindow) -> ImportWindowResult:
-        observed_at_ms = self._clock.now_ms()
-        candles = self._source.fetch_closed_candles(
-            stream,
-            window,
-            observed_at_ms=observed_at_ms,
-        )
-        counts = {classification: 0 for classification in IngestionClassification}
-        for candle in candles:
-            result = self._ingest.execute(candle, committed_at_ms=self._clock.now_ms())
-            counts[result.classification] += 1
-        rejected = sum(
-            counts[item]
-            for item in (
-                IngestionClassification.REJECTED_INVALID,
-                IngestionClassification.REJECTED_UNCONFIRMED,
-                IngestionClassification.REJECTED_UNCONFIGURED,
-            )
-        )
-        return ImportWindowResult(
-            observed=len(candles),
-            committed=counts[IngestionClassification.COMMITTED],
-            duplicates=counts[IngestionClassification.DUPLICATE],
-            corrected=counts[IngestionClassification.CORRECTED],
-            rejected=rejected,
-        )
-
-
-class ImportHistoricalWindowBatch:
     """Import one REST window inside a single storage transaction."""
 
     def __init__(

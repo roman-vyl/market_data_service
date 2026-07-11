@@ -45,13 +45,14 @@ The adapter does not:
 
 ```text
 fetch one bounded REST window
-→ pass every observation through IngestObservedCandle
+→ pass every observation through canonical ingestion decisions
+→ commit the window in one storage transaction
 → return committed/duplicate/corrected/rejected counts
 ```
 
-The current vertical slice commits each candle through the existing atomic single-candle unit of
-work. A later bounded-batch optimization may commit one REST window in one transaction, but it must
-preserve the same ingestion semantics.
+`ImportHistoricalWindow` is the canonical historical window path. It reuses the same
+validation, classification, correction, quarantine, and stream-state advancement rules as
+single-candle ingestion, but opens one unit of work for the whole REST response window.
 
 ## Verification
 

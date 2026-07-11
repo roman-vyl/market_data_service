@@ -12,7 +12,7 @@ from market_data_service.application.backfill_types import (
     BackfillWindowResult,
     Clock,
 )
-from market_data_service.application.import_window import ImportHistoricalWindowBatch
+from market_data_service.application.import_window import ImportHistoricalWindow
 from market_data_service.domain.gaps import Gap, iter_fetch_windows
 from market_data_service.domain.identity import StreamKey
 from market_data_service.domain.stream_state import (
@@ -30,7 +30,7 @@ class BackfillStreamHistory:
 
     def __init__(
         self,
-        window_importer: ImportHistoricalWindowBatch,
+        window_importer: ImportHistoricalWindow,
         unit_of_work_factory: Callable[[], CanonicalStorageUnitOfWork],
         clock: Clock,
         *,

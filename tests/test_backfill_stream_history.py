@@ -15,7 +15,7 @@ from market_data_service.application.backfill_stream import (
     BackfillStreamHistory,
     BackfillStreamRequest,
 )
-from market_data_service.application.import_window import ImportHistoricalWindowBatch
+from market_data_service.application.import_window import ImportHistoricalWindow
 from market_data_service.domain import (
     CanonicalCandle,
     InstrumentKey,
@@ -105,7 +105,7 @@ def _backfill(
             return SqliteUnitOfWork(path)
 
     return BackfillStreamHistory(
-        ImportHistoricalWindowBatch(
+        ImportHistoricalWindow(
             source,
             unit_of_work_factory,
             clock,

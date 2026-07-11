@@ -16,7 +16,7 @@ from market_data_service.adapters.sqlite import (
 )
 from market_data_service.application.backfill_stream import BackfillStreamHistory
 from market_data_service.application.backfill_types import BackfillStreamRequest
-from market_data_service.application.import_window import ImportHistoricalWindowBatch
+from market_data_service.application.import_window import ImportHistoricalWindow
 from market_data_service.domain import InstrumentKey, StreamKey, get_timeframe
 
 
@@ -52,7 +52,7 @@ def main(argv: list[str] | None = None) -> int:
     source = BybitRestCandleSource(
         exchange_symbols={item.ticker: item.exchange_symbol for item in config}
     )
-    importer = ImportHistoricalWindowBatch(
+    importer = ImportHistoricalWindow(
         source,
         lambda: SqliteUnitOfWork(args.database),
         clock,

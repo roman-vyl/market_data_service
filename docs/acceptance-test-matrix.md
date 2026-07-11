@@ -138,6 +138,7 @@ It is intentionally defined before SQLite, Bybit REST, WebSocket, and HTTP adapt
 | RST-05 | 429 or retryable 5xx | Application integration | Bounded retry/backoff; no retry storm. |
 | RST-06 | Non-retryable Bybit error | Application integration | Typed failure, quarantine where appropriate, no partial readiness. |
 | RST-07 | Re-fetch same window | Bybit/SQLite smoke | Second ingestion produces duplicates only. |
+| RST-08 | Real bounded backfill smoke | Bybit/SQLite smoke | Temporary SQLite is created, `BackfillStreamHistory` imports a small BTCUSDT 1m range, duplicate replay adds no rows, persistence reopens cleanly, and smoke-only 1m continuity passes. |
 
 ## K. WebSocket realtime
 
@@ -184,3 +185,14 @@ RST-01, RST-02, RST-04, RST-07
 ```
 
 pass for a small closed BTCUSDT 1m interval without modifying any production database.
+
+## First real backfill smoke milestone
+
+The first end-to-end bounded backfill smoke is accepted when:
+
+```text
+RST-08, BST-05, ING-01, ING-02, ING-10, STM-06
+```
+
+pass through real Bybit REST, canonical ingestion, temporary SQLite persistence,
+duplicate replay, and the smoke-only 1m continuity assertion.

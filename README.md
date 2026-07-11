@@ -112,6 +112,22 @@ Consumer recovery is readiness-first. Bootstrap, catch-up, and repair do not req
 
 Version 1 performs historical REST work sequentially and in finite command-sized chunks. One REST response window is committed atomically. Deep bootstrap is resumable from the latest committed candle and does not require a parallel scheduler. Continuity is proven later by audit. See `docs/sequential-backfill.md`.
 
+## Local smoke commands
+
+The bounded REST smoke commands use temporary SQLite databases by default and do
+not touch production persistence:
+
+```text
+market-data-service smoke-rest
+market-data-service smoke-backfill --minutes 120
+```
+
+`smoke-backfill` fetches a small closed BTCUSDT 1m interval from Bybit REST,
+runs `BackfillStreamHistory`, replays the same window to prove duplicate
+classification, reopens SQLite for persistence checks, and performs a basic
+1m continuity assertion. This assertion is smoke-only; full continuity proof
+remains the future audit/gap-repair workflow.
+
 ## Architecture decisions
 
 See `docs/adr/README.md`.

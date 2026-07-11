@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import sqlite3
 from dataclasses import dataclass
+from itertools import pairwise
 from pathlib import Path
 from typing import Any, Protocol
 
@@ -34,6 +35,7 @@ class PersistenceSnapshot:
     stream_state_rows: int
     latest_committed_open_time_ms: int | None
     quarantine_rows: int
+    open_times_ms: tuple[int, ...] = ()
 
 
 class StaticPayloadTransport:
@@ -92,12 +94,25 @@ def inspect_persistence(database_path: Path, stream: StreamKey) -> PersistenceSn
             """,
             (stream_id,),
         ).fetchone()
+        open_times_ms = tuple(
+            int(row[0])
+            for row in connection.execute(
+                """
+                SELECT open_time_ms
+                FROM candles
+                WHERE stream_id = ?
+                ORDER BY open_time_ms
+                """,
+                (stream_id,),
+            )
+        )
         return PersistenceSnapshot(
             schema_version=str(schema_version),
             candles=candles,
             stream_state_rows=int(state[0]),
             latest_committed_open_time_ms=state[1],
             quarantine_rows=quarantine_rows,
+            open_times_ms=open_times_ms,
         )
     finally:
         connection.close()
@@ -170,4 +185,11 @@ def _count_rows(connection: sqlite3.Connection, table: str, stream_id: int) -> i
             f"SELECT COUNT(*) FROM {table} WHERE stream_id = ?",
             (stream_id,),
         ).fetchone()[0]
+    )
+
+
+def is_contiguous_1m(open_times_ms: tuple[int, ...]) -> bool:
+    return all(
+        previous + 60_000 == current
+        for previous, current in pairwise(open_times_ms)
     )

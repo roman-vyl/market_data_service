@@ -14,7 +14,6 @@ from market_data_service.adapters.sqlite import (
     register_stream,
 )
 from market_data_service.application.import_window import ImportHistoricalWindow, ImportWindowResult
-from market_data_service.application.ingest import IngestObservedCandle
 from market_data_service.domain import (
     InstrumentKey,
     StreamKey,
@@ -53,7 +52,7 @@ def run_smoke(
     source = BybitRestCandleSource(exchange_symbols={ticker: exchange_symbol})
     importer = ImportHistoricalWindow(
         source,
-        IngestObservedCandle(lambda: SqliteUnitOfWork(database_path)),
+        lambda: SqliteUnitOfWork(database_path),
         clock,
     )
 
