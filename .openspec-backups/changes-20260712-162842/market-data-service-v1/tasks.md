@@ -30,6 +30,7 @@
 - [x] Approve minimal SQLite schema v1 and storage responsibilities.
 - [x] Resolve concrete SQLite driver/schema implementation using Python sqlite3 and schema v1 validation.
 - [x] Approve versioned multi-instrument configuration schema and identity/metadata/coverage split.
+- [ ] Validate BTCUSDT and ETHUSDT perpetual metadata assumptions against Bybit.
 - [x] Add complete pre-implementation acceptance test matrix with stable scenario IDs.
 - [x] Add ADRs for accepted architectural decisions.
 - [x] Approve Phase 0 before production implementation.
@@ -51,11 +52,13 @@
 
 ## Phase 1 — Domain and atomic storage
 
-Implementation status note: the timeframe registry/grid model, canonical candle model, SQLite schema, UoW, and canonical ingestion path are implemented and acceptance-tested.
+Implementation status note: the timeframe registry/grid model, canonical candle model, SQLite schema, UoW, and canonical ingestion path are implemented and acceptance-tested. Configuration validation remains incomplete and is delegated to `complete-phase2-operations-v1`.
 
 
 - [x] Add canonical instrument identity contract.
 - [x] Add canonical market stream identity contract with registry validation.
+- [ ] Add validated `config/markets.toml` loader.
+- [ ] Reject duplicate instrument and stream identities.
 - [x] Add canonical timeframe model with mandatory `1m` support and grid helpers.
 - [x] Add observed and canonical candle models.
 - [x] Add typed candle validation.
@@ -73,7 +76,7 @@ Implementation status note: the timeframe registry/grid model, canonical candle 
 
 ## Phase 2 — REST and repair
 
-Implementation status note: single-stream bounded REST backfill, historical lower-bound discovery, shared full-bootstrap window budgeting, continuity audit, production gap repair, post-repair audit, and real Bybit smoke coverage are implemented.
+Implementation status note: single-stream bounded REST backfill, historical lower-bound discovery, shared full-bootstrap window budgeting, continuity audit, production gap repair, post-repair audit, and real Bybit smoke coverage are implemented. Remaining configuration validation, retry classification, BTC/ETH metadata validation, and deterministic `backfill --all` orchestration are delegated to `complete-phase2-operations-v1`.
 
 
 - [x] Add market-data source port.
@@ -81,10 +84,12 @@ Implementation status note: single-stream bounded REST backfill, historical lowe
 - [x] Add timeframe-to-Bybit interval mapping.
 - [x] Add bounded fetch-window iteration.
 - [x] Add response normalization.
+- [ ] Add retry classification.
 - [x] Add resumable full-minute-history backfill use case.
 - [x] Approve sequential bounded REST backfill contract.
 - [x] Add pure one-stream/all-stream backfill planning contracts.
 - [x] Add finite administrative bounded `backfill --ticker` entrypoint.
+- [ ] Add finite administrative bounded `backfill --all` entrypoint.
 - [x] Add gap detection.
 - [x] Add production bounded gap repair use case.
 - [x] Add post-repair audit.
@@ -93,14 +98,63 @@ Implementation status note: single-stream bounded REST backfill, historical lowe
 - [x] Add Bybit demo/public smoke commands.
 - [x] Enforce shared full-bootstrap `max_windows` budget across lower-bound discovery and backfill.
 
-## Deferred changes
+## Phase 3 — Runtime and Docker
 
-The following capabilities are intentionally outside this base change and are specified independently:
+Detailed normative work is delegated to `runtime-startup-orchestration-v1`. Existing lifecycle and readiness projection domain contracts are already implemented; process startup orchestration, health/readiness surfaces, graceful shutdown, logging, and Docker runtime remain unimplemented.
 
-- `validated-market-config-and-multi-stream-backfill-v1` — validated market configuration, BTC/ETH metadata verification, shared source-failure classification, and deterministic bounded `backfill --all`;
-- `runtime-startup-orchestration-v1` — process startup, configured-stream orchestration, health/readiness, shutdown, logging, and Docker runtime;
-- `websocket-realtime-recovery-v1` — confirmed-close realtime ingestion, reconnect, stale detection, and REST recovery;
-- `consumer-read-api-v1` — deterministic candle reads, OpenAPI, readiness gating, and consumer catch-up;
-- `hardening-operations-v1` — fault injection, metrics, long-running validation, runbooks, and database maintenance policy.
 
-These delegated changes are not tasks of `market-data-service-v1` and do not block archiving this base change once its remaining in-scope decisions are closed.
+- [ ] Add environment settings.
+- [ ] Add configured stream loading.
+- [ ] Add startup catch-up.
+- [x] Add per-stream persisted lifecycle state model and legal transition contract.
+- [x] Add strict aggregate readiness projection.
+- [x] Add restart lifecycle semantics and invalid-transition tests.
+- [ ] Add health endpoint.
+- [ ] Add readiness endpoint.
+- [ ] Add graceful shutdown.
+- [ ] Add structured logging.
+- [ ] Add Docker runtime image.
+- [ ] Add persistent-volume compose setup.
+- [ ] Add restart smoke tests.
+
+## Phase 4 — WebSocket realtime
+
+Detailed normative work is delegated to `websocket-realtime-recovery-v1`.
+
+
+- [ ] Add Bybit WebSocket adapter.
+- [ ] Add multi-symbol subscription lifecycle.
+- [ ] Add simple multi-symbol WebSocket subscription lifecycle without a REST worker scheduler.
+- [ ] Parse confirmed candle closes.
+- [ ] Ignore non-canonical partial updates.
+- [ ] Add reconnect with bounded backoff.
+- [ ] Add stale-stream detection.
+- [ ] Add reconnect repair.
+- [ ] Add duplicate suppression tests.
+- [ ] Add disconnect/recovery integration tests.
+
+## Phase 5 — Consumer API
+
+Detailed normative work is delegated to `consumer-read-api-v1`.
+
+
+- [ ] Add candle range endpoint.
+- [ ] Add latest candle endpoint.
+- [ ] Add deterministic pagination.
+- [ ] Publish OpenAPI schema.
+- [ ] Add API contract tests.
+- [ ] Add consumer cursor catch-up and readiness-gate contract test.
+
+## Phase 6 — Hardening
+
+Detailed normative work is delegated to `hardening-operations-v1`.
+
+
+- [ ] Add malformed payload tests.
+- [ ] Add timeframe-boundary tests.
+- [ ] Add clock-skew tests.
+- [ ] Add database fault tests.
+- [ ] Add long-running smoke.
+- [ ] Add metrics.
+- [ ] Add operational runbook.
+- [ ] Decide database maintenance policy.

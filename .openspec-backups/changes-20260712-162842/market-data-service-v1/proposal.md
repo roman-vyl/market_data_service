@@ -71,7 +71,7 @@ The following capabilities are intentionally not yet implemented in the active c
 
 The remaining work is split into focused normative changes:
 
-- `validated-market-config-and-multi-stream-backfill-v1`;
+- `complete-phase2-operations-v1`;
 - `runtime-startup-orchestration-v1`;
 - `websocket-realtime-recovery-v1`;
 - `consumer-read-api-v1`;

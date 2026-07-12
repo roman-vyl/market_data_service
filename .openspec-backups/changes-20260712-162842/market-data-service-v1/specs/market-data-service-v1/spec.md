@@ -328,7 +328,7 @@ A completed historical-core task SHALL NOT imply that process runtime, WebSocket
 
 Future capabilities SHALL be specified through focused OpenSpec changes before production implementation:
 
-- validated configuration and multi-stream backfill through `validated-market-config-and-multi-stream-backfill-v1`;
+- remaining Phase 2 operations through `complete-phase2-operations-v1`;
 - startup/runtime through `runtime-startup-orchestration-v1`;
 - realtime/recovery through `websocket-realtime-recovery-v1`;
 - consumer reads/integration through `consumer-read-api-v1`;

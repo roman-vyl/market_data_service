@@ -30,7 +30,7 @@ As of the current reconciliation, the production code implements the complete bo
 
 The base change remains the architectural source of truth for identity, storage, ingestion, ranges, lifecycle states, and readiness semantics. Future process-level capabilities are specified in separate changes so they do not become implicit implementation details:
 
-- `validated-market-config-and-multi-stream-backfill-v1` completes configuration validation, source-failure classification, metadata verification, and sequential multi-stream administrative orchestration.
+- `complete-phase2-operations-v1` completes configuration validation, source-failure classification, metadata verification, and sequential multi-stream administrative orchestration.
 - `runtime-startup-orchestration-v1` owns process startup, configured-stream coordination, health/readiness surfaces, shutdown, logging, and Docker runtime.
 - `websocket-realtime-recovery-v1` owns confirmed-close realtime ingestion, reconnect, stale detection, and REST catch-up.
 - `consumer-read-api-v1` owns deterministic candle reads, OpenAPI, readiness gating, and consumer catch-up contracts.
