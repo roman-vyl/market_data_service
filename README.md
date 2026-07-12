@@ -12,7 +12,26 @@ The service is intentionally isolated from:
 
 Its responsibility is to obtain, validate, repair, persist, and expose canonical closed candles.
 
-The backend is explicitly multi-instrument. The checked-in deployment example enables canonical tickers `BTCUSDT.P` and `ETHUSDT.P`, mapped to Bybit API symbols `BTCUSDT` and `ETHUSDT`, each with full available canonical `1m` history.
+The backend is explicitly multi-instrument. The checked-in deployment example enables canonical tickers `BTCUSDT.P` and `ETHUSDT.P`, mapped to Bybit API symbols `BTCUSDT` and `ETHUSDT`, with operator-declared canonical timeframes in `config/markets.toml`.
+
+## Docker config behavior
+
+The Docker image still contains a default checked-in `config/markets.toml`, but
+the local `docker-compose.yml` mounts the host file over that path at runtime:
+
+```text
+./config/markets.toml -> /app/config/markets.toml (read-only)
+```
+
+This keeps the image self-contained while making local operator config changes
+cheap:
+
+- edit `config/markets.toml` on the host;
+- restart the container with `docker compose restart` or `docker compose up -d`;
+- do not rebuild the image unless application code or packaged defaults changed.
+
+The SQLite database remains external to the image and is still expected at
+`/data/market.sqlite3` via the named Docker volume.
 
 ## Status
 
@@ -147,7 +166,11 @@ fatal configuration, payload, or storage failure stops the run.
 
 The validated market config may declare multiple canonical timeframes per ticker. `backfill --all --full` expands the config into every enabled `ticker × timeframe` stream and processes them sequentially with an independent window budget and durable stream state.
 
-Example configured streams in v1: `BTCUSDT.P:1m`, `BTCUSDT.P:5m`, `BTCUSDT.P:1h`, `ETHUSDT.P:1m`, `ETHUSDT.P:5m`, and `ETHUSDT.P:1h`.
+Example configured streams in the checked-in local config: `BTCUSDT.P:5m`, `BTCUSDT.P:1h`, `BTCUSDT.P:4h`, `BTCUSDT.P:1d`, `ETHUSDT.P:5m`, `ETHUSDT.P:1h`, `ETHUSDT.P:4h`, and `ETHUSDT.P:1d`.
+
+When the service runs through local Docker Compose, changing `markets.toml`
+does not hot-reload into the running process. The mounted file is only
+reconciled on the next container restart.
 
 ## Local smoke commands
 
