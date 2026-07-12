@@ -83,6 +83,19 @@ def test_insert_duplicate_and_restart_persistence(tmp_path: Path) -> None:
         connection.close()
 
 
+def test_initialize_database_is_idempotent_for_existing_schema(tmp_path: Path) -> None:
+    path = tmp_path / "market.sqlite"
+    stream = _stream()
+    _prepare(path, stream)
+
+    initialize_database(path)
+
+    with SqliteUnitOfWork(path) as unit_of_work:
+        state = unit_of_work.get_stream_state(stream)
+    assert state.stream == stream
+    assert state.latest_committed_open_time_ms is None
+
+
 def test_rest_correction_replaces_and_quarantines(tmp_path: Path) -> None:
     path = tmp_path / "market.sqlite"
     stream = _stream()
