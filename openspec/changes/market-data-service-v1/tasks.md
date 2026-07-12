@@ -90,6 +90,7 @@
 - [x] Document production repair result, incomplete, and unexpected-row diagnostics contract.
 - [x] Add fake source integration tests.
 - [x] Add Bybit demo/public smoke commands.
+- [x] Enforce shared full-bootstrap `max_windows` budget across lower-bound discovery and backfill.
 
 ## Phase 3 — Runtime and Docker
 

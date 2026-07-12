@@ -157,16 +157,27 @@ def _print_full_result(
     print(f"database={database}")
     print(f"stream={result.stream.canonical_id} bybit_symbol={exchange_symbol}")
     print(f"full_history=true max_windows={max_windows}")
+    print(
+        "budget "
+        f"max_windows={result.max_windows} "
+        f"discovery_windows={result.discovery_windows_used} "
+        f"backfill_windows={result.backfill_windows_attempted} "
+        f"total_windows={result.total_windows_used} "
+        f"lower_bound_resolved={str(result.lower_bound_resolved).lower()} "
+        f"target_reached={str(result.reached_target).lower()}"
+    )
     if result.lower_bound is not None:
         lower_bound = result.lower_bound
+        observed_earliest = lower_bound.earliest_available_open_time_ms
         print(
             "lower_bound "
             f"launch_time_ms={lower_bound.launch_time_ms} "
             f"search_start_time_ms={lower_bound.search_start_time_ms} "
             f"observed_earliest_open_time_ms="
-            f"{lower_bound.earliest_available_open_time_ms} "
+            f"{observed_earliest} "
             f"metadata_cached={str(lower_bound.metadata_cached).lower()} "
-            f"lower_bound_cached={str(lower_bound.lower_bound_cached).lower()}"
+            f"lower_bound_cached={str(lower_bound.lower_bound_cached).lower()} "
+            f"unresolved_reason={lower_bound.unresolved_reason}"
         )
     print(f"target_open_time_ms={result.target_open_time_ms}")
     if result.backfill is not None:

@@ -300,6 +300,8 @@ Version 1 SHALL execute historical REST window work sequentially by default and 
 
 Administrative backfill SHALL support selecting one configured stream or all enabled streams in deterministic configuration order. Each invocation SHALL have an explicit positive window budget and SHALL terminate when that budget is exhausted.
 
+For a full-history bootstrap invocation, that positive `max_windows` budget SHALL be the total historical-candle REST-window budget shared by lower-bound discovery and backfill. Instrument metadata requests SHALL NOT count against this candle-window budget.
+
 Completed windows SHALL remain durable across stop, failure, and restart. A later invocation SHALL resume from the latest committed candle in persisted stream state rather than restarting full history. That resume point SHALL NOT be treated as proof of continuity; audit SHALL remain responsible for proving absence of gaps.
 
 Recoverable REST/source failures during bootstrap SHALL move the affected stream to `degraded`. Fatal configuration, schema, storage-corruption, or impossible-invariant failures SHALL move the affected stream to `failed`.

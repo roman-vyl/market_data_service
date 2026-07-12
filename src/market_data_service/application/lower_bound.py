@@ -31,9 +31,12 @@ class HistoricalLowerBoundResult:
     stream: StreamKey
     launch_time_ms: int
     search_start_time_ms: int
-    earliest_available_open_time_ms: int
+    earliest_available_open_time_ms: int | None
     metadata_cached: bool
     lower_bound_cached: bool
+    resolved: bool
+    discovery_windows_used: int
+    unresolved_reason: str | None = None
 
 
 class ResolveHistoricalLowerBound:
@@ -58,7 +61,9 @@ class ResolveHistoricalLowerBound:
         self._clock = clock
         self._max_candles_per_probe = max_candles_per_probe
 
-    def execute(self, stream: StreamKey) -> HistoricalLowerBoundResult:
+    def execute(self, stream: StreamKey, *, max_windows: int) -> HistoricalLowerBoundResult:
+        if max_windows <= 0:
+            raise ValueError("max_windows must be positive")
         step_ms = get_timeframe(stream.timeframe).duration_ms
         cached = self._cached_result(stream, step_ms)
         if cached is not None:
@@ -70,18 +75,42 @@ class ResolveHistoricalLowerBound:
         search_start = ceil_to_grid(metadata.launch_time_ms, step_ms)
         search_end = last_closed_open_time_ms(self._clock.now_ms(), step_ms) + step_ms
         if search_start >= search_end:
-            raise HistoricalLowerBoundUnavailable("no closed candles are searchable yet")
+            return HistoricalLowerBoundResult(
+                stream=stream,
+                launch_time_ms=metadata.launch_time_ms,
+                search_start_time_ms=search_start,
+                earliest_available_open_time_ms=None,
+                metadata_cached=metadata_cached,
+                lower_bound_cached=False,
+                resolved=False,
+                discovery_windows_used=0,
+                unresolved_reason="no closed candles are searchable yet",
+            )
 
+        discovery_windows_used = 0
         for window in iter_fetch_windows(
             Gap(search_start, search_end),
             step_ms=step_ms,
             max_candles=self._max_candles_per_probe,
         ):
+            if discovery_windows_used >= max_windows:
+                return HistoricalLowerBoundResult(
+                    stream=stream,
+                    launch_time_ms=metadata.launch_time_ms,
+                    search_start_time_ms=search_start,
+                    earliest_available_open_time_ms=None,
+                    metadata_cached=metadata_cached,
+                    lower_bound_cached=False,
+                    resolved=False,
+                    discovery_windows_used=discovery_windows_used,
+                    unresolved_reason="discovery window budget exhausted",
+                )
             candles = self._historical_source.fetch_closed_candles(
                 stream,
                 window,
                 observed_at_ms=self._clock.now_ms(),
             )
+            discovery_windows_used += 1
             candidates = [
                 candle
                 for candle in candles
@@ -100,9 +129,21 @@ class ResolveHistoricalLowerBound:
                 earliest_available_open_time_ms=earliest,
                 metadata_cached=metadata_cached,
                 lower_bound_cached=False,
+                resolved=True,
+                discovery_windows_used=discovery_windows_used,
             )
 
-        raise HistoricalLowerBoundUnavailable("historical source returned no valid candles")
+        return HistoricalLowerBoundResult(
+            stream=stream,
+            launch_time_ms=metadata.launch_time_ms,
+            search_start_time_ms=search_start,
+            earliest_available_open_time_ms=None,
+            metadata_cached=metadata_cached,
+            lower_bound_cached=False,
+            resolved=False,
+            discovery_windows_used=discovery_windows_used,
+            unresolved_reason="historical source returned no valid candles",
+        )
 
     def _cached_result(self, stream: StreamKey, step_ms: int) -> HistoricalLowerBoundResult | None:
         with self._unit_of_work_factory() as unit_of_work:
@@ -121,6 +162,8 @@ class ResolveHistoricalLowerBound:
             earliest_available_open_time_ms=snapshot.earliest_available_open_time_ms,
             metadata_cached=True,
             lower_bound_cached=True,
+            resolved=True,
+            discovery_windows_used=0,
         )
 
     def _resolve_metadata(

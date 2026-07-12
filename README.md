@@ -123,9 +123,12 @@ market-data-service backfill --ticker BTCUSDT.P --full --max-windows 100
 
 The command resolves and caches the observed earliest available candle before
 backfill. `launchTime` remains exchange metadata and is not treated as proof
-that a candle exists at that timestamp. If the explicit window budget is
-exhausted, committed candles remain durable, the stream stays bootstrapping,
-and the next invocation resumes after the latest committed candle.
+that a candle exists at that timestamp. For `--full`, `--max-windows` is the
+total historical-candle REST-window budget shared by lower-bound discovery and
+backfill; instrument metadata requests do not count against it. If the explicit
+window budget is exhausted, committed candles remain durable, the stream stays
+bootstrapping, and the next invocation resumes after the latest committed
+candle once the lower bound has been cached.
 
 ## Local smoke commands
 
@@ -135,7 +138,7 @@ not touch production persistence:
 ```text
 market-data-service smoke-rest
 market-data-service smoke-backfill --minutes 120
-market-data-service smoke-full-bootstrap
+market-data-service smoke-full-bootstrap --max-windows 20
 market-data-service smoke-audit-continuity --minutes 120
 market-data-service smoke-gap-repair --minutes 5
 market-data-service audit-continuity --ticker BTCUSDT.P --start 0 --end 3600000
@@ -149,9 +152,9 @@ performed by `AuditStreamContinuity`.
 
 `smoke-full-bootstrap` uses real Bybit REST and a temporary SQLite database to
 resolve the observed BTCUSDT.P `1m` lower bound, run full-history bootstrap
-with budget `1`, reopen through a fresh workflow, run budget `1` again, and
-verify that the second invocation uses the cached lower bound and resumes from
-durable progress.
+with a small shared window budget, reopen through a fresh workflow, run again,
+and verify that every invocation stays within `max_windows`, cached discovery
+uses zero candle windows, and backfill resumes from durable progress.
 
 `audit-continuity` reads canonical candles for one explicit stream and
 half-open range, reports bounded missing intervals, and does not change stream

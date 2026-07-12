@@ -138,4 +138,4 @@ Schema v1 has no event log or server-owned consumer cursor. Bootstrap, catch-up,
 
 ## Sequential backfill
 
-Version 1 uses finite sequential REST runs rather than a parallel scheduler. One bounded window is the unit of fetch, ingestion, and atomic commit. Administrative commands may select one stream or all streams in deterministic configuration order and must enforce an explicit per-run window budget. Normal service startup does not perform unlimited deep bootstrap.
+Version 1 uses finite sequential REST runs rather than a parallel scheduler. One bounded window is the unit of fetch, ingestion, and atomic commit. Administrative commands may select one stream or all streams in deterministic configuration order and must enforce an explicit per-run window budget. For full-history bootstrap, the per-run `max_windows` budget is shared by lower-bound discovery and backfill historical-candle REST windows; instrument metadata requests do not count as candle windows. Normal service startup does not perform unlimited deep bootstrap.

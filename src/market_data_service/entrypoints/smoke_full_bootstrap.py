@@ -33,13 +33,24 @@ class SmokeFullBootstrapResult:
 
     @property
     def ok(self) -> bool:
-        if self.first.lower_bound is None or self.first.backfill is None:
+        if self.first.total_windows_used > self.first.max_windows:
+            return False
+        if self.second.total_windows_used > self.second.max_windows:
+            return False
+        if self.first.lower_bound is None or not self.first.lower_bound.resolved:
             return False
         if self.second.lower_bound is None or self.second.backfill is None:
             return False
         if not self.second.lower_bound.lower_bound_cached:
             return False
-        if not self.first.backfill.window_results or not self.second.backfill.window_results:
+        if not self.second.backfill.window_results:
+            return False
+        if self.first.backfill is None:
+            return (
+                self.second.backfill.window_results[0].window.start_ms
+                == self.first.lower_bound.earliest_available_open_time_ms
+            )
+        if not self.first.backfill.window_results:
             return False
         return (
             self.second.backfill.window_results[0].window.start_ms
@@ -67,6 +78,7 @@ def _run(database: Path, args: argparse.Namespace) -> int:
         database_path=database,
         ticker=args.ticker,
         exchange_symbol=args.bybit_symbol,
+        max_windows=args.max_windows,
     )
     _print_result(result)
     return 0 if result.ok else 1
@@ -77,6 +89,7 @@ def run_smoke_full_bootstrap(
     database_path: Path,
     ticker: str,
     exchange_symbol: str,
+    max_windows: int,
 ) -> SmokeFullBootstrapResult:
     clock = Clock()
     stream = StreamKey(InstrumentKey(ticker), "1m")
@@ -84,10 +97,10 @@ def run_smoke_full_bootstrap(
     register_stream(database_path, stream, exchange_symbol=exchange_symbol, now_ms=clock.now_ms())
 
     first = _new_workflow(database_path, ticker, exchange_symbol, clock).execute(
-        FullHistoryBootstrapRequest(stream=stream, max_windows=1)
+        FullHistoryBootstrapRequest(stream=stream, max_windows=max_windows)
     )
     second = _new_workflow(database_path, ticker, exchange_symbol, clock).execute(
-        FullHistoryBootstrapRequest(stream=stream, max_windows=1)
+        FullHistoryBootstrapRequest(stream=stream, max_windows=max_windows)
     )
     return SmokeFullBootstrapResult(database_path=database_path, first=first, second=second)
 
@@ -129,13 +142,23 @@ def _print_result(result: SmokeFullBootstrapResult) -> None:
 
 def _print_invocation(label: str, result: FullHistoryBootstrapResult) -> None:
     print(f"{label}_status={result.status}")
+    print(
+        f"{label}_budget "
+        f"discovery_windows={result.discovery_windows_used} "
+        f"backfill_windows={result.backfill_windows_attempted} "
+        f"total_windows={result.total_windows_used} "
+        f"max_windows={result.max_windows} "
+        f"lower_bound_resolved={str(result.lower_bound_resolved).lower()} "
+        f"target_reached={str(result.reached_target).lower()}"
+    )
     if result.lower_bound is not None:
         print(
             f"{label}_lower_bound "
             f"launch_time_ms={result.lower_bound.launch_time_ms} "
             f"observed_earliest_open_time_ms="
             f"{result.lower_bound.earliest_available_open_time_ms} "
-            f"cached={str(result.lower_bound.lower_bound_cached).lower()}"
+            f"cached={str(result.lower_bound.lower_bound_cached).lower()} "
+            f"unresolved_reason={result.lower_bound.unresolved_reason}"
         )
     if result.backfill is not None:
         first_window = (
@@ -157,4 +180,5 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--database", type=Path)
     parser.add_argument("--ticker", default="BTCUSDT.P")
     parser.add_argument("--bybit-symbol", default="BTCUSDT")
+    parser.add_argument("--max-windows", type=int, default=20)
     return parser

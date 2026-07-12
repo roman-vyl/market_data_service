@@ -215,8 +215,10 @@ def test_saved_lower_bound_is_used_without_repeating_source_calls(tmp_path: Path
     metadata = FakeMetadataSource(launch_time_ms=0)
     source = FakeHistoricalSource(rows_by_start={})
 
-    result = _resolver(path, metadata, source, FakeClock()).execute(stream)
+    result = _resolver(path, metadata, source, FakeClock()).execute(stream, max_windows=2)
 
+    assert result.resolved is True
+    assert result.discovery_windows_used == 0
     assert result.lower_bound_cached is True
     assert result.earliest_available_open_time_ms == 120_000
     assert metadata.calls == []
@@ -229,10 +231,15 @@ def test_launch_time_is_not_accepted_as_the_first_candle(tmp_path: Path) -> None
     _prepare(path, stream)
     source = FakeHistoricalSource(rows_by_start={60_000: (), 180_000: (180_000, 240_000)})
 
-    result = _resolver(path, FakeMetadataSource(launch_time_ms=1), source, FakeClock()).execute(
-        stream
-    )
+    result = _resolver(
+        path,
+        FakeMetadataSource(launch_time_ms=1),
+        source,
+        FakeClock(),
+    ).execute(stream, max_windows=2)
 
+    assert result.resolved is True
+    assert result.discovery_windows_used == 2
     assert result.search_start_time_ms == 60_000
     assert result.earliest_available_open_time_ms == 180_000
     assert _state(path, stream)[1] == 180_000
@@ -248,7 +255,11 @@ def test_unresolved_lower_bound_does_not_start_full_bootstrap(tmp_path: Path) ->
         FullHistoryBootstrapRequest(stream, max_windows=1)
     )
 
-    assert result.status == "lower_bound_unresolved"
+    assert result.status == "incomplete"
+    assert result.lower_bound is not None
+    assert result.lower_bound.resolved is False
+    assert result.discovery_windows_used == 1
+    assert result.backfill_windows_attempted == 0
     assert result.backfill is None
     assert _count_candles(path, stream) == 0
     assert _state(path, stream) == (StreamLifecycleState.BOOTSTRAPPING.value, None, None)
@@ -258,6 +269,8 @@ def test_full_bootstrap_obeys_budget_and_resumes_from_durable_progress(tmp_path:
     path = tmp_path / "market.sqlite"
     stream = _stream()
     _prepare(path, stream)
+    _save_metadata(path, stream, launch_time_ms=0)
+    _save_lower_bound(path, stream, open_time_ms=0)
     clock = FakeClock()
     source = FakeHistoricalSource()
     workflow = _workflow(path, FakeMetadataSource(0), source, clock)
@@ -297,7 +310,7 @@ def test_full_bootstrap_state_is_scoped_per_stream(tmp_path: Path) -> None:
     _prepare(path, btc, eth)
 
     _workflow(path, FakeMetadataSource(0), FakeHistoricalSource(), FakeClock()).execute(
-        FullHistoryBootstrapRequest(btc, max_windows=1)
+        FullHistoryBootstrapRequest(btc, max_windows=2)
     )
 
     assert _state(path, btc)[1:] == (0, 60_000)
@@ -315,7 +328,7 @@ def test_lower_bound_source_failure_does_not_create_false_progress(tmp_path: Pat
             FakeMetadataSource(0),
             FakeHistoricalSource(fail_start_ms=0),
             FakeClock(),
-        ).execute(stream)
+        ).execute(stream, max_windows=1)
 
     assert _state(path, stream)[1:] == (None, None)
 
@@ -338,3 +351,115 @@ def test_full_bootstrap_lower_bound_source_failure_records_failure_without_progr
     assert result.backfill is None
     assert _count_candles(path, stream) == 0
     assert _state(path, stream) == (StreamLifecycleState.FAILED.value, None, None)
+
+
+def test_discovery_consumes_entire_budget_without_starting_backfill(tmp_path: Path) -> None:
+    path = tmp_path / "market.sqlite"
+    stream = _stream()
+    _prepare(path, stream)
+    source = FakeHistoricalSource(rows_by_start={0: (), 120_000: (), 240_000: (240_000,)})
+
+    result = _workflow(path, FakeMetadataSource(0), source, FakeClock()).execute(
+        FullHistoryBootstrapRequest(stream, max_windows=2)
+    )
+
+    assert result.status == "incomplete"
+    assert result.lower_bound is not None
+    assert result.lower_bound.resolved is False
+    assert result.lower_bound.unresolved_reason == "discovery window budget exhausted"
+    assert result.discovery_windows_used == 2
+    assert result.backfill is None
+    assert result.total_windows_used == 2
+    assert source.calls == [TimeWindow(0, 120_000), TimeWindow(120_000, 240_000)]
+    assert _state(path, stream) == (StreamLifecycleState.BOOTSTRAPPING.value, None, None)
+
+
+def test_discovery_leaves_remaining_budget_for_one_backfill_window(tmp_path: Path) -> None:
+    path = tmp_path / "market.sqlite"
+    stream = _stream()
+    _prepare(path, stream)
+    source = FakeHistoricalSource(rows_by_start={0: (), 120_000: (120_000, 180_000)})
+
+    result = _workflow(path, FakeMetadataSource(0), source, FakeClock()).execute(
+        FullHistoryBootstrapRequest(stream, max_windows=3)
+    )
+
+    assert result.lower_bound is not None
+    assert result.lower_bound.resolved is True
+    assert result.discovery_windows_used == 2
+    assert result.backfill is not None
+    assert result.backfill_windows_attempted == 1
+    assert result.total_windows_used == 3
+    assert source.calls == [
+        TimeWindow(0, 120_000),
+        TimeWindow(120_000, 240_000),
+        TimeWindow(120_000, 240_000),
+    ]
+
+
+def test_cached_lower_bound_gives_entire_budget_to_backfill(tmp_path: Path) -> None:
+    path = tmp_path / "market.sqlite"
+    stream = _stream()
+    _prepare(path, stream)
+    _save_metadata(path, stream, launch_time_ms=0)
+    _save_lower_bound(path, stream, open_time_ms=0)
+    source = FakeHistoricalSource()
+
+    result = _workflow(path, FakeMetadataSource(0), source, FakeClock()).execute(
+        FullHistoryBootstrapRequest(stream, max_windows=2)
+    )
+
+    assert result.lower_bound is not None
+    assert result.lower_bound.lower_bound_cached is True
+    assert result.discovery_windows_used == 0
+    assert result.backfill is not None
+    assert result.backfill_windows_attempted == 2
+    assert result.total_windows_used == 2
+    assert source.calls == [TimeWindow(0, 120_000), TimeWindow(120_000, 240_000)]
+
+
+def test_lower_bound_found_on_last_window_saves_bound_without_backfill(tmp_path: Path) -> None:
+    path = tmp_path / "market.sqlite"
+    stream = _stream()
+    _prepare(path, stream)
+    source = FakeHistoricalSource()
+
+    first = _workflow(path, FakeMetadataSource(0), source, FakeClock()).execute(
+        FullHistoryBootstrapRequest(stream, max_windows=1)
+    )
+    state_after_first = _state(path, stream)
+    source.calls.clear()
+    second = _workflow(path, FakeMetadataSource(0), source, FakeClock()).execute(
+        FullHistoryBootstrapRequest(stream, max_windows=1)
+    )
+
+    assert first.status == "incomplete"
+    assert first.lower_bound_resolved is True
+    assert first.discovery_windows_used == 1
+    assert first.backfill is None
+    assert first.reached_target is False
+    assert state_after_first[1:] == (0, None)
+    assert second.lower_bound is not None
+    assert second.lower_bound.lower_bound_cached is True
+    assert second.discovery_windows_used == 0
+    assert second.backfill is not None
+    assert second.backfill_windows_attempted == 1
+    assert source.calls == [TimeWindow(0, 120_000)]
+
+
+def test_full_bootstrap_never_exceeds_total_window_budget(tmp_path: Path) -> None:
+    scenarios = (
+        (FakeHistoricalSource(rows_by_start={}), 2),
+        (FakeHistoricalSource(), 1),
+        (FakeHistoricalSource(rows_by_start={0: (), 120_000: (120_000,)}), 3),
+    )
+    for index, (source, max_windows) in enumerate(scenarios):
+        path = tmp_path / f"market-{index}.sqlite"
+        stream = _stream()
+        _prepare(path, stream)
+
+        result = _workflow(path, FakeMetadataSource(0), source, FakeClock()).execute(
+            FullHistoryBootstrapRequest(stream, max_windows=max_windows)
+        )
+
+        assert result.total_windows_used <= result.max_windows

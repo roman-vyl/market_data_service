@@ -80,6 +80,8 @@ It is intentionally defined before SQLite, Bybit REST, WebSocket, and HTTP adapt
 | BST-10 | Ten configured tickers | Application integration | Still execute sequentially with bounded work and no unbounded in-memory queue. |
 | BST-11 | Observed lower bound is already cached | Application integration | Do not repeat metadata or kline discovery calls. |
 | BST-12 | Ordinary bounded backfill starts later than history | Application integration | Do not persist the requested window start as the historical lower bound. |
+| BST-13 | Full bootstrap lower-bound discovery exhausts budget | Application integration | Return incomplete without backfill, keep the stream bootstrapping, and do not persist a false lower bound. |
+| BST-14 | Full bootstrap discovery and backfill share budget | Application integration | Discovery windows plus backfill attempted windows never exceed the requested `max_windows`. |
 
 ## F. Gap audit and repair
 
@@ -147,7 +149,7 @@ It is intentionally defined before SQLite, Bybit REST, WebSocket, and HTTP adapt
 | RST-07 | Re-fetch same window | Bybit/SQLite smoke | Second ingestion produces duplicates only. |
 | RST-08 | Real bounded backfill smoke | Bybit/SQLite smoke | Temporary SQLite is created, `BackfillStreamHistory` imports a small BTCUSDT 1m range, duplicate replay adds no rows, persistence reopens cleanly, and smoke-only 1m continuity passes. |
 | RST-09 | Real backfill plus continuity audit smoke | Bybit/SQLite smoke | Temporary SQLite is created, bounded BTCUSDT 1m backfill succeeds, `AuditStreamContinuity` over the same range is continuous, and no gaps are reported. |
-| RST-10 | Real full-history bootstrap restart/resume smoke | Bybit/SQLite smoke | Temporary SQLite resolves observed BTCUSDT.P 1m lower bound, runs budget 1, reopens through a fresh workflow, runs budget 1 again, and confirms cached discovery plus durable resume. |
+| RST-10 | Real full-history bootstrap restart/resume smoke | Bybit/SQLite smoke | Temporary SQLite resolves observed BTCUSDT.P 1m lower bound with a shared small window budget, reopens through a fresh workflow, runs again, and confirms total candle windows stay within budget, cached discovery uses zero windows, and backfill resumes. |
 
 ## K. WebSocket realtime
 
@@ -222,7 +224,7 @@ pass through real Bybit REST backfill, temporary SQLite persistence, and
 The first real full-history restart/resume smoke is accepted when:
 
 ```text
-RST-10, BST-01, BST-02, BST-04, BST-05, BST-06, BST-11, ING-01, ING-10, STM-06
+RST-10, BST-01, BST-02, BST-04, BST-05, BST-06, BST-11, BST-13, BST-14, ING-01, ING-10, STM-06
 ```
 
 pass through real Bybit REST lower-bound discovery, temporary SQLite

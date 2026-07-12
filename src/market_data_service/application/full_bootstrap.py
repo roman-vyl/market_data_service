@@ -22,7 +22,7 @@ from market_data_service.domain.stream_state import StreamLifecycleState, transi
 from market_data_service.domain.timeframes import get_timeframe, last_closed_open_time_ms
 from market_data_service.ports.storage import CanonicalStorageUnitOfWork
 
-FullBootstrapStatus = Literal["backfilled", "lower_bound_unresolved"]
+FullBootstrapStatus = Literal["backfilled", "incomplete", "lower_bound_unresolved"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -41,6 +41,7 @@ class FullHistoryBootstrapRequest:
 class FullHistoryBootstrapResult:
     stream: StreamKey
     status: FullBootstrapStatus
+    max_windows: int
     target_open_time_ms: int | None
     lower_bound: HistoricalLowerBoundResult | None
     backfill: BackfillStreamResult | None
@@ -50,6 +51,22 @@ class FullHistoryBootstrapResult:
     @property
     def reached_target(self) -> bool:
         return self.backfill is not None and self.backfill.reached_end
+
+    @property
+    def lower_bound_resolved(self) -> bool:
+        return self.lower_bound is not None and self.lower_bound.resolved
+
+    @property
+    def discovery_windows_used(self) -> int:
+        return 0 if self.lower_bound is None else self.lower_bound.discovery_windows_used
+
+    @property
+    def backfill_windows_attempted(self) -> int:
+        return 0 if self.backfill is None else self.backfill.attempted_windows
+
+    @property
+    def total_windows_used(self) -> int:
+        return self.discovery_windows_used + self.backfill_windows_attempted
 
 
 class BootstrapFullStreamHistory:
@@ -70,11 +87,15 @@ class BootstrapFullStreamHistory:
     def execute(self, request: FullHistoryBootstrapRequest) -> FullHistoryBootstrapResult:
         self._ensure_bootstrapping(request.stream)
         try:
-            lower_bound = self._lower_bound_resolver.execute(request.stream)
+            lower_bound = self._lower_bound_resolver.execute(
+                request.stream,
+                max_windows=request.max_windows,
+            )
         except HistoricalLowerBoundUnavailable as exc:
             return FullHistoryBootstrapResult(
                 stream=request.stream,
                 status="lower_bound_unresolved",
+                max_windows=request.max_windows,
                 target_open_time_ms=None,
                 lower_bound=None,
                 backfill=None,
@@ -91,6 +112,7 @@ class BootstrapFullStreamHistory:
             return FullHistoryBootstrapResult(
                 stream=request.stream,
                 status="lower_bound_unresolved",
+                max_windows=request.max_windows,
                 target_open_time_ms=None,
                 lower_bound=None,
                 backfill=None,
@@ -98,19 +120,42 @@ class BootstrapFullStreamHistory:
                 error_detail=str(exc),
             )
 
+        if not lower_bound.resolved:
+            return FullHistoryBootstrapResult(
+                stream=request.stream,
+                status="incomplete",
+                max_windows=request.max_windows,
+                target_open_time_ms=None,
+                lower_bound=lower_bound,
+                backfill=None,
+            )
+
         step_ms = get_timeframe(request.stream.timeframe).duration_ms
         target_open_time_ms = last_closed_open_time_ms(self._clock.now_ms(), step_ms)
+        remaining_budget = request.max_windows - lower_bound.discovery_windows_used
+        if remaining_budget <= 0:
+            return FullHistoryBootstrapResult(
+                stream=request.stream,
+                status="incomplete",
+                max_windows=request.max_windows,
+                target_open_time_ms=target_open_time_ms,
+                lower_bound=lower_bound,
+                backfill=None,
+            )
+        if lower_bound.earliest_available_open_time_ms is None:
+            raise RuntimeError("resolved lower bound missing earliest open time")
         backfill = self._backfill.execute(
             BackfillStreamRequest(
                 stream=request.stream,
                 start_time_ms=lower_bound.earliest_available_open_time_ms,
                 end_time_ms=target_open_time_ms + step_ms,
-                max_windows=request.max_windows,
+                max_windows=remaining_budget,
             )
         )
         return FullHistoryBootstrapResult(
             stream=request.stream,
             status="backfilled",
+            max_windows=request.max_windows,
             target_open_time_ms=target_open_time_ms,
             lower_bound=lower_bound,
             backfill=backfill,
