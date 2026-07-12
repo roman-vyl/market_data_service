@@ -23,21 +23,6 @@ entrypoints
   service runtime and optional administrative CLI
 ```
 
-
-## Implemented baseline and delegated future work
-
-As of the current reconciliation, the production code implements the complete bounded historical core: canonical ingestion, SQLite atomicity, REST backfill, observed historical lower-bound discovery, shared full-bootstrap budget, continuity audit, gap repair, and post-repair audit.
-
-The base change remains the architectural source of truth for identity, storage, ingestion, ranges, lifecycle states, and readiness semantics. Future process-level capabilities are specified in separate changes so they do not become implicit implementation details:
-
-- `complete-phase2-operations-v1` completes configuration validation, source-failure classification, metadata verification, and sequential multi-stream administrative orchestration.
-- `runtime-startup-orchestration-v1` owns process startup, configured-stream coordination, health/readiness surfaces, shutdown, logging, and Docker runtime.
-- `websocket-realtime-recovery-v1` owns confirmed-close realtime ingestion, reconnect, stale detection, and REST catch-up.
-- `consumer-read-api-v1` owns deterministic candle reads, OpenAPI, readiness gating, and consumer catch-up contracts.
-- `hardening-operations-v1` owns failure injection, metrics, long-running validation, runbooks, and database maintenance policy.
-
-No delegated change may introduce a second candle ingestion path, a second gap algorithm, server-owned consumer cursors, or an event-log requirement without a new approved architectural decision.
-
 ## Identity
 
 Version 1 uses canonical perpetual tickers:

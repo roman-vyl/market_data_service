@@ -32,7 +32,7 @@
 - [x] Approve versioned multi-instrument configuration schema and identity/metadata/coverage split.
 - [ ] Validate BTCUSDT and ETHUSDT perpetual metadata assumptions against Bybit.
 - [x] Add complete pre-implementation acceptance test matrix with stable scenario IDs.
-- [x] Add ADRs for accepted architectural decisions.
+- [ ] Add ADRs for accepted architectural decisions.
 - [x] Approve Phase 0 before production implementation.
 
 
@@ -52,14 +52,11 @@
 
 ## Phase 1 — Domain and atomic storage
 
-Implementation status note: the timeframe registry/grid model, canonical candle model, SQLite schema, UoW, and canonical ingestion path are implemented and acceptance-tested. Configuration validation remains incomplete and is delegated to `complete-phase2-operations-v1`.
-
-
 - [x] Add canonical instrument identity contract.
 - [x] Add canonical market stream identity contract with registry validation.
 - [ ] Add validated `config/markets.toml` loader.
 - [ ] Reject duplicate instrument and stream identities.
-- [x] Add canonical timeframe model with mandatory `1m` support and grid helpers.
+- [ ] Add canonical timeframe model with mandatory `1m` support and grid helpers.
 - [x] Add observed and canonical candle models.
 - [x] Add typed candle validation.
 - [x] Add duplicate/correction classification.
@@ -75,9 +72,6 @@ Implementation status note: the timeframe registry/grid model, canonical candle 
 - [x] Add restart persistence tests.
 
 ## Phase 2 — REST and repair
-
-Implementation status note: single-stream bounded REST backfill, historical lower-bound discovery, shared full-bootstrap window budgeting, continuity audit, production gap repair, post-repair audit, and real Bybit smoke coverage are implemented. Remaining configuration validation, retry classification, BTC/ETH metadata validation, and deterministic `backfill --all` orchestration are delegated to `complete-phase2-operations-v1`.
-
 
 - [x] Add market-data source port.
 - [x] Add Bybit REST adapter.
@@ -100,9 +94,6 @@ Implementation status note: single-stream bounded REST backfill, historical lowe
 
 ## Phase 3 — Runtime and Docker
 
-Detailed normative work is delegated to `runtime-startup-orchestration-v1`. Existing lifecycle and readiness projection domain contracts are already implemented; process startup orchestration, health/readiness surfaces, graceful shutdown, logging, and Docker runtime remain unimplemented.
-
-
 - [ ] Add environment settings.
 - [ ] Add configured stream loading.
 - [ ] Add startup catch-up.
@@ -119,9 +110,6 @@ Detailed normative work is delegated to `runtime-startup-orchestration-v1`. Exis
 
 ## Phase 4 — WebSocket realtime
 
-Detailed normative work is delegated to `websocket-realtime-recovery-v1`.
-
-
 - [ ] Add Bybit WebSocket adapter.
 - [ ] Add multi-symbol subscription lifecycle.
 - [ ] Add simple multi-symbol WebSocket subscription lifecycle without a REST worker scheduler.
@@ -135,9 +123,6 @@ Detailed normative work is delegated to `websocket-realtime-recovery-v1`.
 
 ## Phase 5 — Consumer API
 
-Detailed normative work is delegated to `consumer-read-api-v1`.
-
-
 - [ ] Add candle range endpoint.
 - [ ] Add latest candle endpoint.
 - [ ] Add deterministic pagination.
@@ -146,9 +131,6 @@ Detailed normative work is delegated to `consumer-read-api-v1`.
 - [ ] Add consumer cursor catch-up and readiness-gate contract test.
 
 ## Phase 6 — Hardening
-
-Detailed normative work is delegated to `hardening-operations-v1`.
-
 
 - [ ] Add malformed payload tests.
 - [ ] Add timeframe-boundary tests.

@@ -316,22 +316,3 @@ A recoverable failure for one stream SHALL NOT erase progress for another stream
 The system SHALL maintain a version-controlled acceptance matrix with stable scenario identifiers covering configuration, validation, schema lifecycle, canonical persistence, bootstrap, gaps, restart, multi-symbol isolation, consumer readiness, Bybit REST, WebSocket, API, and runtime behavior.
 
 Production implementation SHALL be accepted only against the relevant scenario identifiers.
-
-
-## Requirement: Implemented historical-core baseline
-
-The accepted v1 historical core SHALL include one canonical ingestion path, atomic SQLite window imports, bounded single-stream REST backfill, observed historical lower-bound discovery, shared full-bootstrap candle-window budgeting, continuity audit, production gap repair, and post-repair audit.
-
-A completed historical-core task SHALL NOT imply that process runtime, WebSocket realtime, consumer API, or multi-stream administrative orchestration is implemented.
-
-## Requirement: Focused follow-up changes
-
-Future capabilities SHALL be specified through focused OpenSpec changes before production implementation:
-
-- remaining Phase 2 operations through `complete-phase2-operations-v1`;
-- startup/runtime through `runtime-startup-orchestration-v1`;
-- realtime/recovery through `websocket-realtime-recovery-v1`;
-- consumer reads/integration through `consumer-read-api-v1`;
-- hardening/operations through `hardening-operations-v1`.
-
-The follow-up changes SHALL preserve the base identity, storage, interval, lifecycle, readiness, and canonical-ingestion contracts unless they explicitly amend this specification.
