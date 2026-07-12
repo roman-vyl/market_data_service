@@ -6,6 +6,8 @@ The system SHALL load a versioned market configuration and SHALL validate schema
 
 Duplicate canonical instrument identities, duplicate exact exchange-symbol mappings, and duplicate normalized stream identities SHALL be rejected.
 
+A configuration MAY declare any non-empty subset of the supported canonical timeframe registry for an enabled instrument. `1m` support remains available, but `1m` SHALL NOT be required in every market configuration.
+
 ## Requirement: Verified initial instrument metadata
 
 The initial BTCUSDT.P and ETHUSDT.P mappings SHALL be verified against Bybit linear perpetual instrument metadata. A mismatch SHALL leave the affected configuration invalid and SHALL NOT be silently corrected.

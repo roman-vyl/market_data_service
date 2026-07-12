@@ -1,7 +1,7 @@
 """Canonical timeframe registry and grid mathematics.
 
-Semantics are intentionally ported from the old BBB Data Engine while adding
-mandatory one-minute support for the new service.
+Semantics are intentionally ported from the old BBB Data Engine while including
+one-minute support for the new service.
 """
 
 from __future__ import annotations

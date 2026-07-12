@@ -11,7 +11,7 @@
 
 ## Configuration boundary
 
-The loader returns validated `InstrumentCoverage` values. It validates schema version, venue, category, canonical ticker, exact exchange symbol, enabled state, timeframes, and history policy. Duplicate canonical tickers, exchange symbols, or normalized stream keys are rejected before any network or storage mutation.
+The loader returns validated `InstrumentCoverage` values. It validates schema version, venue, category, canonical ticker, exact exchange symbol, enabled state, non-empty supported timeframes, and history policy. Duplicate canonical tickers, exchange symbols, or normalized stream keys are rejected before any network or storage mutation. The loader does not require every enabled instrument to include `1m`; operators may declare narrower bounded smoke or runtime coverage.
 
 ## Failure classification
 

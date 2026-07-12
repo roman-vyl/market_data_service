@@ -16,10 +16,10 @@ It is intentionally defined before SQLite, Bybit REST, WebSocket, and HTTP adapt
 
 | ID | Scenario | Level | Required result |
 |---|---|---|---|
-| CFG-01 | Load BTCUSDT.P and ETHUSDT.P from `markets.toml` | Application integration | Two unique enabled instruments and two mandatory 1m streams are produced. |
+| CFG-01 | Load BTCUSDT.P and ETHUSDT.P from `markets.toml` | Application integration | Unique enabled instruments and their declared streams are produced. |
 | CFG-02 | Duplicate ticker | Application integration | Configuration is rejected before database mutation. |
 | CFG-03 | Duplicate exchange symbol | Application integration | Configuration is rejected before database mutation. |
-| CFG-04 | Missing mandatory 1m stream | Application integration | Configuration is rejected. |
+| CFG-04 | Timeframe subset without 1m | Application integration | Configuration is accepted when all declared timeframes are supported and non-empty. |
 | CFG-05 | Unknown timeframe | Domain | Configuration is rejected by the timeframe registry. |
 | CFG-06 | Ticker mapping mismatch | Bybit smoke/application integration | Configuration is rejected before database mutation and is not silently rewritten. |
 | CFG-07 | Invalid schema/source/history fields | Application integration | Configuration is rejected before network or storage mutation. |

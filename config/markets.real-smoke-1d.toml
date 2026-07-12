@@ -1,0 +1,21 @@
+# Config A: bounded real smoke fixture for daily Bybit USDT perpetual futures.
+
+schema_version = 1
+
+[source]
+venue = "bybit"
+category = "linear"
+
+[[instruments]]
+ticker = "BTCUSDT.P"
+exchange_symbol = "BTCUSDT"
+enabled = true
+canonical_timeframes = ["1d"]
+history_policy = "full_available"
+
+[[instruments]]
+ticker = "ETHUSDT.P"
+exchange_symbol = "ETHUSDT"
+enabled = true
+canonical_timeframes = ["1d"]
+history_policy = "full_available"

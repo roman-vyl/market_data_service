@@ -36,23 +36,20 @@ def test_stream_key_requires_registered_timeframe() -> None:
         StreamKey(key, "2m")
 
 
-def test_coverage_requires_minute_stream_and_unique_timeframes() -> None:
+def test_coverage_accepts_declared_streams_and_requires_unique_timeframes() -> None:
     key = InstrumentKey("BTCUSDT.P")
     coverage = InstrumentCoverage(
         instrument=key,
         exchange_symbol="btcusdt",
         enabled=True,
-        canonical_timeframes=("1m", "1h"),
+        canonical_timeframes=("1d", "1h"),
         history_policy=HistoryPolicy.FULL_AVAILABLE,
     )
     assert tuple(stream.canonical_id for stream in coverage.stream_keys) == (
-        "BTCUSDT.P:1m",
+        "BTCUSDT.P:1d",
         "BTCUSDT.P:1h",
     )
     assert coverage.exchange_symbol == "BTCUSDT"
-
-    with pytest.raises(ValueError, match="include canonical 1m"):
-        InstrumentCoverage(key, "BTCUSDT", True, ("1h",), HistoryPolicy.FULL_AVAILABLE)
 
     with pytest.raises(ValueError, match="must not contain duplicates"):
         InstrumentCoverage(key, "BTCUSDT", True, ("1m", "1M"), HistoryPolicy.FULL_AVAILABLE)

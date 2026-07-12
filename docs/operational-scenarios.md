@@ -22,15 +22,16 @@ Example:
 
 ```text
 BTCUSDT.P / 1m
+BTCUSDT.P / 1d
 ```
 
-Every configured symbol has a mandatory canonical `1m` stream.
+Each enabled instrument declares at least one configured stream. `1m` is supported but not mandatory in every configuration.
 
 ### Historical lower bound
 
 The earliest timestamp from which the service is expected to maintain a complete canonical series for a configured stream.
 
-For the default full-history `1m` policy, this is the earliest minute candle that Bybit actually makes available, not merely the instrument's `launchTime`.
+For the default full-history policy, this is the earliest candle for the configured stream timeframe that Bybit actually makes available, not merely the instrument's `launchTime`.
 
 ### Latest closed open time
 
@@ -55,10 +56,10 @@ A stream is ready only when its required historical interval is known, canonical
 3. Apply all migrations.
 4. Verify the resulting schema contract.
 5. Create durable ingestion-state records for configured streams.
-6. Resolve the instrument launch time and observed earliest available `1m` candle for each symbol.
-7. Set the default required-history start to that observed earliest minute candle.
+6. Resolve the instrument launch time and observed earliest available candle for each configured stream.
+7. Set the default required-history start to that observed earliest stream candle.
 8. Calculate the latest fully closed candle boundary.
-9. Backfill the full required minute interval through Bybit REST in bounded windows.
+9. Backfill the full required interval through Bybit REST in bounded windows.
 10. Pass every fetched candle through canonical normalization, validation, classification, and atomic commit.
 11. Audit continuity across the required interval.
 12. Repair any remaining fetchable gaps.

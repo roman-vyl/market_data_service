@@ -48,6 +48,20 @@ def test_loads_fully_validated_config_in_declared_order(tmp_path: Path) -> None:
     ]
 
 
+def test_loads_config_without_mandatory_minute_stream(tmp_path: Path) -> None:
+    config = load_market_config(
+        _write(
+            tmp_path,
+            VALID.replace('canonical_timeframes = ["1m"]', 'canonical_timeframes = ["1d"]'),
+        )
+    )
+
+    assert [stream.canonical_id for stream in config.enabled_streams] == [
+        "BTCUSDT.P:1d",
+        "ETHUSDT.P:1d",
+    ]
+
+
 @pytest.mark.parametrize(
     ("old", "new", "message"),
     [
@@ -55,7 +69,7 @@ def test_loads_fully_validated_config_in_declared_order(tmp_path: Path) -> None:
         ('venue = "bybit"', 'venue = "other"', "source.venue"),
         ('category = "linear"', 'category = "spot"', "source.category"),
         ('enabled = true', 'enabled = "yes"', "enabled"),
-        ('canonical_timeframes = ["1m"]', 'canonical_timeframes = ["5m"]', "1m"),
+        ('canonical_timeframes = ["1m"]', 'canonical_timeframes = ["2m"]', "unsupported"),
         ('history_policy = "full_available"', 'history_policy = "recent"', "HistoryPolicy"),
     ],
 )

@@ -56,7 +56,7 @@ Implementation status note: the timeframe registry/grid model, canonical candle 
 
 - [x] Add canonical instrument identity contract.
 - [x] Add canonical market stream identity contract with registry validation.
-- [x] Add canonical timeframe model with mandatory `1m` support and grid helpers.
+- [x] Add canonical timeframe model with `1m` support and grid helpers.
 - [x] Add observed and canonical candle models.
 - [x] Add typed candle validation.
 - [x] Add duplicate/correction classification.

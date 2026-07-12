@@ -67,7 +67,7 @@ The Step 1 audit has been applied to code and documentation. The skeleton now
 contains explicit contracts for:
 
 - half-open `[start_ms, end_ms)` windows;
-- canonical timeframe registry with mandatory `1m`;
+- canonical timeframe registry with `1m` support;
 - deterministic grid math;
 - pure gap detection over unsorted duplicate input;
 - bounded aligned REST fetch-window planning;
@@ -89,7 +89,7 @@ InstrumentKey = ticker
 StreamKey = ticker + registered timeframe
 ```
 
-Canonical tickers are `BTCUSDT.P` and `ETHUSDT.P`. Their exact Bybit API symbols are explicit mappings to `BTCUSDT` and `ETHUSDT`. Bybit `category=linear` is configured once at the source-adapter level and is not repeated in every domain key or database row. Every enabled instrument must include canonical `1m`. See `docs/instrument-stream-semantics.md`.
+Canonical tickers are `BTCUSDT.P` and `ETHUSDT.P`. Their exact Bybit API symbols are explicit mappings to `BTCUSDT` and `ETHUSDT`. Bybit `category=linear` is configured once at the source-adapter level and is not repeated in every domain key or database row. Every enabled instrument declares explicit canonical timeframes; `1m` is supported but not mandatory in every configuration. See `docs/instrument-stream-semantics.md`.
 
 ## 5. Fundamental architecture rule
 
@@ -130,7 +130,7 @@ Initial supported scope:
 - market category: `linear`;
 - multiple explicitly configured instruments;
 - initial examples: BTCUSDT and ETHUSDT USDT-settled perpetuals;
-- `1m` candles are mandatory canonical data for every configured symbol;
+- `1m` candles are supported canonical data and may be configured where required;
 - additional timeframes may be configured after their storage/derivation policy is approved.
 
 A confirmed WebSocket close is only an observation. It becomes canonical only after validation and successful SQLite commit.

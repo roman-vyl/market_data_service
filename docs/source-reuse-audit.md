@@ -33,7 +33,7 @@ Keep:
 
 Change:
 
-- add mandatory `1m` (`60_000`, Bybit interval `1`, pandas `1min`);
+- add `1m` support (`60_000`, Bybit interval `1`, pandas `1min`);
 - place the definition in the new domain layer;
 - avoid research-specific assumptions.
 

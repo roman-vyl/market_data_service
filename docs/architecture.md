@@ -37,8 +37,8 @@ src/market_data_service/
 3. Candle mutation and `stream_state` advancement share one transaction.
 4. Cold start, repair, reconnect, and readiness are explicit use cases.
 5. Historical bootstrap, catch-up, and repair do not require consumer events; readiness plus range reads provide recovery.
-6. `1m` is the mandatory canonical source stream for every configured symbol.
-7. Full available minute history is the default continuity obligation.
+6. Each enabled instrument declares explicit canonical streams; `1m` is supported but not mandatory in every configuration.
+7. Full available history for configured streams is the default continuity obligation.
 8. Old BBB Data Engine algorithms are inspected and ported with parity tests where useful; its CLI/storage architecture is not copied wholesale.
 9. Files remain focused. Mixed network + SQL + domain + lifecycle mega-modules are forbidden.
 

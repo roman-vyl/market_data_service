@@ -35,9 +35,10 @@ Examples:
 ```text
 BTCUSDT.P:1m
 ETHUSDT.P:1m
+BTCUSDT.P:1d
 ```
 
-Every enabled instrument must include canonical `1m`. Stream state, gap audit, REST repair, WebSocket subscription, and readiness are isolated by `StreamKey`.
+Every enabled instrument declares a non-empty set of supported canonical timeframes. `1m` is supported and may be part of production coverage, but it is not mandatory in every configuration. Stream state, gap audit, REST repair, WebSocket subscription, and readiness are isolated by `StreamKey`.
 
 ## Deliberately excluded from identity
 

@@ -27,7 +27,7 @@ must stay inside the adapter.
 - Bybit interval value;
 - pandas resampling frequency.
 
-The new service adds mandatory `1m` support while preserving the old registry
+The new service adds `1m` support while preserving the old registry
 principle and grid behavior.
 
 ### Grid mathematics

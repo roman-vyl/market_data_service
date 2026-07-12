@@ -52,8 +52,6 @@ class InstrumentCoverage:
         )
         if len(set(normalized)) != len(normalized):
             raise ValueError("canonical_timeframes must not contain duplicates")
-        if "1m" not in normalized:
-            raise ValueError("every configured instrument must include canonical 1m")
         object.__setattr__(self, "canonical_timeframes", normalized)
 
     @property

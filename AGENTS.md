@@ -84,9 +84,9 @@ Agents MUST NOT:
 
 Readiness is the processing gate. Consumers own their own last-processed cursor and catch up through canonical candle range reads after startup or recovery.
 
-## 5.1 Minute-history contract
+## 5.1 Configured-history contract
 
-Every configured symbol has a mandatory canonical `1m` stream. The default product goal is full available minute history from the earliest candle Bybit actually exposes.
+Every configured stream has an explicit canonical timeframe. `1m` remains supported, but it is not mandatory in every market configuration. The default product goal is full available history for configured streams from the earliest candle Bybit actually exposes for that stream.
 
 Agents MUST NOT introduce a shallow rolling retention default without an approved specification change. Historical bootstrap, catch-up, and repair MUST update canonical storage without inventing mandatory per-candle consumer events.
 
@@ -156,7 +156,7 @@ When a pre-production contract changes, update the implementation and tests dire
 - Do not add mutable metadata, enabled state, history policy, or display fields to identity.
 - Keep `InstrumentMetadata` and operator `InstrumentCoverage` separate.
 - `StreamKey` must validate timeframe through the canonical registry.
-- Every enabled instrument must include a canonical `1m` stream.
+- Every enabled instrument must include at least one configured canonical stream.
 - Instrument-level and stream-level state must not be collapsed into global singleton state.
 
 ## Canonical numeric policy
