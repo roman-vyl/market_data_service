@@ -63,10 +63,12 @@ def test_gap_detector_rejects_off_grid_data() -> None:
 
 
 def test_fetch_windows_are_bounded_and_half_open() -> None:
-    windows = iter_fetch_windows(
-        Gap(0, 7 * 60_000),
-        step_ms=60_000,
-        max_candles=3,
+    windows = tuple(
+        iter_fetch_windows(
+            Gap(0, 7 * 60_000),
+            step_ms=60_000,
+            max_candles=3,
+        )
     )
     assert windows == (
         TimeWindow(0, 180_000),

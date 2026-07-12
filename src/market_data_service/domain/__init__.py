@@ -11,7 +11,6 @@ from market_data_service.domain.candles import CanonicalCandle, ObservationSourc
 from market_data_service.domain.classification import IngestionClassification
 from market_data_service.domain.continuity import (
     ContinuityReport,
-    GapRange,
     build_continuity_report,
 )
 from market_data_service.domain.decimal_values import (
@@ -59,7 +58,6 @@ __all__ = [
     "ContinuityReport",
     "DecimalInput",
     "Gap",
-    "GapRange",
     "HistoryPolicy",
     "IngestionClassification",
     "InstrumentCoverage",

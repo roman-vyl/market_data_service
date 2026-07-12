@@ -21,9 +21,10 @@ from market_data_service.application.repair_gaps import (
     RepairStreamGaps,
     RepairStreamGapsRequest,
 )
+from market_data_service.application.use_cases import RepairStreamGaps as PublicRepairStreamGaps
 from market_data_service.domain import (
     CanonicalCandle,
-    GapRange,
+    Gap,
     InstrumentKey,
     InvalidStreamTransition,
     ObservationSource,
@@ -81,6 +82,20 @@ class FakeHistoricalSource:
             if window.start_ms <= open_time_ms < window.end_ms
         )
         return rows + self.extra_rows
+
+
+class WindowPlanningSpy:
+    def __init__(self) -> None:
+        self.yielded = 0
+
+    def __call__(self, gap: Gap, *, step_ms: int, max_candles: int):
+        cursor = gap.start_ms
+        max_span_ms = step_ms * max_candles
+        while cursor < gap.end_ms:
+            self.yielded += 1
+            end_ms = min(cursor + max_span_ms, gap.end_ms)
+            yield TimeWindow(cursor, end_ms)
+            cursor = end_ms
 
 
 class FailingSecondInsertUnitOfWork:
@@ -304,6 +319,10 @@ def test_no_gaps_does_not_fetch(tmp_path: Path) -> None:
     assert _state(path, stream)[0] == StreamLifecycleState.AUDITING.value
 
 
+def test_public_repair_use_case_import_is_production_workflow() -> None:
+    assert PublicRepairStreamGaps is RepairStreamGaps
+
+
 def test_one_internal_gap_is_repaired_and_post_audit_is_continuous(tmp_path: Path) -> None:
     path = tmp_path / "market.sqlite"
     stream = _stream()
@@ -314,7 +333,7 @@ def test_one_internal_gap_is_repaired_and_post_audit_is_continuous(tmp_path: Pat
     result = _execute(_repair(path, source, FakeClock()), stream, end=240_000)
 
     assert result.status is RepairStatus.COMPLETE
-    assert result.pre_repair_audit.gaps == (GapRange(60_000, 120_000),)
+    assert result.pre_repair_audit.gaps == (Gap(60_000, 120_000),)
     assert result.post_repair_audit is not None
     assert result.post_repair_audit.is_continuous
     assert _open_times(path, stream) == (0, 60_000, 120_000, 180_000)
@@ -368,9 +387,60 @@ def test_empty_source_response_leaves_repair_incomplete(tmp_path: Path) -> None:
     result = _execute(_repair(path, source, FakeClock()), stream, end=180_000)
 
     assert result.status is RepairStatus.INCOMPLETE
+    assert result.fully_repaired is False
     assert result.post_repair_audit is not None
-    assert result.post_repair_audit.gaps == (GapRange(60_000, 120_000),)
+    assert result.post_repair_audit.gaps == (Gap(60_000, 120_000),)
     assert "repair_incomplete_gap" in _quarantine_reasons(path, stream)
+
+
+def test_partial_source_response_is_ingested_but_remains_incomplete(tmp_path: Path) -> None:
+    path = tmp_path / "market.sqlite"
+    stream = _stream()
+    _prepare(path, stream)
+    _insert(path, stream, (0, 180_000))
+    source = FakeHistoricalSource({stream: _rows(stream, (60_000,))})
+
+    result = _execute(
+        _repair(path, source, FakeClock(), max_candles_per_window=3),
+        stream,
+        end=240_000,
+    )
+
+    assert result.status is RepairStatus.INCOMPLETE
+    assert result.fully_repaired is False
+    assert result.window_results[0].committed == 1
+    assert _open_times(path, stream) == (0, 60_000, 180_000)
+    assert result.post_repair_audit is not None
+    assert result.post_repair_audit.gaps == (Gap(120_000, 180_000),)
+
+
+def test_window_budget_exhaustion_is_bounded_and_incomplete(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    path = tmp_path / "market.sqlite"
+    stream = _stream()
+    _prepare(path, stream)
+    _insert(path, stream, (0, 300_000))
+    source = FakeHistoricalSource({stream: _rows(stream, (60_000, 120_000))})
+    spy = WindowPlanningSpy()
+    monkeypatch.setattr("market_data_service.application.repair_gaps.iter_fetch_windows", spy)
+
+    result = _execute(
+        _repair(path, source, FakeClock(), max_candles_per_window=2),
+        stream,
+        end=360_000,
+        max_windows=1,
+    )
+
+    assert result.status is RepairStatus.INCOMPLETE
+    assert result.fully_repaired is False
+    assert spy.yielded == 1
+    assert len(source.calls) == 1
+    assert source.calls[0][1] == TimeWindow(60_000, 180_000)
+    assert _open_times(path, stream) == (0, 60_000, 120_000, 300_000)
+    assert result.post_repair_audit is not None
+    assert result.post_repair_audit.gaps == (Gap(180_000, 300_000),)
 
 
 def test_unexpected_rows_are_quarantined_and_not_inserted(tmp_path: Path) -> None:

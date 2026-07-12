@@ -5,6 +5,7 @@ from market_data_service.application.audit_continuity import (
     AuditStreamContinuityRequest,
     UnknownStreamError,
 )
+from market_data_service.application.repair_gaps import RepairStreamGaps
 
 
 class ResolveEarliestAvailableCandle:
@@ -13,10 +14,6 @@ class ResolveEarliestAvailableCandle:
 
 class BootstrapFullMinuteHistory:
     """Populate full available 1m history through finite sequential runs."""
-
-
-class RepairStreamGaps:
-    """Repair planned gaps through REST and mandatory postflight audit."""
 
 
 class EvaluateStreamReadiness:

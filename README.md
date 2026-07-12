@@ -17,11 +17,11 @@ The backend is explicitly multi-instrument. The checked-in deployment example en
 ## Status
 
 The SQLite vertical slice, Bybit REST market-data adapter, REST smoke verification,
-bounded historical backfill runner, continuity audit CLI, and real REST
-backfill + continuity smoke are implemented. Canonical ingestion,
-duplicate/correction handling, atomic stream-state persistence, rollback, restart
-persistence, continuity gaps, and multi-stream isolation are covered by
-integration tests.
+bounded historical backfill runner, continuity audit CLI, production bounded
+gap repair workflow, and real REST repair smoke are implemented. Canonical
+ingestion, duplicate/correction handling, atomic stream-state persistence,
+rollback, restart persistence, continuity gaps, repair idempotency, and
+multi-stream isolation are covered by integration tests.
 
 Not implemented yet:
 
@@ -123,21 +123,31 @@ not touch production persistence:
 market-data-service smoke-rest
 market-data-service smoke-backfill --minutes 120
 market-data-service smoke-audit-continuity --minutes 120
+market-data-service smoke-gap-repair --minutes 5
 market-data-service audit-continuity --ticker BTCUSDT.P --start 0 --end 3600000
 ```
 
 `smoke-backfill` fetches a small closed BTCUSDT 1m interval from Bybit REST,
 runs `BackfillStreamHistory`, replays the same window to prove duplicate
 classification, reopens SQLite for persistence checks, and performs a basic
-1m continuity assertion. This assertion is smoke-only; full continuity proof
-remains the future audit/gap-repair workflow.
+1m continuity assertion. This assertion is smoke-only; full continuity proof is
+performed by `AuditStreamContinuity`.
 
 `audit-continuity` reads canonical candles for one explicit stream and
-half-open range, reports missing 1m intervals, and does not change stream state
-or attempt repair.
+half-open range, reports bounded missing intervals, and does not change stream
+state or attempt repair.
 
 `smoke-audit-continuity` uses a temporary SQLite database, real Bybit REST
 backfill, and `AuditStreamContinuity` over the same bounded range.
+
+`smoke-gap-repair` uses a temporary SQLite database, real bounded Bybit REST
+backfill, smoke-only deletion of one internal candle, production
+`RepairStreamGaps`, and a post-repair audit. The post-repair audit determines
+whether repair is complete or incomplete.
+
+```bash
+python3 -m market_data_service smoke-gap-repair --minutes 5
+```
 
 ## Architecture decisions
 

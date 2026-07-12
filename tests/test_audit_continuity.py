@@ -16,7 +16,7 @@ from market_data_service.application.audit_continuity import (
 )
 from market_data_service.application.ingest import IngestObservedCandle
 from market_data_service.domain import (
-    GapRange,
+    Gap,
     InstrumentKey,
     ObservationSource,
     ObservedCandle,
@@ -92,7 +92,7 @@ def test_missing_candle_reports_gap(tmp_path: Path) -> None:
     report = _audit(path, stream, 0, 240_000)
 
     assert report.is_continuous is False
-    assert report.gaps == (GapRange(120_000, 180_000),)
+    assert report.gaps == (Gap(120_000, 180_000),)
 
 
 def test_gap_at_beginning_is_reported(tmp_path: Path) -> None:
@@ -104,7 +104,7 @@ def test_gap_at_beginning_is_reported(tmp_path: Path) -> None:
     report = _audit(path, stream, 0, 300_000)
 
     assert report.is_continuous is False
-    assert report.gaps == (GapRange(0, 120_000),)
+    assert report.gaps == (Gap(0, 120_000),)
 
 
 def test_gap_at_end_is_reported(tmp_path: Path) -> None:
@@ -116,7 +116,7 @@ def test_gap_at_end_is_reported(tmp_path: Path) -> None:
     report = _audit(path, stream, 0, 300_000)
 
     assert report.is_continuous is False
-    assert report.gaps == (GapRange(120_000, 300_000),)
+    assert report.gaps == (Gap(120_000, 300_000),)
 
 
 def test_multiple_gaps_are_reported(tmp_path: Path) -> None:
@@ -129,8 +129,8 @@ def test_multiple_gaps_are_reported(tmp_path: Path) -> None:
 
     assert report.is_continuous is False
     assert report.gaps == (
-        GapRange(60_000, 120_000),
-        GapRange(180_000, 300_000),
+        Gap(60_000, 120_000),
+        Gap(180_000, 300_000),
     )
 
 
@@ -161,7 +161,7 @@ def test_audit_is_isolated_per_stream(tmp_path: Path) -> None:
     assert btc_report.is_continuous is True
     assert btc_report.gaps == ()
     assert eth_report.is_continuous is False
-    assert eth_report.gaps == (GapRange(60_000, 120_000),)
+    assert eth_report.gaps == (Gap(60_000, 120_000),)
 
 
 def test_empty_range_is_not_continuous(tmp_path: Path) -> None:
@@ -173,7 +173,7 @@ def test_empty_range_is_not_continuous(tmp_path: Path) -> None:
 
     assert report.is_continuous is False
     assert report.candle_count == 0
-    assert report.gaps == (GapRange(0, 180_000),)
+    assert report.gaps == (Gap(0, 180_000),)
 
 
 def test_unknown_stream_raises_typed_application_error(tmp_path: Path) -> None:

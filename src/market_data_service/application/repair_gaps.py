@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
+from itertools import islice
 from typing import Protocol
 
 from market_data_service.application.audit_continuity import (
@@ -17,7 +18,7 @@ from market_data_service.application.repair_types import (
     RepairStreamGapsResult,
     RepairWindowResult,
 )
-from market_data_service.domain.continuity import ContinuityReport, GapRange
+from market_data_service.domain.continuity import ContinuityReport
 from market_data_service.domain.gaps import Gap, iter_fetch_windows
 from market_data_service.domain.identity import StreamKey
 from market_data_service.domain.timeframes import get_timeframe
@@ -67,9 +68,10 @@ class RepairStreamGaps:
         window_results: list[RepairWindowResult] = []
         attempted_windows = 0
         try:
-            for window in self._planned_windows(request.stream, pre_repair_audit.gaps):
-                if attempted_windows >= request.max_windows:
-                    break
+            for window in islice(
+                self._planned_windows(request.stream, pre_repair_audit.gaps),
+                request.max_windows,
+            ):
                 attempted_windows += 1
                 imported = self._window_importer.execute(request.stream, window)
                 window_results.append(
@@ -131,16 +133,12 @@ class RepairStreamGaps:
     def _planned_windows(
         self,
         stream: StreamKey,
-        gaps: tuple[GapRange, ...],
-    ) -> tuple[TimeWindow, ...]:
+        gaps: tuple[Gap, ...],
+    ) -> Iterator[TimeWindow]:
         step_ms = get_timeframe(stream.timeframe).duration_ms
-        windows: list[TimeWindow] = []
         for gap in gaps:
-            windows.extend(
-                iter_fetch_windows(
-                    Gap(gap.start_open_time_ms, gap.end_open_time_ms),
-                    step_ms=step_ms,
-                    max_candles=self._max_candles_per_window,
-                )
+            yield from iter_fetch_windows(
+                gap,
+                step_ms=step_ms,
+                max_candles=self._max_candles_per_window,
             )
-        return tuple(windows)

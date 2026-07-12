@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import replace
+from itertools import islice
 
 from market_data_service.application.backfill_errors import classify_backfill_failure
 from market_data_service.application.backfill_types import (
@@ -62,14 +63,15 @@ class BackfillStreamHistory:
                 window_results=(),
             )
 
-        windows = iter_fetch_windows(
-            Gap(cursor, request.end_time_ms),
-            step_ms=get_timeframe(request.stream.timeframe).duration_ms,
-            max_candles=self._max_candles_per_window,
-        )[: request.max_windows]
-
         results: list[BackfillWindowResult] = []
-        for window in windows:
+        for window in islice(
+            iter_fetch_windows(
+                Gap(cursor, request.end_time_ms),
+                step_ms=get_timeframe(request.stream.timeframe).duration_ms,
+                max_candles=self._max_candles_per_window,
+            ),
+            request.max_windows,
+        ):
             try:
                 imported = self._window_importer.execute(request.stream, window)
             except Exception as exc:

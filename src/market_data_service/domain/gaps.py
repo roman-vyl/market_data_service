@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterable
+from collections.abc import Iterable, Iterator
 from dataclasses import dataclass
 
 from market_data_service.domain.windows import TimeWindow
@@ -73,7 +73,7 @@ def iter_fetch_windows(
     *,
     step_ms: int,
     max_candles: int,
-) -> tuple[TimeWindow, ...]:
+) -> Iterator[TimeWindow]:
     """Split one gap into aligned bounded half-open REST fetch windows."""
 
     if step_ms <= 0:
@@ -84,10 +84,8 @@ def iter_fetch_windows(
         raise ValueError("gap must be aligned to step_ms")
 
     max_span_ms = step_ms * max_candles
-    windows: list[TimeWindow] = []
     cursor = gap.start_ms
     while cursor < gap.end_ms:
         end_ms = min(cursor + max_span_ms, gap.end_ms)
-        windows.append(TimeWindow(cursor, end_ms))
+        yield TimeWindow(cursor, end_ms)
         cursor = end_ms
-    return tuple(windows)

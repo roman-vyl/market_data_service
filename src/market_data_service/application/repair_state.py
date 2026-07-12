@@ -7,7 +7,7 @@ from dataclasses import replace
 from typing import Protocol
 
 from market_data_service.application.backfill_errors import classify_backfill_failure
-from market_data_service.domain.continuity import GapRange
+from market_data_service.domain.gaps import Gap
 from market_data_service.domain.identity import StreamKey
 from market_data_service.domain.stream_state import (
     InvalidStreamTransition,
@@ -130,15 +130,15 @@ class RepairStateRecorder:
     def record_unresolved_gaps(
         self,
         stream: StreamKey,
-        gaps: tuple[GapRange, ...],
+        gaps: tuple[Gap, ...],
     ) -> None:
         now_ms = self._clock.now_ms()
         with self._unit_of_work_factory() as unit_of_work:
             for gap in gaps:
                 unit_of_work.record_quarantine(
                     stream=stream,
-                    start_ms=gap.start_open_time_ms,
-                    end_ms=gap.end_open_time_ms,
+                    start_ms=gap.start_ms,
+                    end_ms=gap.end_ms,
                     reason_code="repair_incomplete_gap",
                     detail="post-repair audit still reports a gap",
                     payload_json=None,

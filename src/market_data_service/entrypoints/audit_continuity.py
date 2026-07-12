@@ -55,6 +55,4 @@ def _print_report(database: Path, report: ContinuityReport) -> None:
         f"candle_count={report.candle_count} gap_count={len(report.gaps)}"
     )
     for index, gap in enumerate(report.gaps, start=1):
-        print(
-            f"gap[{index}]=[{gap.start_open_time_ms}, {gap.end_open_time_ms})"
-        )
+        print(f"gap[{index}]=[{gap.start_ms}, {gap.end_ms})")
