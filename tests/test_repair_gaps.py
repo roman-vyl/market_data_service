@@ -387,7 +387,7 @@ def test_empty_source_response_leaves_repair_incomplete(tmp_path: Path) -> None:
     result = _execute(_repair(path, source, FakeClock()), stream, end=180_000)
 
     assert result.status is RepairStatus.INCOMPLETE
-    assert result.fully_repaired is False
+    assert result.complete is False
     assert result.post_repair_audit is not None
     assert result.post_repair_audit.gaps == (Gap(60_000, 120_000),)
     assert "repair_incomplete_gap" in _quarantine_reasons(path, stream)
@@ -407,7 +407,7 @@ def test_partial_source_response_is_ingested_but_remains_incomplete(tmp_path: Pa
     )
 
     assert result.status is RepairStatus.INCOMPLETE
-    assert result.fully_repaired is False
+    assert result.complete is False
     assert result.window_results[0].committed == 1
     assert _open_times(path, stream) == (0, 60_000, 180_000)
     assert result.post_repair_audit is not None
@@ -434,7 +434,7 @@ def test_window_budget_exhaustion_is_bounded_and_incomplete(
     )
 
     assert result.status is RepairStatus.INCOMPLETE
-    assert result.fully_repaired is False
+    assert result.complete is False
     assert spy.yielded == 1
     assert len(source.calls) == 1
     assert source.calls[0][1] == TimeWindow(60_000, 180_000)

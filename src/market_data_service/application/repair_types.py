@@ -61,7 +61,3 @@ class RepairStreamGapsResult:
     @property
     def complete(self) -> bool:
         return self.status is RepairStatus.COMPLETE
-
-    @property
-    def fully_repaired(self) -> bool:
-        return self.complete
