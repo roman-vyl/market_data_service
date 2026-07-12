@@ -128,7 +128,9 @@ def _reject_duplicates(coverages: list[InstrumentCoverage]) -> None:
         symbols.add(coverage.exchange_symbol)
         for stream in coverage.stream_keys:
             if stream in streams:
-                raise MarketConfigError(f"duplicate normalized stream identity: {stream.canonical_id}")
+                raise MarketConfigError(
+                    f"duplicate normalized stream identity: {stream.canonical_id}"
+                )
             streams.add(stream)
 
 

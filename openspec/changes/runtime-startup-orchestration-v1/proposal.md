@@ -2,24 +2,25 @@
 
 ## Why
 
-The codebase has production historical use cases and persisted lifecycle semantics, but it does not yet have a long-running service process that loads configured streams, coordinates finite startup recovery, exposes health/readiness, or shuts down safely.
+The service now has production historical bootstrap/audit/repair and production WebSocket realtime ingestion/recovery, but they still run as separate commands and use cases. A long-running service process is required to load validated configured streams, reconcile durable history, start realtime supervision, expose health/readiness, and shut down safely.
 
 ## What changes
 
-Add the first service runtime:
+Add the first complete service runtime:
 
-- environment settings and validated configured-stream loading;
-- per-stream startup orchestration using existing bootstrap, audit, and repair use cases;
-- strict aggregate and per-stream readiness surfaces;
-- health and readiness HTTP endpoints;
-- structured logging and graceful shutdown;
-- Docker runtime image and persistent-volume compose setup;
-- restart smoke coverage.
+- validated environment/CLI settings and configured-stream loading;
+- deterministic per-stream historical startup reconciliation using existing bootstrap, audit, and repair use cases;
+- one realtime connector/supervisor/recovery loop using the existing WebSocket subsystem;
+- strict per-stream and aggregate readiness projection from durable and realtime facts;
+- `/health` and `/readiness` HTTP endpoints;
+- structured runtime logging and graceful shutdown;
+- Docker service command and persistent-volume compose setup;
+- restart and failure-isolation smoke coverage.
 
 ## What does not change
 
-- no WebSocket ingestion in this change;
 - no consumer candle API;
+- no periodic REST polling scheduler;
 - no unlimited deep bootstrap at startup;
-- no background REST worker scheduler;
-- no event log or server-owned consumer cursor.
+- no event log or server-owned consumer cursor;
+- no second ingestion, gap, repair, or readiness implementation.

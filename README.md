@@ -218,3 +218,46 @@ Bybit REST kline window
 ```
 
 See `docs/bybit-rest-adapter.md`.
+
+## Long-running runtime
+
+Run the complete historical + realtime service process with:
+
+```bash
+market-data-service serve
+```
+
+Runtime configuration uses CLI options over environment variables over defaults.
+The main environment variables are:
+
+```text
+MDS_DATABASE_PATH
+MDS_MARKETS_CONFIG_PATH
+MDS_HTTP_HOST
+MDS_HTTP_PORT
+MDS_REST_BASE_URL
+MDS_WEBSOCKET_URL
+MDS_STARTUP_BACKFILL_WINDOWS_PER_STREAM
+MDS_STARTUP_REPAIR_WINDOWS_PER_STREAM
+MDS_RECONNECT_MAX_ATTEMPTS
+MDS_RECONNECT_DELAY_SECONDS
+MDS_STALE_INTERVALS
+MDS_STALE_GRACE_MS
+MDS_LOG_LEVEL
+```
+
+Startup processes every enabled `ticker × timeframe` stream in deterministic
+configuration order, performs bounded historical bootstrap/audit/repair, then
+starts the existing WebSocket connector, supervisor, and recovery coordinator.
+Persisted `ready` is never trusted after restart.
+
+Process endpoints:
+
+```text
+GET /health
+GET /readiness
+```
+
+`/health` reports process operation independently from market-data readiness.
+`/readiness` returns success only when every required stream has durable
+`ready` state and fresh realtime supervisor facts after recovery.

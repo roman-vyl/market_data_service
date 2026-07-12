@@ -6,6 +6,7 @@ import sys
 from market_data_service import __version__
 from market_data_service.entrypoints.audit_continuity import main as audit_continuity_main
 from market_data_service.entrypoints.backfill import main as backfill_main
+from market_data_service.entrypoints.serve import main as serve_main
 from market_data_service.entrypoints.smoke_all_backfill import main as smoke_all_backfill_main
 from market_data_service.entrypoints.smoke_audit_continuity import (
     main as smoke_audit_continuity_main,
@@ -16,6 +17,7 @@ from market_data_service.entrypoints.smoke_full_bootstrap import (
 )
 from market_data_service.entrypoints.smoke_gap_repair import main as smoke_gap_repair_main
 from market_data_service.entrypoints.smoke_rest import main as smoke_rest_main
+from market_data_service.entrypoints.smoke_websocket import main as smoke_websocket_main
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -36,6 +38,10 @@ def main(argv: list[str] | None = None) -> int:
         return smoke_gap_repair_main(args_in[1:])
     if args_in[:1] == ["smoke-rest"]:
         return smoke_rest_main(args_in[1:])
+    if args_in[:1] == ["smoke-websocket"]:
+        return smoke_websocket_main(args_in[1:])
+    if args_in[:1] == ["serve"]:
+        return serve_main(args_in[1:])
 
     parser = argparse.ArgumentParser(prog="market-data-service")
     subparsers = parser.add_subparsers(dest="command")
@@ -58,6 +64,10 @@ def main(argv: list[str] | None = None) -> int:
         help="run real bounded backfill plus production gap-repair smoke",
     )
     subparsers.add_parser("smoke-rest", help="run the local Bybit REST smoke test")
+    subparsers.add_parser(
+        "smoke-websocket", help="run bounded real Bybit WebSocket ingestion smoke"
+    )
+    subparsers.add_parser("serve", help="run the long-lived market-data runtime")
     parser.parse_args(args_in)
     print(f"market-data-service {__version__}: architecture baseline initialized")
     return 0

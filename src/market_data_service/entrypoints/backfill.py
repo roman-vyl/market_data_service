@@ -8,7 +8,11 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from market_data_service.adapters.bybit import BybitRestCandleSource
-from market_data_service.adapters.sqlite import SqliteUnitOfWork, initialize_database, register_stream
+from market_data_service.adapters.sqlite import (
+    SqliteUnitOfWork,
+    initialize_database,
+    register_stream,
+)
 from market_data_service.application.backfill_stream import BackfillStreamHistory
 from market_data_service.application.backfill_types import BackfillStreamRequest
 from market_data_service.application.full_bootstrap import (
@@ -21,7 +25,6 @@ from market_data_service.application.market_metadata import VerifyConfiguredInst
 from market_data_service.application.multi_stream_backfill import (
     BackfillAllConfiguredStreams,
     MultiStreamBackfillRequest,
-    MultiStreamBackfillResult,
 )
 from market_data_service.config import ValidatedMarketConfig
 from market_data_service.domain import InstrumentCoverage, StreamKey, get_timeframe
@@ -83,7 +86,14 @@ def _run_one(args: argparse.Namespace, config: ValidatedMarketConfig) -> int:
             max_windows=args.max_windows,
         )
     )
-    print_range_result(args.database, entry.exchange_symbol, result, start_ms, end_ms, args.max_windows)
+    print_range_result(
+        args.database,
+        entry.exchange_symbol,
+        result,
+        start_ms,
+        end_ms,
+        args.max_windows,
+    )
     return 0 if result.error_code is None else 1
 
 

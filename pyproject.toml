@@ -12,7 +12,9 @@ license = { text = "Proprietary" }
 authors = [
   { name = "Roman" }
 ]
-dependencies = []
+dependencies = [
+  "websockets>=16,<17",
+]
 
 [project.optional-dependencies]
 dev = [

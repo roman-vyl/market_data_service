@@ -52,3 +52,36 @@ def test_no_generic_manager_or_utils_modules() -> None:
     forbidden_stems = {"manager", "managers", "utils", "helpers"}
     for path in PACKAGE_ROOT.rglob("*.py"):
         assert path.stem not in forbidden_stems, f"generic dumping-ground module: {path}"
+
+
+def test_realtime_modules_preserve_responsibility_boundaries() -> None:
+    transport = PACKAGE_ROOT / "adapters" / "bybit" / "websocket" / "transport.py"
+    protocol = PACKAGE_ROOT / "adapters" / "bybit" / "websocket" / "protocol.py"
+    connector = PACKAGE_ROOT / "application" / "realtime" / "connector.py"
+    handler = PACKAGE_ROOT / "application" / "realtime" / "handler.py"
+
+    forbidden_transport = (
+        "market_data_service.adapters.sqlite",
+        "market_data_service.application.ingest",
+        "market_data_service.application.repair",
+        "market_data_service.application.backfill",
+    )
+    for imported in _internal_imports(transport):
+        assert not imported.startswith(forbidden_transport)
+
+    forbidden_protocol = (
+        "market_data_service.adapters.sqlite",
+        "market_data_service.application.ingest",
+        "market_data_service.application.repair",
+        "market_data_service.application.backfill",
+    )
+    for imported in _internal_imports(protocol):
+        assert not imported.startswith(forbidden_protocol)
+
+    for imported in _internal_imports(connector):
+        assert not imported.startswith("market_data_service.adapters")
+        assert not imported.startswith("market_data_service.application.repair")
+        assert not imported.startswith("market_data_service.application.backfill")
+
+    for imported in _internal_imports(handler):
+        assert not imported.startswith("market_data_service.adapters")

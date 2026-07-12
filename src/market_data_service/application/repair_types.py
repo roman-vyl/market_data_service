@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import StrEnum
+from typing import Literal
 
 from market_data_service.domain.continuity import ContinuityReport
 from market_data_service.domain.identity import StreamKey
@@ -57,6 +58,7 @@ class RepairStreamGapsResult:
     window_results: tuple[RepairWindowResult, ...]
     error_code: str | None = None
     error_detail: str | None = None
+    failure_disposition: Literal["recoverable", "fatal"] | None = None
 
     @property
     def complete(self) -> bool:

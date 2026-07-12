@@ -6,7 +6,6 @@ import pytest
 
 from market_data_service.config import MarketConfigError, load_market_config
 
-
 VALID = '''
 schema_version = 1
 [source]

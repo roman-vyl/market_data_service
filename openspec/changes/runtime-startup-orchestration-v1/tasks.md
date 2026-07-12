@@ -1,16 +1,21 @@
 # Tasks: Runtime Startup Orchestration v1
 
-- [ ] Define environment settings and precedence.
-- [ ] Add validated configured-stream runtime loading.
-- [ ] Add a top-level startup coordinator that composes existing use cases.
-- [ ] Implement interrupted-state recovery before new startup work.
-- [ ] Enforce a finite configurable startup REST-window budget.
-- [ ] Add per-stream startup outcomes and aggregate readiness projection.
-- [ ] Add `/health` endpoint.
-- [ ] Add `/readiness` endpoint with per-stream reasons.
-- [ ] Add structured startup/recovery/state-transition logging.
-- [ ] Add graceful shutdown and resource cleanup.
-- [ ] Add production Dockerfile and persistent-volume compose setup.
-- [ ] Add offline startup/restart/failure-isolation tests.
+- [x] Define validated runtime settings and CLI/environment/default precedence.
+- [x] Add deterministic configured-stream runtime loading and registration.
+- [x] Add one-shot historical startup reconciliation using existing bootstrap/audit/repair.
+- [x] Implement interrupted durable-state recovery and persisted-ready distrust.
+- [x] Enforce explicit per-stream startup backfill and repair budgets.
+- [x] Add startup outcomes and failure isolation.
+- [x] Add realtime dispatch between connector, supervisor, recovery queue, and recovery coordinator.
+- [x] Add per-stream recovery coalescing and serialized bounded recovery.
+- [x] Persist connecting/ready/degraded/failed lifecycle transitions from runtime facts.
+- [x] Add thread-safe process and per-stream status projection.
+- [x] Add `/health` endpoint and typed JSON contract.
+- [x] Add `/readiness` endpoint with durable/realtime reasons.
+- [x] Add structured runtime/startup/recovery/state-transition logging.
+- [x] Add graceful SIGINT/SIGTERM shutdown and resource cleanup.
+- [x] Update Dockerfile and compose for `serve` plus persistent SQLite/config settings.
+- [x] Add offline startup, restart, readiness, recovery-dispatch, and failure-isolation tests.
+- [ ] Add fake WebSocket + fake REST + temporary SQLite full-runtime matrix.
 - [ ] Add Docker restart smoke with persisted SQLite.
-- [ ] Update README, run instructions, acceptance matrix, and base task statuses.
+- [x] Update README, acceptance matrix, and base task status.

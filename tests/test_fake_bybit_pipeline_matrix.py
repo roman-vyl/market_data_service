@@ -3,10 +3,19 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
+from tests.fake_bybit_api import FakeBybitApi, FakeBybitState
+
 from market_data_service.adapters.bybit import BybitRestCandleSource
-from market_data_service.adapters.sqlite import SqliteUnitOfWork, initialize_database, register_stream
+from market_data_service.adapters.sqlite import (
+    SqliteUnitOfWork,
+    initialize_database,
+    register_stream,
+)
 from market_data_service.adapters.sqlite.connection import open_connection
-from market_data_service.application.audit_continuity import AuditStreamContinuity, AuditStreamContinuityRequest
+from market_data_service.application.audit_continuity import (
+    AuditStreamContinuity,
+    AuditStreamContinuityRequest,
+)
 from market_data_service.application.backfill_stream import BackfillStreamHistory
 from market_data_service.application.backfill_types import BackfillStreamRequest
 from market_data_service.application.import_window import ImportHistoricalWindow
@@ -14,8 +23,6 @@ from market_data_service.application.repair_gaps import RepairStreamGaps
 from market_data_service.application.repair_types import RepairStatus, RepairStreamGapsRequest
 from market_data_service.domain import InstrumentKey, StreamKey, TimeWindow
 from market_data_service.domain.stream_state import StreamLifecycleState
-
-from tests.fake_bybit_api import FakeBybitApi, FakeBybitState
 
 
 @dataclass
@@ -36,7 +43,8 @@ def _wire(path: Path, base_url: str):
         exchange_symbols={"BTCUSDT.P": "BTCUSDT"},
         base_url=base_url,
     )
-    factory = lambda: SqliteUnitOfWork(path)
+    def factory() -> SqliteUnitOfWork:
+        return SqliteUnitOfWork(path)
     importer = ImportHistoricalWindow(source, factory, clock)
     backfill = BackfillStreamHistory(importer, factory, clock, max_candles_per_window=3)
     auditor = AuditStreamContinuity(factory)
@@ -68,7 +76,10 @@ def test_fake_api_pipeline_matrix(tmp_path: Path) -> None:
         state.remove("BTCUSDT", 120_000, 300_000)
         connection = open_connection(path)
         try:
-            connection.execute("DELETE FROM candles WHERE open_time_ms IN (?, ?)", (120_000, 300_000))
+            connection.execute(
+                "DELETE FROM candles WHERE open_time_ms IN (?, ?)",
+                (120_000, 300_000),
+            )
             connection.commit()
         finally:
             connection.close()

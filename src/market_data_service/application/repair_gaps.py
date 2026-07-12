@@ -18,6 +18,7 @@ from market_data_service.application.repair_types import (
     RepairStreamGapsResult,
     RepairWindowResult,
 )
+from market_data_service.application.source_failure import classify_source_failure
 from market_data_service.domain.continuity import ContinuityReport
 from market_data_service.domain.gaps import Gap, iter_fetch_windows
 from market_data_service.domain.identity import StreamKey
@@ -87,6 +88,7 @@ class RepairStreamGaps:
                 )
                 self._state.record_rest_success(request.stream)
         except Exception as exc:
+            decision = classify_source_failure(exc)
             self._state.record_failure(request.stream, exc)
             return RepairStreamGapsResult(
                 stream=request.stream,
@@ -99,6 +101,7 @@ class RepairStreamGaps:
                 window_results=tuple(window_results),
                 error_code=type(exc).__name__,
                 error_detail=str(exc),
+                failure_disposition=decision.disposition.value,
             )
 
         self._state.transition_repairing_to_auditing(request.stream)

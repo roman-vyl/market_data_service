@@ -101,7 +101,12 @@ class BackfillStreamHistory:
                 )
             )
 
-        next_start_time_ms = self._resume_start(request)
+        if request.resume_from_latest_committed:
+            next_start_time_ms = self._resume_start(request)
+        elif results:
+            next_start_time_ms = results[-1].window.end_ms
+        else:
+            next_start_time_ms = cursor
         reached_end = next_start_time_ms >= request.end_time_ms
         if reached_end:
             self._transition_to_auditing(request.stream)

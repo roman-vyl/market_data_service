@@ -165,6 +165,10 @@ It is intentionally defined before SQLite, Bybit REST, WebSocket, and HTTP adapt
 | WSS-04 | Duplicate confirmed candle after REST catch-up | Application integration | Duplicate no-op. |
 | WSS-05 | Missing expected minute | Application integration | Stream becomes degraded and REST repair is requested. |
 | WSS-06 | Disconnect and reconnect | Runtime smoke | Catch-up and audit complete before ready is restored. |
+| WSS-07 | Timeframe-aware stale stream | Application integration | Only the stale stream emits recovery-required and independent streams remain unchanged. |
+| WSS-08 | Sequence discontinuity after durable tail | WebSocket/REST/SQLite integration | The suspected internal range is backfilled, audited, repaired if necessary, and post-audit is continuous. |
+| WSS-09 | Recovery readiness gate | Application integration | Recovery success alone is insufficient; a fresh confirmed close after recovery is required. |
+| WSS-10 | Recovery classification | Application integration | Incomplete, recoverable, and fatal results remain distinct and typed. |
 
 ## L. API and runtime
 
@@ -174,6 +178,7 @@ It is intentionally defined before SQLite, Bybit REST, WebSocket, and HTTP adapt
 | API-02 | Latest candle query | API integration | Return latest committed candle for one stream. |
 | API-03 | Per-stream readiness query | API integration | Return state and timestamps for each configured stream. |
 | API-04 | Overall readiness query | API integration | Strict aggregation across all required streams. |
+| WSR-01 | Real bounded WebSocket confirmed close | Bybit/SQLite smoke | Configured topics subscribe, at least one confirmed close enters canonical ingestion within the timeout, and the connector exits cleanly. |
 | RUN-01 | SIGTERM during idle | Runtime smoke | Graceful shutdown with no corruption. |
 | RUN-02 | SIGTERM during REST window transaction | Runtime smoke | Current transaction commits completely or rolls back completely. |
 | RUN-03 | Container restart with persistent volume | Runtime smoke | Schema and progress survive. |
@@ -254,3 +259,38 @@ and durable independent resume for BTCUSDT.P and ETHUSDT.P.
 - Fake Bybit HTTP matrix covers BTC and ETH across `1m`, `5m`, and `1h`.
 - Storage, lower bounds, resume, gaps, and repair remain isolated per ticker-by-timeframe stream.
 - Bybit requests carry the correct interval for each canonical timeframe.
+
+## First real WebSocket ingestion smoke milestone
+
+The first bounded realtime ingestion smoke is accepted when `WSR-01` passes
+through the real Bybit public linear WebSocket, configured multi-symbol and
+multi-timeframe routing, canonical ingestion, temporary SQLite, and clean stop.
+The full fake realtime recovery matrix additionally covers supervisor state, stale and sequence signals, disconnect/resubscribe, bounded REST recovery, gap repair, post-audit, restored-through boundaries, and fresh-after-recovery readiness gating.
+
+
+## Realtime recovery integration milestone
+
+The WebSocket recovery change is accepted when:
+
+```text
+WSS-01 through WSS-10, WSR-01
+```
+
+pass through transport-neutral WebSocket events, canonical ingestion, per-stream
+supervision, fake REST, temporary SQLite, bounded backfill/repair, post-audit, and
+fresh-after-recovery readiness facts across multiple symbols and timeframes.
+
+
+## Runtime startup orchestration
+
+| ID | Scenario | Level | Expected result |
+|---|---|---|---|
+| RUN-04 | Valid settings precedence | Unit | CLI overrides environment; environment overrides defaults; invalid budgets/ports reject before mutation. |
+| RUN-05 | Persisted state after restart | Integration | Persisted ready/connecting/degraded state is historically reconciled again before realtime readiness. |
+| RUN-06 | Bounded startup per stream | Integration | Every configured ticker × timeframe receives explicit backfill and repair budgets. |
+| RUN-07 | Historical proof before connecting | Integration | Only target-reached and continuous streams enter connecting. |
+| RUN-08 | Strict runtime readiness | Unit/integration | Durable ready and realtime-ready facts are both required; one unready stream keeps aggregate false. |
+| RUN-09 | Health/readiness HTTP | HTTP integration | Health is independent; readiness returns 503 until all streams are ready. |
+| RUN-10 | Recovery dispatch isolation | Integration | Recovery signals are serialized/coalesced per stream and independent streams continue. |
+| RUN-11 | Graceful shutdown | Integration | HTTP, connector, stale checker, and recovery worker stop without losing committed SQLite work. |
+| RUN-12 | Docker restart persistence | Docker smoke | Restart preserves SQLite and repeats historical/realtime reconciliation before readiness. |

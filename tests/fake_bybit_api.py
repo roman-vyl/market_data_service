@@ -74,7 +74,7 @@ class FakeBybitApi(AbstractContextManager["FakeBybitApi"]):
         parent = self
 
         class Handler(BaseHTTPRequestHandler):
-            def do_GET(self) -> None:  # noqa: N802
+            def do_GET(self) -> None:
                 parsed = urlparse(self.path)
                 query = parse_qs(parsed.query)
                 parent.state.calls.append((parsed.path, query))
@@ -133,7 +133,7 @@ class FakeBybitApi(AbstractContextManager["FakeBybitApi"]):
                 self.end_headers()
                 self.wfile.write(body)
 
-            def log_message(self, format: str, *args: Any) -> None:  # noqa: A002
+            def log_message(self, format: str, *args: Any) -> None:
                 return
 
         self._server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
@@ -144,7 +144,7 @@ class FakeBybitApi(AbstractContextManager["FakeBybitApi"]):
         host, port = self._server.server_address
         return f"http://{host}:{port}"
 
-    def __enter__(self) -> "FakeBybitApi":
+    def __enter__(self) -> FakeBybitApi:
         self._thread.start()
         return self
 

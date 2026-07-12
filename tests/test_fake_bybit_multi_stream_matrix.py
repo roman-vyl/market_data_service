@@ -4,8 +4,14 @@ import sqlite3
 from dataclasses import dataclass
 from pathlib import Path
 
+from tests.fake_bybit_api import FakeBybitApi, FakeBybitState
+
 from market_data_service.adapters.bybit import BybitRestCandleSource
-from market_data_service.adapters.sqlite import SqliteUnitOfWork, initialize_database, register_stream
+from market_data_service.adapters.sqlite import (
+    SqliteUnitOfWork,
+    initialize_database,
+    register_stream,
+)
 from market_data_service.application.audit_continuity import (
     AuditStreamContinuity,
     AuditStreamContinuityRequest,
@@ -23,8 +29,6 @@ from market_data_service.application.repair_gaps import RepairStreamGaps
 from market_data_service.application.repair_types import RepairStatus, RepairStreamGapsRequest
 from market_data_service.domain import HistoryPolicy, InstrumentCoverage, InstrumentKey, StreamKey
 from market_data_service.domain.timeframes import get_timeframe
-
-from tests.fake_bybit_api import FakeBybitApi, FakeBybitState
 
 
 @dataclass
@@ -88,7 +92,8 @@ def test_fake_api_multi_symbol_multi_timeframe_orchestration_and_repair(tmp_path
             base_url=api.base_url,
         )
         verifier = VerifyConfiguredInstrumentMetadata(source, category="linear")
-        uow_factory = lambda: SqliteUnitOfWork(database)
+        def uow_factory() -> SqliteUnitOfWork:
+            return SqliteUnitOfWork(database)
 
         def bootstrap_factory(
             coverage: InstrumentCoverage, stream: StreamKey
