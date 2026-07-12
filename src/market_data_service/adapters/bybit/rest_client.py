@@ -2,11 +2,15 @@
 
 from __future__ import annotations
 
+import random
+import time
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
 
 from market_data_service.adapters.bybit.errors import (
     BybitApiError,
+    BybitHttpError,
     BybitPayloadError,
     BybitTransientApiError,
 )
@@ -33,6 +37,13 @@ class BybitRestCandleSource:
     category: str = "linear"
     timeout_seconds: float = 10.0
     transport: JsonHttpTransport = field(default_factory=UrllibJsonHttpTransport)
+    retry_attempts: int = 4
+    retry_base_delay_seconds: float = 1.0
+    retry_rate_limit_delay_seconds: float = 5.0
+    retry_max_delay_seconds: float = 8.0
+    retry_jitter_ratio: float = 0.25
+    sleeper: Callable[[float], None] = time.sleep
+    randomizer: Callable[[], float] = random.random
     _instrument_cache: dict[str, ExchangeInstrumentSpecification] = field(
         default_factory=dict,
         init=False,
@@ -47,10 +58,9 @@ class BybitRestCandleSource:
         if cached is not None:
             return cached
         symbol = self._exchange_symbol_for_instrument(instrument)
-        payload = self.transport.get_json(
+        payload = self._get_json_with_retry(
             f"{self.base_url.rstrip('/')}/v5/market/instruments-info",
             {"category": self.category, "symbol": symbol},
-            self.timeout_seconds,
         )
         rows = _extract_rows(payload)
         for row in rows:
@@ -76,10 +86,9 @@ class BybitRestCandleSource:
         if cached is not None:
             return cached.launch_time_ms
         symbol = self._exchange_symbol_for_instrument(instrument)
-        payload = self.transport.get_json(
+        payload = self._get_json_with_retry(
             f"{self.base_url.rstrip('/')}/v5/market/instruments-info",
             {"category": self.category, "symbol": symbol},
-            self.timeout_seconds,
         )
         rows = _extract_rows(payload)
         for row in rows:
@@ -101,7 +110,7 @@ class BybitRestCandleSource:
         max_rows = max(1, window.duration_ms // timeframe.duration_ms)
         if max_rows > 1000:
             raise ValueError("Bybit kline window must contain no more than 1000 candles")
-        payload = self.transport.get_json(
+        payload = self._get_json_with_retry(
             f"{self.base_url.rstrip('/')}/v5/market/kline",
             {
                 "category": self.category,
@@ -111,7 +120,6 @@ class BybitRestCandleSource:
                 "end": window.end_ms - 1,
                 "limit": max_rows,
             },
-            self.timeout_seconds,
         )
         rows = _extract_rows(payload)
         return parse_kline_rows(
@@ -130,13 +138,50 @@ class BybitRestCandleSource:
         except KeyError as exc:
             raise ValueError(f"no Bybit symbol configured for {instrument.ticker}") from exc
 
+    def _get_json_with_retry(
+        self,
+        url: str,
+        params: dict[str, str | int],
+    ) -> dict[str, Any]:
+        attempts = max(1, self.retry_attempts)
+        for attempt in range(1, attempts + 1):
+            try:
+                return self.transport.get_json(url, params, self.timeout_seconds)
+            except (BybitHttpError, BybitTransientApiError) as exc:
+                if attempt == attempts:
+                    raise
+                self.sleeper(self._retry_delay_seconds(exc, attempt))
+        raise AssertionError("retry loop exhausted without raising")
+
+    def _retry_delay_seconds(
+        self,
+        exc: BybitHttpError | BybitTransientApiError,
+        attempt: int,
+    ) -> float:
+        if isinstance(exc, BybitHttpError) and exc.retry_after_seconds is not None:
+            return max(0.0, min(self.retry_max_delay_seconds, exc.retry_after_seconds))
+        base_delay = (
+            self.retry_rate_limit_delay_seconds
+            if _is_rate_limit_error(exc)
+            else self.retry_base_delay_seconds
+        )
+        delay = min(
+            self.retry_max_delay_seconds,
+            base_delay * (2 ** max(0, attempt - 1)),
+        )
+        jitter = delay * self.retry_jitter_ratio * float(self.randomizer())
+        return float(min(self.retry_max_delay_seconds, delay + jitter))
+
 
 def _extract_rows(payload: dict[str, Any]) -> list[Any]:
     ret_code = payload.get("retCode")
     if ret_code != 0:
         message = payload.get("retMsg", "unknown Bybit API error")
         if ret_code in _TRANSIENT_RET_CODES:
-            raise BybitTransientApiError(f"Bybit retCode={ret_code}: {message}")
+            raise BybitTransientApiError(
+                f"Bybit retCode={ret_code}: {message}",
+                ret_code=ret_code,
+            )
         raise BybitApiError(f"Bybit retCode={ret_code}: {message}")
     result = payload.get("result")
     if not isinstance(result, dict):
@@ -165,3 +210,9 @@ def _required_non_negative_int(row: dict[str, Any], key: str, context: str) -> i
     if parsed < 0:
         raise BybitPayloadError(f"Bybit {context}.{key} must be non-negative")
     return parsed
+
+
+def _is_rate_limit_error(exc: BybitHttpError | BybitTransientApiError) -> bool:
+    if isinstance(exc, BybitTransientApiError):
+        return exc.ret_code == 10006
+    return exc.status_code == 429

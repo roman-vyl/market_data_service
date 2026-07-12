@@ -6,7 +6,11 @@ from typing import Any
 
 import pytest
 
-from market_data_service.adapters.bybit import BybitApiError, BybitRestCandleSource
+from market_data_service.adapters.bybit import (
+    BybitApiError,
+    BybitHttpError,
+    BybitRestCandleSource,
+)
 from market_data_service.adapters.sqlite import (
     SqliteUnitOfWork,
     initialize_database,
@@ -29,6 +33,24 @@ class FakeTransport:
     ) -> dict[str, Any]:
         self.calls.append((url, params, timeout_seconds))
         return self.payload
+
+
+class SequencedTransport:
+    def __init__(self, outcomes: list[dict[str, Any] | Exception]) -> None:
+        self._outcomes = list(outcomes)
+        self.calls: list[tuple[str, dict[str, str | int], float]] = []
+
+    def get_json(
+        self,
+        url: str,
+        params: dict[str, str | int],
+        timeout_seconds: float,
+    ) -> dict[str, Any]:
+        self.calls.append((url, params, timeout_seconds))
+        outcome = self._outcomes.pop(0)
+        if isinstance(outcome, Exception):
+            raise outcome
+        return outcome
 
 
 @dataclass
@@ -208,3 +230,79 @@ def test_adapter_classifies_approved_transient_ret_code() -> None:
         pass
     else:
         raise AssertionError("expected transient Bybit API error")
+
+
+def test_adapter_retries_recoverable_http_failure_then_succeeds() -> None:
+    transport = SequencedTransport([BybitHttpError("timeout"), _payload()])
+    delays: list[float] = []
+    source = BybitRestCandleSource(
+        exchange_symbols={"BTCUSDT.P": "BTCUSDT"},
+        transport=transport,
+        sleeper=delays.append,
+        randomizer=lambda: 0.0,
+    )
+
+    candles = source.fetch_closed_candles(
+        _stream(),
+        TimeWindow(0, 120000),
+        observed_at_ms=180000,
+    )
+
+    assert [candle.open_time_ms for candle in candles] == [0, 60000]
+    assert len(transport.calls) == 2
+    assert delays == [1.0]
+
+
+def test_adapter_retries_rate_limit_with_longer_backoff() -> None:
+    from market_data_service.adapters.bybit.errors import BybitTransientApiError
+
+    transport = SequencedTransport(
+        [BybitTransientApiError("Bybit retCode=10006: Too many visits", ret_code=10006), _payload()]
+    )
+    delays: list[float] = []
+    source = BybitRestCandleSource(
+        exchange_symbols={"BTCUSDT.P": "BTCUSDT"},
+        transport=transport,
+        sleeper=delays.append,
+        randomizer=lambda: 0.0,
+    )
+
+    source.fetch_closed_candles(_stream(), TimeWindow(0, 120000), observed_at_ms=180000)
+
+    assert len(transport.calls) == 2
+    assert delays == [5.0]
+
+
+def test_adapter_honors_retry_after_when_present() -> None:
+    transport = SequencedTransport(
+        [BybitHttpError("HTTP 429", status_code=429, retry_after_seconds=3.0), _payload()]
+    )
+    delays: list[float] = []
+    source = BybitRestCandleSource(
+        exchange_symbols={"BTCUSDT.P": "BTCUSDT"},
+        transport=transport,
+        sleeper=delays.append,
+        randomizer=lambda: 0.0,
+    )
+
+    source.fetch_closed_candles(_stream(), TimeWindow(0, 120000), observed_at_ms=180000)
+
+    assert delays == [3.0]
+
+
+def test_adapter_does_not_retry_fatal_api_error() -> None:
+    transport = SequencedTransport(
+        [{"retCode": 10001, "retMsg": "bad request"}, _payload()]
+    )
+    delays: list[float] = []
+    source = BybitRestCandleSource(
+        exchange_symbols={"BTCUSDT.P": "BTCUSDT"},
+        transport=transport,
+        sleeper=delays.append,
+    )
+
+    with pytest.raises(BybitApiError, match="10001"):
+        source.fetch_closed_candles(_stream(), TimeWindow(0, 60000), observed_at_ms=120000)
+
+    assert len(transport.calls) == 1
+    assert delays == []
