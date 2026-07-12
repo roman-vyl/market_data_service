@@ -30,8 +30,18 @@ cheap:
 - restart the container with `docker compose restart` or `docker compose up -d`;
 - do not rebuild the image unless application code or packaged defaults changed.
 
-The SQLite database remains external to the image and is still expected at
-`/data/market.sqlite3` via the named Docker volume.
+The SQLite database remains external to the image and, in local Docker Compose,
+is mounted from the repository working tree:
+
+```text
+./data -> /data
+./data/market.sqlite3 -> /data/market.sqlite3
+```
+
+That means the database file is visible directly in the project folder on the
+host and survives ordinary image rebuilds or image deletion. For local Docker
+Compose, the container reads and writes the same SQLite file that you can
+inspect under `./data/`.
 
 ## Status
 
