@@ -3,8 +3,6 @@
 from __future__ import annotations
 
 import argparse
-import tomllib
-from dataclasses import dataclass
 from pathlib import Path
 
 from market_data_service.adapters.sqlite import SqliteUnitOfWork
@@ -13,17 +11,16 @@ from market_data_service.application.audit_continuity import (
     AuditStreamContinuityRequest,
 )
 from market_data_service.domain import ContinuityReport, InstrumentKey, StreamKey
-
-
-@dataclass(frozen=True, slots=True)
-class MarketConfigEntry:
-    ticker: str
+from market_data_service.entrypoints.market_config import (
+    entry_for_ticker,
+    load_enabled_market_entries,
+)
 
 
 def main(argv: list[str] | None = None) -> int:
     args = _build_parser().parse_args(argv)
-    config = _load_market_config(args.config)
-    entry = _entry_for_ticker(config, args.ticker)
+    config = load_enabled_market_entries(args.config)
+    entry = entry_for_ticker(config, args.ticker)
     stream = StreamKey(InstrumentKey(entry.ticker), args.timeframe)
     auditor = AuditStreamContinuity(lambda: SqliteUnitOfWork(args.database))
     report = auditor.execute(
@@ -46,26 +43,6 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--start", type=int, required=True)
     parser.add_argument("--end", type=int, required=True)
     return parser
-
-
-def _load_market_config(path: Path) -> tuple[MarketConfigEntry, ...]:
-    payload = tomllib.loads(path.read_text(encoding="utf-8"))
-    return tuple(
-        MarketConfigEntry(ticker=str(item["ticker"]))
-        for item in payload.get("instruments", [])
-        if item.get("enabled") is True
-    )
-
-
-def _entry_for_ticker(
-    entries: tuple[MarketConfigEntry, ...],
-    ticker: str,
-) -> MarketConfigEntry:
-    normalized = InstrumentKey(ticker).ticker
-    for entry in entries:
-        if entry.ticker == normalized:
-            return entry
-    raise ValueError(f"ticker is not enabled in market config: {normalized}")
 
 
 def _print_report(database: Path, report: ContinuityReport) -> None:

@@ -6,6 +6,9 @@ import sys
 from market_data_service import __version__
 from market_data_service.entrypoints.audit_continuity import main as audit_continuity_main
 from market_data_service.entrypoints.backfill import main as backfill_main
+from market_data_service.entrypoints.smoke_audit_continuity import (
+    main as smoke_audit_continuity_main,
+)
 from market_data_service.entrypoints.smoke_backfill import main as smoke_backfill_main
 from market_data_service.entrypoints.smoke_rest import main as smoke_rest_main
 
@@ -18,6 +21,8 @@ def main(argv: list[str] | None = None) -> int:
         return backfill_main(args_in[1:])
     if args_in[:1] == ["smoke-backfill"]:
         return smoke_backfill_main(args_in[1:])
+    if args_in[:1] == ["smoke-audit-continuity"]:
+        return smoke_audit_continuity_main(args_in[1:])
     if args_in[:1] == ["smoke-rest"]:
         return smoke_rest_main(args_in[1:])
 
@@ -25,6 +30,10 @@ def main(argv: list[str] | None = None) -> int:
     subparsers = parser.add_subparsers(dest="command")
     subparsers.add_parser("audit-continuity", help="audit canonical candle continuity")
     subparsers.add_parser("backfill", help="run bounded historical REST backfill")
+    subparsers.add_parser(
+        "smoke-audit-continuity",
+        help="run real REST backfill plus continuity smoke",
+    )
     subparsers.add_parser("smoke-backfill", help="run real bounded backfill smoke")
     subparsers.add_parser("smoke-rest", help="run the local Bybit REST smoke test")
     parser.parse_args(args_in)

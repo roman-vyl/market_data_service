@@ -3,6 +3,7 @@
 from market_data_service.application.audit_continuity import (
     AuditStreamContinuity,
     AuditStreamContinuityRequest,
+    UnknownStreamError,
 )
 
 
@@ -29,4 +30,5 @@ __all__ = [
     "EvaluateStreamReadiness",
     "RepairStreamGaps",
     "ResolveEarliestAvailableCandle",
+    "UnknownStreamError",
 ]

@@ -26,7 +26,12 @@ from market_data_service.ports.storage import CanonicalStorageUnitOfWork
 
 
 class BackfillStreamHistory:
-    """Sequential bounded history loading for one stream."""
+    """Sequential bounded history loading for one stream.
+
+    Backfill only fetches requested ranges, stores candles through canonical
+    ingestion, and resumes from durable progress. It does not prove continuity,
+    search for gaps, or repair missing ranges.
+    """
 
     def __init__(
         self,

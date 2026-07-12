@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from market_data_service.adapters.sqlite import (
     SqliteUnitOfWork,
     initialize_database,
@@ -10,6 +12,7 @@ from market_data_service.adapters.sqlite import (
 from market_data_service.application.audit_continuity import (
     AuditStreamContinuity,
     AuditStreamContinuityRequest,
+    UnknownStreamError,
 )
 from market_data_service.application.ingest import IngestObservedCandle
 from market_data_service.domain import (
@@ -92,6 +95,30 @@ def test_missing_candle_reports_gap(tmp_path: Path) -> None:
     assert report.gaps == (GapRange(120_000, 180_000),)
 
 
+def test_gap_at_beginning_is_reported(tmp_path: Path) -> None:
+    path = tmp_path / "market.sqlite"
+    stream = _stream()
+    _prepare(path, stream)
+    _insert(path, stream, (120_000, 180_000, 240_000))
+
+    report = _audit(path, stream, 0, 300_000)
+
+    assert report.is_continuous is False
+    assert report.gaps == (GapRange(0, 120_000),)
+
+
+def test_gap_at_end_is_reported(tmp_path: Path) -> None:
+    path = tmp_path / "market.sqlite"
+    stream = _stream()
+    _prepare(path, stream)
+    _insert(path, stream, (0, 60_000))
+
+    report = _audit(path, stream, 0, 300_000)
+
+    assert report.is_continuous is False
+    assert report.gaps == (GapRange(120_000, 300_000),)
+
+
 def test_multiple_gaps_are_reported(tmp_path: Path) -> None:
     path = tmp_path / "market.sqlite"
     stream = _stream()
@@ -105,6 +132,19 @@ def test_multiple_gaps_are_reported(tmp_path: Path) -> None:
         GapRange(60_000, 120_000),
         GapRange(180_000, 300_000),
     )
+
+
+def test_audit_uses_only_requested_bounded_range(tmp_path: Path) -> None:
+    path = tmp_path / "market.sqlite"
+    stream = _stream()
+    _prepare(path, stream)
+    _insert(path, stream, (0, 60_000, 120_000, 180_000, 240_000))
+
+    report = _audit(path, stream, 60_000, 240_000)
+
+    assert report.is_continuous is True
+    assert report.candle_count == 3
+    assert report.gaps == ()
 
 
 def test_audit_is_isolated_per_stream(tmp_path: Path) -> None:
@@ -134,3 +174,12 @@ def test_empty_range_is_not_continuous(tmp_path: Path) -> None:
     assert report.is_continuous is False
     assert report.candle_count == 0
     assert report.gaps == (GapRange(0, 180_000),)
+
+
+def test_unknown_stream_raises_typed_application_error(tmp_path: Path) -> None:
+    path = tmp_path / "market.sqlite"
+    initialize_database(path)
+    stream = _stream()
+
+    with pytest.raises(UnknownStreamError, match=stream.canonical_id):
+        _audit(path, stream, 0, 60_000)

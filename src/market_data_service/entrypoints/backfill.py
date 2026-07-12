@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import argparse
 import time
-import tomllib
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -18,6 +17,10 @@ from market_data_service.application.backfill_stream import BackfillStreamHistor
 from market_data_service.application.backfill_types import BackfillStreamRequest
 from market_data_service.application.import_window import ImportHistoricalWindow
 from market_data_service.domain import InstrumentKey, StreamKey, get_timeframe
+from market_data_service.entrypoints.market_config import (
+    entry_for_ticker,
+    load_enabled_market_entries,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -26,16 +29,10 @@ class SystemClock:
         return int(time.time() * 1000)
 
 
-@dataclass(frozen=True, slots=True)
-class MarketConfigEntry:
-    ticker: str
-    exchange_symbol: str
-
-
 def main(argv: list[str] | None = None) -> int:
     args = _build_parser().parse_args(argv)
-    config = _load_market_config(args.config)
-    entry = _entry_for_ticker(config, args.ticker)
+    config = load_enabled_market_entries(args.config)
+    entry = entry_for_ticker(config, args.ticker)
     stream = StreamKey(InstrumentKey(entry.ticker), args.timeframe)
     start_ms, end_ms = _resolve_range(args, stream)
     clock = SystemClock()
@@ -105,31 +102,6 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--minutes", type=int)
     parser.add_argument("--max-windows", type=int, default=1)
     return parser
-
-
-def _load_market_config(path: Path) -> tuple[MarketConfigEntry, ...]:
-    payload = tomllib.loads(path.read_text(encoding="utf-8"))
-    entries: list[MarketConfigEntry] = []
-    for item in payload.get("instruments", []):
-        if item.get("enabled") is True:
-            entries.append(
-                MarketConfigEntry(
-                    ticker=str(item["ticker"]),
-                    exchange_symbol=str(item["exchange_symbol"]),
-                )
-            )
-    return tuple(entries)
-
-
-def _entry_for_ticker(
-    entries: tuple[MarketConfigEntry, ...],
-    ticker: str,
-) -> MarketConfigEntry:
-    normalized = InstrumentKey(ticker).ticker
-    for entry in entries:
-        if entry.ticker == normalized:
-            return entry
-    raise ValueError(f"ticker is not enabled in market config: {normalized}")
 
 
 def _resolve_range(args: argparse.Namespace, stream: StreamKey) -> tuple[int, int]:

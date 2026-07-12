@@ -94,6 +94,8 @@ It is intentionally defined before SQLite, Bybit REST, WebSocket, and HTTP adapt
 | GAP-09 | Audit explicit stored range | SQLite/application integration | Read canonical candles for one stream/range and return a continuity report without state changes. |
 | GAP-10 | Empty audited range | SQLite/application integration | Return non-continuous with a gap covering the checked range. |
 | GAP-11 | Multi-stream continuity audit | SQLite/application integration | BTC and ETH reports are independent and one stream's gaps do not affect another report. |
+| GAP-12 | Gap at audited range beginning or end | SQLite/application integration | Report leading and trailing missing intervals inside the requested range. |
+| GAP-13 | Unknown stream audit | Application integration | Raise a typed application error without scanning storage or changing state. |
 
 ## G. Persisted state machine and restart
 
@@ -142,6 +144,7 @@ It is intentionally defined before SQLite, Bybit REST, WebSocket, and HTTP adapt
 | RST-06 | Non-retryable Bybit error | Application integration | Typed failure, quarantine where appropriate, no partial readiness. |
 | RST-07 | Re-fetch same window | Bybit/SQLite smoke | Second ingestion produces duplicates only. |
 | RST-08 | Real bounded backfill smoke | Bybit/SQLite smoke | Temporary SQLite is created, `BackfillStreamHistory` imports a small BTCUSDT 1m range, duplicate replay adds no rows, persistence reopens cleanly, and smoke-only 1m continuity passes. |
+| RST-09 | Real backfill plus continuity audit smoke | Bybit/SQLite smoke | Temporary SQLite is created, bounded BTCUSDT 1m backfill succeeds, `AuditStreamContinuity` over the same range is continuous, and no gaps are reported. |
 
 ## K. WebSocket realtime
 
@@ -199,3 +202,14 @@ RST-08, BST-05, ING-01, ING-02, ING-10, STM-06
 
 pass through real Bybit REST, canonical ingestion, temporary SQLite persistence,
 duplicate replay, and the smoke-only 1m continuity assertion.
+
+## First real continuity audit smoke milestone
+
+The first end-to-end continuity audit smoke is accepted when:
+
+```text
+RST-09, GAP-09, GAP-10, GAP-11, GAP-12, GAP-13
+```
+
+pass through real Bybit REST backfill, temporary SQLite persistence, and
+`AuditStreamContinuity` over the same explicit bounded range.
