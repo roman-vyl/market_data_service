@@ -10,6 +10,7 @@ from market_data_service.entrypoints.smoke_audit_continuity import (
     main as smoke_audit_continuity_main,
 )
 from market_data_service.entrypoints.smoke_backfill import main as smoke_backfill_main
+from market_data_service.entrypoints.smoke_gap_repair import main as smoke_gap_repair_main
 from market_data_service.entrypoints.smoke_rest import main as smoke_rest_main
 
 
@@ -23,6 +24,8 @@ def main(argv: list[str] | None = None) -> int:
         return smoke_backfill_main(args_in[1:])
     if args_in[:1] == ["smoke-audit-continuity"]:
         return smoke_audit_continuity_main(args_in[1:])
+    if args_in[:1] == ["smoke-gap-repair"]:
+        return smoke_gap_repair_main(args_in[1:])
     if args_in[:1] == ["smoke-rest"]:
         return smoke_rest_main(args_in[1:])
 
@@ -35,6 +38,10 @@ def main(argv: list[str] | None = None) -> int:
         help="run real REST backfill plus continuity smoke",
     )
     subparsers.add_parser("smoke-backfill", help="run real bounded backfill smoke")
+    subparsers.add_parser(
+        "smoke-gap-repair",
+        help="run real bounded backfill plus production gap-repair smoke",
+    )
     subparsers.add_parser("smoke-rest", help="run the local Bybit REST smoke test")
     parser.parse_args(args_in)
     print(f"market-data-service {__version__}: architecture baseline initialized")

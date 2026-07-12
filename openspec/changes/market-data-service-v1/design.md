@@ -92,6 +92,29 @@ One bounded Bybit REST response window is the historical transaction boundary. R
 
 REST is used for initial population, startup catch-up, explicit backfill, gap repair, and reconnect repair. WebSocket is used for low-latency delivery of confirmed closes. Both use the same canonical ingestion path.
 
+Gap repair is an application use case with this observable sequence:
+
+```text
+bounded continuity audit
+  -> detected half-open gaps
+  -> bounded REST windows
+  -> canonical ingestion
+  -> post-repair continuity audit
+```
+
+The repair result reports the preflight audit, every attempted bounded window,
+canonical ingestion counts, unexpected-row diagnostics, the post-repair audit,
+and a status of complete, incomplete, or failed. Empty or partial REST responses
+are not success by themselves; the post-repair audit is the source of truth.
+Rows outside the requested stream or half-open window are quarantined and are
+not inserted into canonical storage. Repair may exhaust its explicit window
+budget and return incomplete without inventing durable job or gap tables.
+
+Repair owns lifecycle transitions only between `auditing` and `repairing`.
+It may move a stream to `degraded` or `failed` on classified failure, but a
+successful repair returns to `auditing` and never directly to `connecting` or
+`ready`.
+
 ## Storage operation
 
 SQLite has one service-owner process. The baseline pragmas are WAL, synchronous NORMAL, 30-second busy timeout, and foreign keys enabled.

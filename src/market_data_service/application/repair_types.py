@@ -1,56 +1,63 @@
-"""Data contracts for bounded stream backfill."""
+"""Data contracts for bounded gap repair."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Protocol
+from enum import StrEnum
 
+from market_data_service.domain.continuity import ContinuityReport
 from market_data_service.domain.identity import StreamKey
 from market_data_service.domain.timeframes import get_timeframe
 from market_data_service.domain.windows import TimeWindow
 
 
+class RepairStatus(StrEnum):
+    COMPLETE = "complete"
+    INCOMPLETE = "incomplete"
+    FAILED = "failed"
+
+
 @dataclass(frozen=True, slots=True)
-class BackfillStreamRequest:
+class RepairStreamGapsRequest:
     stream: StreamKey
     start_time_ms: int
     end_time_ms: int
     max_windows: int
-    resume_from_latest_committed: bool = True
 
     def __post_init__(self) -> None:
         if self.start_time_ms >= self.end_time_ms:
-            raise ValueError("backfill range must satisfy start_time_ms < end_time_ms")
+            raise ValueError("repair range must satisfy start_time_ms < end_time_ms")
         if self.max_windows <= 0:
             raise ValueError("max_windows must be positive")
         step_ms = get_timeframe(self.stream.timeframe).duration_ms
         if self.start_time_ms % step_ms or self.end_time_ms % step_ms:
-            raise ValueError("backfill range must be aligned to stream timeframe")
+            raise ValueError("repair range must be aligned to stream timeframe")
 
 
 @dataclass(frozen=True, slots=True)
-class BackfillWindowResult:
+class RepairWindowResult:
     window: TimeWindow
     observed: int
     committed: int
     duplicates: int
     corrected: int
     rejected: int
-    unexpected: int = 0
+    unexpected: int
 
 
 @dataclass(frozen=True, slots=True)
-class BackfillStreamResult:
+class RepairStreamGapsResult:
     stream: StreamKey
     requested_window: TimeWindow
+    status: RepairStatus
+    pre_repair_audit: ContinuityReport
+    post_repair_audit: ContinuityReport | None
     attempted_windows: int
     completed_windows: int
-    reached_end: bool
-    next_start_time_ms: int
-    window_results: tuple[BackfillWindowResult, ...]
+    window_results: tuple[RepairWindowResult, ...]
     error_code: str | None = None
     error_detail: str | None = None
 
-
-class Clock(Protocol):
-    def now_ms(self) -> int: ...
+    @property
+    def complete(self) -> bool:
+        return self.status is RepairStatus.COMPLETE

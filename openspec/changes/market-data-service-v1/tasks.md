@@ -76,18 +76,20 @@
 - [x] Add market-data source port.
 - [x] Add Bybit REST adapter.
 - [x] Add timeframe-to-Bybit interval mapping.
-- [ ] Add bounded fetch-window iteration.
+- [x] Add bounded fetch-window iteration.
 - [x] Add response normalization.
 - [ ] Add retry classification.
 - [ ] Add resumable full-minute-history backfill use case.
 - [x] Approve sequential bounded REST backfill contract.
 - [x] Add pure one-stream/all-stream backfill planning contracts.
-- [ ] Add finite administrative `backfill --ticker/--all` entrypoint.
-- [ ] Add gap detection.
-- [ ] Add repair use case.
-- [ ] Add post-repair audit.
+- [x] Add finite administrative bounded `backfill --ticker` entrypoint.
+- [ ] Add finite administrative bounded `backfill --all` entrypoint.
+- [x] Add gap detection.
+- [x] Add production bounded gap repair use case.
+- [x] Add post-repair audit.
+- [x] Document production repair result, incomplete, and unexpected-row diagnostics contract.
 - [x] Add fake source integration tests.
-- [ ] Add Bybit demo/public smoke command.
+- [x] Add Bybit demo/public smoke commands.
 
 ## Phase 3 — Runtime and Docker
 

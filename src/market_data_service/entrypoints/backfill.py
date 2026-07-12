@@ -77,7 +77,7 @@ def main(argv: list[str] | None = None) -> int:
             f"window[{index}]=[{window.start_ms}, {window.end_ms}) "
             f"observed={window_result.observed} committed={window_result.committed} "
             f"duplicate={window_result.duplicates} corrected={window_result.corrected} "
-            f"rejected={window_result.rejected}"
+            f"rejected={window_result.rejected} unexpected={window_result.unexpected}"
         )
     print(
         f"backfill_result completed_windows={result.completed_windows} "

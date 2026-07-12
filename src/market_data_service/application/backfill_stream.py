@@ -94,6 +94,7 @@ class BackfillStreamHistory:
                     duplicates=imported.duplicates,
                     corrected=imported.corrected,
                     rejected=imported.rejected,
+                    unexpected=imported.unexpected,
                 )
             )
 

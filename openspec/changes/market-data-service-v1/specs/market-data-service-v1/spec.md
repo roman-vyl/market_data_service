@@ -194,6 +194,29 @@ adjacent missing candles into half-open gaps, and reject off-grid timestamps.
 A missing gap SHALL be divisible into aligned half-open request windows that do
 not exceed the configured source request limit.
 
+## Requirement: Production gap repair workflow
+
+Gap repair SHALL be an application use case that first runs a bounded continuity
+audit, splits detected half-open gaps into bounded REST windows, imports each
+attempted window through the canonical ingestion path, and then runs a post-
+repair continuity audit.
+
+The post-repair audit SHALL determine whether repair is complete. Empty or
+partial source responses SHALL leave the result incomplete when gaps remain.
+
+Repair results SHALL expose the preflight audit, post-repair audit when reached,
+attempted window count, completed window count, per-window ingestion counts,
+unexpected-row diagnostics, and a complete/incomplete/failed status.
+
+Rows returned for a different stream or outside the requested half-open window
+SHALL be quarantined and SHALL NOT be inserted into canonical candle storage.
+
+Repair SHALL be bounded by an explicit positive window budget and SHALL NOT
+create job, gap-history, event-log, or consumer-cursor tables.
+
+Repair SHALL use `auditing -> repairing -> auditing` for normal work. It SHALL
+NOT transition directly from `repairing` to `connecting` or `ready`.
+
 ## Requirement: Observation versus canonical candle
 
 The system SHALL model an externally observed candle separately from a
