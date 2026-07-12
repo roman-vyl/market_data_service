@@ -3,3 +3,12 @@ __pycache__/
 .venv/
 tmp/
 .DS_Store
+.openspec-backups/
+
+.patch-backups/
+
+.patch-backups*/
+
+*.sqlite3-wal
+
+*.sqlite3-shm
