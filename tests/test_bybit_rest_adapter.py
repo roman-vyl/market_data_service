@@ -61,6 +61,20 @@ def _payload() -> dict[str, Any]:
     }
 
 
+def _instrument_payload() -> dict[str, Any]:
+    return {
+        "retCode": 0,
+        "retMsg": "OK",
+        "result": {
+            "category": "linear",
+            "list": [
+                {"symbol": "ETHUSDT", "launchTime": "1600000000000"},
+                {"symbol": "BTCUSDT", "launchTime": "1585526400000"},
+            ],
+        },
+    }
+
+
 def test_adapter_uses_half_open_window_and_returns_ascending_closed_candles() -> None:
     transport = FakeTransport(_payload())
     source = BybitRestCandleSource(
@@ -84,6 +98,23 @@ def test_adapter_uses_half_open_window_and_returns_ascending_closed_candles() ->
         "start": 0,
         "end": 119999,
         "limit": 2,
+    }
+
+
+def test_adapter_fetches_exact_instrument_launch_time() -> None:
+    transport = FakeTransport(_instrument_payload())
+    source = BybitRestCandleSource(
+        exchange_symbols={"BTCUSDT.P": "BTCUSDT"},
+        transport=transport,
+    )
+
+    launch_time_ms = source.get_launch_time_ms(InstrumentKey("BTCUSDT.P"))
+
+    assert launch_time_ms == 1585526400000
+    _, params, _ = transport.calls[0]
+    assert params == {
+        "category": "linear",
+        "symbol": "BTCUSDT",
     }
 
 

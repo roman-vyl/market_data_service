@@ -5,6 +5,7 @@ from __future__ import annotations
 import sqlite3
 
 from market_data_service.domain.identity import InstrumentKey, StreamKey
+from market_data_service.domain.instruments import InstrumentMetadata
 from market_data_service.domain.stream_state import StreamLifecycleState
 
 
@@ -70,6 +71,45 @@ class SqliteCatalogRepository:
         except KeyError:
             return False
         return True
+
+    def get_instrument_metadata(self, instrument: InstrumentKey) -> InstrumentMetadata:
+        row = self._connection.execute(
+            """
+            SELECT ticker, exchange_symbol, launch_time_ms, metadata_fetched_at_ms
+            FROM instruments
+            WHERE ticker = ?
+            """,
+            (instrument.ticker,),
+        ).fetchone()
+        if row is None:
+            raise KeyError(instrument.ticker)
+        return InstrumentMetadata(
+            instrument=InstrumentKey(row["ticker"]),
+            exchange_symbol=row["exchange_symbol"],
+            launch_time_ms=row["launch_time_ms"],
+            fetched_at_ms=row["metadata_fetched_at_ms"],
+        )
+
+    def save_instrument_metadata(self, metadata: InstrumentMetadata) -> None:
+        if metadata.fetched_at_ms is None:
+            raise ValueError("instrument metadata fetched_at_ms is required for persistence")
+        self._connection.execute(
+            """
+            UPDATE instruments SET
+                exchange_symbol = ?,
+                launch_time_ms = ?,
+                metadata_fetched_at_ms = ?,
+                updated_at_ms = ?
+            WHERE ticker = ?
+            """,
+            (
+                metadata.exchange_symbol,
+                metadata.launch_time_ms,
+                metadata.fetched_at_ms,
+                metadata.fetched_at_ms,
+                metadata.instrument.ticker,
+            ),
+        )
 
     def stream_key(self, stream_id: int) -> StreamKey:
         row = self._connection.execute(

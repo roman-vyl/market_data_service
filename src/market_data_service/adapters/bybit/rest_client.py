@@ -12,7 +12,7 @@ from market_data_service.adapters.bybit.http_transport import (
 )
 from market_data_service.adapters.bybit.kline_parser import parse_kline_rows
 from market_data_service.domain.candles import ObservedCandle
-from market_data_service.domain.identity import StreamKey
+from market_data_service.domain.identity import InstrumentKey, StreamKey
 from market_data_service.domain.timeframes import get_timeframe
 from market_data_service.domain.windows import TimeWindow
 
@@ -26,6 +26,34 @@ class BybitRestCandleSource:
     category: str = "linear"
     timeout_seconds: float = 10.0
     transport: JsonHttpTransport = field(default_factory=UrllibJsonHttpTransport)
+
+    def get_launch_time_ms(self, instrument: InstrumentKey) -> int:
+        symbol = self._exchange_symbol_for_instrument(instrument)
+        payload = self.transport.get_json(
+            f"{self.base_url.rstrip('/')}/v5/market/instruments-info",
+            {
+                "category": self.category,
+                "symbol": symbol,
+            },
+            self.timeout_seconds,
+        )
+        rows = _extract_rows(payload)
+        for row in rows:
+            if not isinstance(row, dict):
+                raise BybitPayloadError("Bybit instrument row must be an object")
+            if row.get("symbol") != symbol:
+                continue
+            launch_time = row.get("launchTime")
+            if not isinstance(launch_time, str | int):
+                raise BybitPayloadError("Bybit instrument launchTime must be an integer")
+            try:
+                parsed = int(launch_time)
+            except ValueError as exc:
+                raise BybitPayloadError("Bybit instrument launchTime must be an integer") from exc
+            if parsed < 0:
+                raise BybitPayloadError("Bybit instrument launchTime must be non-negative")
+            return parsed
+        raise BybitPayloadError(f"Bybit instrument metadata missing for symbol {symbol}")
 
     def fetch_closed_candles(
         self,
@@ -60,10 +88,13 @@ class BybitRestCandleSource:
         )
 
     def _exchange_symbol(self, stream: StreamKey) -> str:
+        return self._exchange_symbol_for_instrument(stream.instrument)
+
+    def _exchange_symbol_for_instrument(self, instrument: InstrumentKey) -> str:
         try:
-            return self.exchange_symbols[stream.instrument.ticker]
+            return self.exchange_symbols[instrument.ticker]
         except KeyError as exc:
-            raise ValueError(f"no Bybit symbol configured for {stream.instrument.ticker}") from exc
+            raise ValueError(f"no Bybit symbol configured for {instrument.ticker}") from exc
 
 
 def _extract_rows(payload: dict[str, Any]) -> list[Any]:

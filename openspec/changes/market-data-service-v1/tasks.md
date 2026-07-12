@@ -79,7 +79,7 @@
 - [x] Add bounded fetch-window iteration.
 - [x] Add response normalization.
 - [ ] Add retry classification.
-- [ ] Add resumable full-minute-history backfill use case.
+- [x] Add resumable full-minute-history backfill use case.
 - [x] Approve sequential bounded REST backfill contract.
 - [x] Add pure one-stream/all-stream backfill planning contracts.
 - [x] Add finite administrative bounded `backfill --ticker` entrypoint.

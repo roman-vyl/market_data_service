@@ -11,7 +11,8 @@ from market_data_service.adapters.sqlite.connection import open_connection
 from market_data_service.adapters.sqlite.quarantine_repository import SqliteQuarantineRepository
 from market_data_service.adapters.sqlite.stream_state_repository import SqliteStreamStateRepository
 from market_data_service.domain.candles import CanonicalCandle
-from market_data_service.domain.identity import StreamKey
+from market_data_service.domain.identity import InstrumentKey, StreamKey
+from market_data_service.domain.instruments import InstrumentMetadata
 from market_data_service.domain.stream_state import StreamStateSnapshot
 
 
@@ -39,6 +40,12 @@ class SqliteUnitOfWork:
 
     def stream_exists(self, stream: StreamKey) -> bool:
         return self._catalog.stream_exists(stream)
+
+    def get_instrument_metadata(self, instrument: InstrumentKey) -> InstrumentMetadata:
+        return self._catalog.get_instrument_metadata(instrument)
+
+    def save_instrument_metadata(self, metadata: InstrumentMetadata) -> None:
+        self._catalog.save_instrument_metadata(metadata)
 
     def get_candle(self, stream: StreamKey, open_time_ms: int) -> CanonicalCandle | None:
         return self._candles.get(stream, open_time_ms)

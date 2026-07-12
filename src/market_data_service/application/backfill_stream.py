@@ -6,7 +6,6 @@ from collections.abc import Callable
 from dataclasses import replace
 from itertools import islice
 
-from market_data_service.application.backfill_errors import classify_backfill_failure
 from market_data_service.application.backfill_types import (
     BackfillStreamRequest,
     BackfillStreamResult,
@@ -14,10 +13,10 @@ from market_data_service.application.backfill_types import (
     Clock,
 )
 from market_data_service.application.import_window import ImportHistoricalWindow
+from market_data_service.application.stream_failure import record_stream_failure
 from market_data_service.domain.gaps import Gap, iter_fetch_windows
 from market_data_service.domain.identity import StreamKey
 from market_data_service.domain.stream_state import (
-    InvalidStreamTransition,
     StreamLifecycleState,
     transition_stream_state,
 )
@@ -87,7 +86,7 @@ class BackfillStreamHistory:
                     error_code=type(exc).__name__,
                     error_detail=str(exc),
                 )
-            self._record_window_success(request.stream, window.start_ms)
+            self._record_window_success(request.stream)
             results.append(
                 BackfillWindowResult(
                     window=window,
@@ -131,16 +130,12 @@ class BackfillStreamHistory:
                 unit_of_work.save_stream_state(snapshot)
             unit_of_work.commit()
 
-    def _record_window_success(self, stream: StreamKey, window_start_ms: int) -> None:
+    def _record_window_success(self, stream: StreamKey) -> None:
         now_ms = self._clock.now_ms()
         with self._unit_of_work_factory() as unit_of_work:
             snapshot = unit_of_work.get_stream_state(stream)
-            earliest = snapshot.earliest_available_open_time_ms
             snapshot = replace(
                 snapshot,
-                earliest_available_open_time_ms=(
-                    window_start_ms if earliest is None else min(earliest, window_start_ms)
-                ),
                 last_rest_success_at_ms=now_ms,
                 last_error_code=None,
                 last_error_detail=None,
@@ -150,27 +145,12 @@ class BackfillStreamHistory:
             unit_of_work.commit()
 
     def _record_failure(self, stream: StreamKey, exc: Exception) -> None:
-        now_ms = self._clock.now_ms()
-        decision = classify_backfill_failure(exc)
-        with self._unit_of_work_factory() as unit_of_work:
-            snapshot = unit_of_work.get_stream_state(stream)
-            try:
-                failed_or_degraded = transition_stream_state(
-                    snapshot,
-                    decision.target_state,
-                    changed_at_ms=now_ms,
-                    error_code=decision.code,
-                    error_detail=decision.detail,
-                )
-            except InvalidStreamTransition:
-                failed_or_degraded = replace(
-                    snapshot,
-                    last_error_code=decision.code,
-                    last_error_detail=decision.detail,
-                    updated_at_ms=now_ms,
-                )
-            unit_of_work.save_stream_state(failed_or_degraded)
-            unit_of_work.commit()
+        record_stream_failure(
+            self._unit_of_work_factory,
+            stream,
+            exc,
+            now_ms=self._clock.now_ms(),
+        )
 
     def _transition_to_auditing(self, stream: StreamKey) -> None:
         now_ms = self._clock.now_ms()

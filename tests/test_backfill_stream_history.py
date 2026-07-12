@@ -160,6 +160,12 @@ class FailingSecondInsertUnitOfWork:
     def stream_exists(self, stream: StreamKey) -> bool:
         return self._inner.stream_exists(stream)
 
+    def get_instrument_metadata(self, instrument):
+        return self._inner.get_instrument_metadata(instrument)
+
+    def save_instrument_metadata(self, metadata) -> None:
+        self._inner.save_instrument_metadata(metadata)
+
     def get_candle(self, stream: StreamKey, open_time_ms: int) -> CanonicalCandle | None:
         return self._inner.get_candle(stream, open_time_ms)
 
@@ -201,7 +207,7 @@ def test_backfills_small_range_and_moves_to_auditing(tmp_path: Path) -> None:
     assert result.reached_end is True
     assert [item.committed for item in result.window_results] == [2, 1]
     assert _count_candles(path, stream) == 3
-    assert _state(path, stream) == (StreamLifecycleState.AUDITING.value, 0, 120_000)
+    assert _state(path, stream) == (StreamLifecycleState.AUDITING.value, None, 120_000)
     with SqliteUnitOfWork(path) as unit_of_work:
         assert unit_of_work.get_stream_state(stream).last_audit_at_ms is None
 
@@ -221,6 +227,18 @@ def test_backfill_stops_at_max_windows_without_unbounded_bootstrap(tmp_path: Pat
     assert result.next_start_time_ms == 120_000
     assert _count_candles(path, stream) == 2
     assert _state(path, stream)[0] == StreamLifecycleState.BOOTSTRAPPING.value
+
+
+def test_bounded_backfill_does_not_invent_historical_lower_bound(tmp_path: Path) -> None:
+    path = tmp_path / "market.sqlite"
+    stream = _stream()
+    _prepare(path, stream)
+
+    _backfill(path, FakeHistoricalSource(), FakeClock()).execute(
+        BackfillStreamRequest(stream, 600_000, 720_000, max_windows=1)
+    )
+
+    assert _state(path, stream)[1] is None
 
 
 def test_restart_resumes_from_latest_committed_open_time(tmp_path: Path) -> None:

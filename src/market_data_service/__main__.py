@@ -10,6 +10,9 @@ from market_data_service.entrypoints.smoke_audit_continuity import (
     main as smoke_audit_continuity_main,
 )
 from market_data_service.entrypoints.smoke_backfill import main as smoke_backfill_main
+from market_data_service.entrypoints.smoke_full_bootstrap import (
+    main as smoke_full_bootstrap_main,
+)
 from market_data_service.entrypoints.smoke_gap_repair import main as smoke_gap_repair_main
 from market_data_service.entrypoints.smoke_rest import main as smoke_rest_main
 
@@ -22,6 +25,8 @@ def main(argv: list[str] | None = None) -> int:
         return backfill_main(args_in[1:])
     if args_in[:1] == ["smoke-backfill"]:
         return smoke_backfill_main(args_in[1:])
+    if args_in[:1] == ["smoke-full-bootstrap"]:
+        return smoke_full_bootstrap_main(args_in[1:])
     if args_in[:1] == ["smoke-audit-continuity"]:
         return smoke_audit_continuity_main(args_in[1:])
     if args_in[:1] == ["smoke-gap-repair"]:
@@ -38,6 +43,10 @@ def main(argv: list[str] | None = None) -> int:
         help="run real REST backfill plus continuity smoke",
     )
     subparsers.add_parser("smoke-backfill", help="run real bounded backfill smoke")
+    subparsers.add_parser(
+        "smoke-full-bootstrap",
+        help="run real full-history bootstrap restart/resume smoke",
+    )
     subparsers.add_parser(
         "smoke-gap-repair",
         help="run real bounded backfill plus production gap-repair smoke",
