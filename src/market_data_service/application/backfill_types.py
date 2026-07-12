@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Protocol
+from typing import Literal, Protocol
 
 from market_data_service.domain.identity import StreamKey
 from market_data_service.domain.timeframes import get_timeframe
@@ -50,6 +50,7 @@ class BackfillStreamResult:
     window_results: tuple[BackfillWindowResult, ...]
     error_code: str | None = None
     error_detail: str | None = None
+    failure_disposition: Literal["recoverable", "fatal"] | None = None
 
 
 class Clock(Protocol):

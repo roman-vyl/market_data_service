@@ -19,7 +19,7 @@ One application-level classifier maps transport timeout/network errors and appro
 
 ## Multi-stream orchestration
 
-`backfill --all` loads enabled streams in deterministic configuration order and invokes the existing single-stream full-bootstrap use case sequentially. Each stream receives an explicit positive `max_windows_per_stream`. A recoverable failure for one stream is reported and does not erase progress or block later streams. Fatal process-level configuration/schema failures stop execution.
+`backfill --all` expands enabled instrument coverage into every configured `StreamKey` in deterministic instrument-then-timeframe order and invokes the existing single-stream full-bootstrap use case sequentially. Each ticker-by-timeframe stream receives an explicit positive `max_windows_per_stream`; metadata verification remains instrument-scoped while bootstrap, progress, audit, and repair remain stream-scoped. A recoverable failure for one stream is reported and does not erase progress or block later streams. Fatal process-level configuration/schema failures stop execution.
 
 ## Persistence
 

@@ -23,6 +23,7 @@ from market_data_service.domain.decimal_values import (
 from market_data_service.domain.gaps import Gap, find_gaps, iter_fetch_windows
 from market_data_service.domain.identity import InstrumentKey, StreamKey
 from market_data_service.domain.instruments import (
+    ExchangeInstrumentSpecification,
     HistoryPolicy,
     InstrumentCoverage,
     InstrumentMetadata,
@@ -57,6 +58,7 @@ __all__ = [
     "CanonicalCandle",
     "ContinuityReport",
     "DecimalInput",
+    "ExchangeInstrumentSpecification",
     "Gap",
     "HistoryPolicy",
     "IngestionClassification",

@@ -18,6 +18,6 @@ def test_example_market_config_declares_unique_btc_and_eth_perpetuals() -> None:
     assert len({item["exchange_symbol"] for item in instruments}) == len(instruments)
 
     for instrument in instruments:
-        assert instrument["canonical_timeframes"] == ["1m"]
+        assert instrument["canonical_timeframes"] == ["1m", "5m", "1h"]
         assert instrument["history_policy"] == "full_available"
         assert instrument["enabled"] is True

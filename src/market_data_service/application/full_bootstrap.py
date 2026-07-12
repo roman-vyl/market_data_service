@@ -33,8 +33,6 @@ class FullHistoryBootstrapRequest:
     def __post_init__(self) -> None:
         if self.max_windows <= 0:
             raise ValueError("max_windows must be positive")
-        if self.stream.timeframe != "1m":
-            raise ValueError("full-history bootstrap is currently defined for canonical 1m streams")
 
 
 @dataclass(frozen=True, slots=True)
@@ -47,6 +45,7 @@ class FullHistoryBootstrapResult:
     backfill: BackfillStreamResult | None
     error_code: str | None = None
     error_detail: str | None = None
+    failure_disposition: Literal["recoverable", "fatal"] | None = None
 
     @property
     def reached_target(self) -> bool:
@@ -92,6 +91,12 @@ class BootstrapFullStreamHistory:
                 max_windows=request.max_windows,
             )
         except HistoricalLowerBoundUnavailable as exc:
+            decision = record_stream_failure(
+                self._unit_of_work_factory,
+                request.stream,
+                exc,
+                now_ms=self._clock.now_ms(),
+            )
             return FullHistoryBootstrapResult(
                 stream=request.stream,
                 status="lower_bound_unresolved",
@@ -101,9 +106,10 @@ class BootstrapFullStreamHistory:
                 backfill=None,
                 error_code=type(exc).__name__,
                 error_detail=str(exc),
+                failure_disposition=decision.disposition.value,
             )
         except Exception as exc:
-            record_stream_failure(
+            decision = record_stream_failure(
                 self._unit_of_work_factory,
                 request.stream,
                 exc,
@@ -161,6 +167,7 @@ class BootstrapFullStreamHistory:
             backfill=backfill,
             error_code=backfill.error_code,
             error_detail=backfill.error_detail,
+            failure_disposition=backfill.failure_disposition,
         )
 
     def _ensure_bootstrapping(self, stream: StreamKey) -> None:

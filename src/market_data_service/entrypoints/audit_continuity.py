@@ -10,7 +10,7 @@ from market_data_service.application.audit_continuity import (
     AuditStreamContinuity,
     AuditStreamContinuityRequest,
 )
-from market_data_service.domain import ContinuityReport, InstrumentKey, StreamKey
+from market_data_service.domain import ContinuityReport, StreamKey
 from market_data_service.entrypoints.market_config import (
     entry_for_ticker,
     load_enabled_market_entries,
@@ -21,7 +21,7 @@ def main(argv: list[str] | None = None) -> int:
     args = _build_parser().parse_args(argv)
     config = load_enabled_market_entries(args.config)
     entry = entry_for_ticker(config, args.ticker)
-    stream = StreamKey(InstrumentKey(entry.ticker), args.timeframe)
+    stream = StreamKey(entry.instrument, args.timeframe)
     auditor = AuditStreamContinuity(lambda: SqliteUnitOfWork(args.database))
     report = auditor.execute(
         AuditStreamContinuityRequest(

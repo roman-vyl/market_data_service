@@ -7,6 +7,7 @@ from typing import Protocol
 
 from market_data_service.domain.candles import ObservedCandle
 from market_data_service.domain.identity import InstrumentKey, StreamKey
+from market_data_service.domain.instruments import ExchangeInstrumentSpecification
 from market_data_service.domain.windows import TimeWindow
 
 
@@ -15,6 +16,10 @@ class RecoverableMarketDataFailure:
 
 
 class InstrumentMetadataSource(Protocol):
+    def get_instrument_specification(
+        self, instrument: InstrumentKey
+    ) -> ExchangeInstrumentSpecification: ...
+
     def get_launch_time_ms(self, instrument: InstrumentKey) -> int: ...
 
 

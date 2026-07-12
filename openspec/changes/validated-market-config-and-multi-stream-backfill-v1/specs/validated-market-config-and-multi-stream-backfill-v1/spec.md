@@ -20,8 +20,12 @@ This change SHALL NOT require automatic retry loops.
 
 ## Requirement: Sequential bounded all-stream backfill
 
-Administrative `backfill --all` SHALL process enabled streams sequentially in deterministic configuration order by invoking the existing single-stream full-bootstrap use case.
+Administrative `backfill --all` SHALL expand every enabled instrument into all configured `canonical_timeframes` and SHALL process the resulting ticker-by-timeframe streams sequentially in deterministic configuration order by invoking the existing single-stream full-bootstrap use case.
 
-Each stream SHALL receive an explicit positive candle-window budget. Completed progress SHALL remain durable. A recoverable failure for one stream SHALL be reported and SHALL NOT erase progress or prevent later streams from being attempted. Fatal configuration or schema failures SHALL terminate the command.
+Each configured ticker-by-timeframe stream SHALL receive an explicit positive candle-window budget. Timeframe grid, Bybit interval mapping, lower-bound discovery, durable resume, audit, and repair SHALL remain stream-scoped. Completed progress SHALL remain durable. A recoverable failure for one stream SHALL be reported and SHALL NOT erase progress or prevent later streams from being attempted. Fatal configuration or schema failures SHALL terminate the command.
 
 No parallel scheduler, worker pool, orchestration table, or second ingestion path SHALL be introduced.
+
+## Requirement: Multi-timeframe stream isolation
+
+Configured streams for the same instrument but different timeframes SHALL have independent storage identity, lower bounds, progress, lifecycle state, continuity gaps, and repair operations. Requests to Bybit SHALL use the canonical interval mapping for each stream timeframe.

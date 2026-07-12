@@ -160,3 +160,51 @@ def test_window_import_into_sqlite_is_idempotent(tmp_path: Path) -> None:
 
     assert (first.observed, first.committed, first.duplicates) == (2, 2, 0)
     assert (second.observed, second.committed, second.duplicates) == (2, 0, 2)
+
+
+def test_adapter_parses_linear_perpetual_instrument_specification() -> None:
+    transport = FakeTransport(
+        {
+            "retCode": 0,
+            "result": {
+                "list": [
+                    {
+                        "symbol": "BTCUSDT",
+                        "contractType": "LinearPerpetual",
+                        "status": "Trading",
+                        "settleCoin": "USDT",
+                        "launchTime": "1585526400000",
+                    }
+                ]
+            },
+        }
+    )
+    source = BybitRestCandleSource(
+        exchange_symbols={"BTCUSDT.P": "BTCUSDT"},
+        transport=transport,
+    )
+
+    specification = source.get_instrument_specification(InstrumentKey("BTCUSDT.P"))
+
+    assert specification.exchange_symbol == "BTCUSDT"
+    assert specification.category == "linear"
+    assert specification.contract_type == "LinearPerpetual"
+    assert specification.status == "Trading"
+    assert specification.settle_coin == "USDT"
+    assert specification.launch_time_ms == 1585526400000
+
+
+def test_adapter_classifies_approved_transient_ret_code() -> None:
+    from market_data_service.adapters.bybit.errors import BybitTransientApiError
+
+    source = BybitRestCandleSource(
+        exchange_symbols={"BTCUSDT.P": "BTCUSDT"},
+        transport=FakeTransport({"retCode": 10006, "retMsg": "Too many visits"}),
+    )
+
+    try:
+        source.get_launch_time_ms(InstrumentKey("BTCUSDT.P"))
+    except BybitTransientApiError:
+        pass
+    else:
+        raise AssertionError("expected transient Bybit API error")

@@ -1,40 +1,29 @@
-"""Shared market-config parsing for administrative CLI commands."""
+"""Shared market-config helpers for administrative CLI commands."""
 
 from __future__ import annotations
 
-import tomllib
-from dataclasses import dataclass
 from pathlib import Path
 
-from market_data_service.domain import InstrumentKey
+from market_data_service.config import ValidatedMarketConfig, load_market_config
+from market_data_service.domain import InstrumentCoverage, InstrumentKey
 
 
-@dataclass(frozen=True, slots=True)
-class MarketConfigEntry:
-    ticker: str
-    exchange_symbol: str
+def load_enabled_market_entries(path: Path) -> tuple[InstrumentCoverage, ...]:
+    """Compatibility boundary returning fully validated enabled coverages."""
+
+    return load_market_config(path).enabled_instruments
 
 
-def load_enabled_market_entries(path: Path) -> tuple[MarketConfigEntry, ...]:
-    payload = tomllib.loads(path.read_text(encoding="utf-8"))
-    entries: list[MarketConfigEntry] = []
-    for item in payload.get("instruments", []):
-        if item.get("enabled") is True:
-            entries.append(
-                MarketConfigEntry(
-                    ticker=str(item["ticker"]),
-                    exchange_symbol=str(item["exchange_symbol"]),
-                )
-            )
-    return tuple(entries)
+def load_validated_market_config(path: Path) -> ValidatedMarketConfig:
+    return load_market_config(path)
 
 
 def entry_for_ticker(
-    entries: tuple[MarketConfigEntry, ...],
+    entries: tuple[InstrumentCoverage, ...],
     ticker: str,
-) -> MarketConfigEntry:
-    normalized = InstrumentKey(ticker).ticker
+) -> InstrumentCoverage:
+    normalized = InstrumentKey(ticker)
     for entry in entries:
-        if entry.ticker == normalized:
+        if entry.instrument == normalized:
             return entry
-    raise ValueError(f"ticker is not enabled in market config: {normalized}")
+    raise ValueError(f"ticker is not enabled in market config: {normalized.ticker}")

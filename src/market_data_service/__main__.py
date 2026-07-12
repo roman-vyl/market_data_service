@@ -6,6 +6,7 @@ import sys
 from market_data_service import __version__
 from market_data_service.entrypoints.audit_continuity import main as audit_continuity_main
 from market_data_service.entrypoints.backfill import main as backfill_main
+from market_data_service.entrypoints.smoke_all_backfill import main as smoke_all_backfill_main
 from market_data_service.entrypoints.smoke_audit_continuity import (
     main as smoke_audit_continuity_main,
 )
@@ -23,6 +24,8 @@ def main(argv: list[str] | None = None) -> int:
         return audit_continuity_main(args_in[1:])
     if args_in[:1] == ["backfill"]:
         return backfill_main(args_in[1:])
+    if args_in[:1] == ["smoke-all-backfill"]:
+        return smoke_all_backfill_main(args_in[1:])
     if args_in[:1] == ["smoke-backfill"]:
         return smoke_backfill_main(args_in[1:])
     if args_in[:1] == ["smoke-full-bootstrap"]:
@@ -41,6 +44,9 @@ def main(argv: list[str] | None = None) -> int:
     subparsers.add_parser(
         "smoke-audit-continuity",
         help="run real REST backfill plus continuity smoke",
+    )
+    subparsers.add_parser(
+        "smoke-all-backfill", help="run real two-stream bounded resume smoke"
     )
     subparsers.add_parser("smoke-backfill", help="run real bounded backfill smoke")
     subparsers.add_parser(

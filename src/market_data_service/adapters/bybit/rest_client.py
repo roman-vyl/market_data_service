@@ -5,7 +5,11 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
-from market_data_service.adapters.bybit.errors import BybitApiError, BybitPayloadError
+from market_data_service.adapters.bybit.errors import (
+    BybitApiError,
+    BybitPayloadError,
+    BybitTransientApiError,
+)
 from market_data_service.adapters.bybit.http_transport import (
     JsonHttpTransport,
     UrllibJsonHttpTransport,
@@ -13,28 +17,39 @@ from market_data_service.adapters.bybit.http_transport import (
 from market_data_service.adapters.bybit.kline_parser import parse_kline_rows
 from market_data_service.domain.candles import ObservedCandle
 from market_data_service.domain.identity import InstrumentKey, StreamKey
+from market_data_service.domain.instruments import ExchangeInstrumentSpecification
 from market_data_service.domain.timeframes import get_timeframe
 from market_data_service.domain.windows import TimeWindow
+
+_TRANSIENT_RET_CODES = {10000, 10006, 10016}
 
 
 @dataclass(slots=True)
 class BybitRestCandleSource:
-    """Fetch closed candles without knowing storage or ingestion policy."""
+    """Fetch closed candles and instrument facts without storage knowledge."""
 
     exchange_symbols: dict[str, str]
     base_url: str = "https://api.bybit.com"
     category: str = "linear"
     timeout_seconds: float = 10.0
     transport: JsonHttpTransport = field(default_factory=UrllibJsonHttpTransport)
+    _instrument_cache: dict[str, ExchangeInstrumentSpecification] = field(
+        default_factory=dict,
+        init=False,
+        repr=False,
+    )
 
-    def get_launch_time_ms(self, instrument: InstrumentKey) -> int:
+    def get_instrument_specification(
+        self,
+        instrument: InstrumentKey,
+    ) -> ExchangeInstrumentSpecification:
+        cached = self._instrument_cache.get(instrument.ticker)
+        if cached is not None:
+            return cached
         symbol = self._exchange_symbol_for_instrument(instrument)
         payload = self.transport.get_json(
             f"{self.base_url.rstrip('/')}/v5/market/instruments-info",
-            {
-                "category": self.category,
-                "symbol": symbol,
-            },
+            {"category": self.category, "symbol": symbol},
             self.timeout_seconds,
         )
         rows = _extract_rows(payload)
@@ -43,16 +58,35 @@ class BybitRestCandleSource:
                 raise BybitPayloadError("Bybit instrument row must be an object")
             if row.get("symbol") != symbol:
                 continue
-            launch_time = row.get("launchTime")
-            if not isinstance(launch_time, str | int):
-                raise BybitPayloadError("Bybit instrument launchTime must be an integer")
-            try:
-                parsed = int(launch_time)
-            except ValueError as exc:
-                raise BybitPayloadError("Bybit instrument launchTime must be an integer") from exc
-            if parsed < 0:
-                raise BybitPayloadError("Bybit instrument launchTime must be non-negative")
-            return parsed
+            specification = ExchangeInstrumentSpecification(
+                instrument=instrument,
+                exchange_symbol=_required_string(row, "symbol", "instrument"),
+                category=self.category,
+                contract_type=_required_string(row, "contractType", "instrument"),
+                status=_required_string(row, "status", "instrument"),
+                settle_coin=_required_string(row, "settleCoin", "instrument"),
+                launch_time_ms=_required_non_negative_int(row, "launchTime", "instrument"),
+            )
+            self._instrument_cache[instrument.ticker] = specification
+            return specification
+        raise BybitPayloadError(f"Bybit instrument metadata missing for symbol {symbol}")
+
+    def get_launch_time_ms(self, instrument: InstrumentKey) -> int:
+        cached = self._instrument_cache.get(instrument.ticker)
+        if cached is not None:
+            return cached.launch_time_ms
+        symbol = self._exchange_symbol_for_instrument(instrument)
+        payload = self.transport.get_json(
+            f"{self.base_url.rstrip('/')}/v5/market/instruments-info",
+            {"category": self.category, "symbol": symbol},
+            self.timeout_seconds,
+        )
+        rows = _extract_rows(payload)
+        for row in rows:
+            if not isinstance(row, dict):
+                raise BybitPayloadError("Bybit instrument row must be an object")
+            if row.get("symbol") == symbol:
+                return _required_non_negative_int(row, "launchTime", "instrument")
         raise BybitPayloadError(f"Bybit instrument metadata missing for symbol {symbol}")
 
     def fetch_closed_candles(
@@ -101,6 +135,8 @@ def _extract_rows(payload: dict[str, Any]) -> list[Any]:
     ret_code = payload.get("retCode")
     if ret_code != 0:
         message = payload.get("retMsg", "unknown Bybit API error")
+        if ret_code in _TRANSIENT_RET_CODES:
+            raise BybitTransientApiError(f"Bybit retCode={ret_code}: {message}")
         raise BybitApiError(f"Bybit retCode={ret_code}: {message}")
     result = payload.get("result")
     if not isinstance(result, dict):
@@ -109,3 +145,23 @@ def _extract_rows(payload: dict[str, Any]) -> list[Any]:
     if not isinstance(rows, list):
         raise BybitPayloadError("Bybit result.list must be an array")
     return rows
+
+
+def _required_string(row: dict[str, Any], key: str, context: str) -> str:
+    value = row.get(key)
+    if not isinstance(value, str) or not value.strip():
+        raise BybitPayloadError(f"Bybit {context}.{key} must be a non-empty string")
+    return value.strip()
+
+
+def _required_non_negative_int(row: dict[str, Any], key: str, context: str) -> int:
+    value = row.get(key)
+    if not isinstance(value, str | int):
+        raise BybitPayloadError(f"Bybit {context}.{key} must be an integer")
+    try:
+        parsed = int(value)
+    except ValueError as exc:
+        raise BybitPayloadError(f"Bybit {context}.{key} must be an integer") from exc
+    if parsed < 0:
+        raise BybitPayloadError(f"Bybit {context}.{key} must be non-negative")
+    return parsed

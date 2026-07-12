@@ -14,7 +14,11 @@ class BybitHttpError(BybitMarketDataError, RecoverableMarketDataFailure):
 
 
 class BybitApiError(BybitMarketDataError):
-    """Bybit returned a non-zero API result code."""
+    """Bybit returned a non-zero non-recoverable API result code."""
+
+
+class BybitTransientApiError(BybitApiError, RecoverableMarketDataFailure):
+    """Bybit returned an explicitly approved transient result code."""
 
 
 class BybitPayloadError(BybitMarketDataError):

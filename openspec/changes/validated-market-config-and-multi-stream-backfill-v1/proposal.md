@@ -12,7 +12,7 @@ Complete the validated configuration and deterministic multi-stream backfill sli
 - reject duplicate instrument, exchange-symbol, and stream identities;
 - verify configured BTCUSDT and ETHUSDT linear perpetual metadata against Bybit;
 - define one shared source-failure classification contract;
-- add deterministic sequential bounded `backfill --all` orchestration by composing the existing single-stream full bootstrap.
+- add deterministic sequential bounded `backfill --all` orchestration for every configured ticker-by-timeframe stream by composing the existing single-stream full bootstrap.
 
 ## What does not change
 
@@ -25,4 +25,4 @@ Complete the validated configuration and deterministic multi-stream backfill sli
 
 ## Outcome
 
-An operator can validate configuration and advance every enabled stream by a finite explicit per-stream budget, with isolated results and durable resume.
+An operator can validate configuration and advance every enabled ticker-by-timeframe stream by a finite explicit per-stream budget, with isolated results and durable resume.

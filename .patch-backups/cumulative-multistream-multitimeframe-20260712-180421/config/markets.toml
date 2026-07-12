@@ -1,0 +1,23 @@
+# Versioned operator-declared coverage for Bybit USDT perpetual futures.
+# `ticker` is the canonical service/research symbol.
+# `exchange_symbol` is the exact symbol sent to Bybit REST/WebSocket APIs.
+
+schema_version = 1
+
+[source]
+venue = "bybit"
+category = "linear"
+
+[[instruments]]
+ticker = "BTCUSDT.P"
+exchange_symbol = "BTCUSDT"
+enabled = true
+canonical_timeframes = ["1m"]
+history_policy = "full_available"
+
+[[instruments]]
+ticker = "ETHUSDT.P"
+exchange_symbol = "ETHUSDT"
+enabled = true
+canonical_timeframes = ["1m"]
+history_policy = "full_available"

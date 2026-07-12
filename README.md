@@ -17,8 +17,9 @@ The backend is explicitly multi-instrument. The checked-in deployment example en
 ## Status
 
 The SQLite vertical slice, Bybit REST market-data adapter, REST smoke verification,
-bounded historical backfill runner, continuity audit CLI, production bounded
-gap repair workflow, and real REST repair smoke are implemented. Canonical
+validated market configuration, bounded single-stream and sequential multi-stream
+historical backfill, continuity audit CLI, production bounded gap repair workflow,
+and real REST smoke coverage are implemented. Canonical
 ingestion, duplicate/correction handling, atomic stream-state persistence,
 rollback, restart persistence, continuity gaps, repair idempotency, and
 multi-stream isolation are covered by integration tests.
@@ -130,6 +131,24 @@ window budget is exhausted, committed candles remain durable, the stream stays
 bootstrapping, and the next invocation resumes after the latest committed
 candle once the lower bound has been cached.
 
+To advance every enabled canonical `1m` stream in deterministic configuration
+order, use the same explicit budget per stream:
+
+```bash
+market-data-service backfill --all --full --max-windows 20
+```
+
+The command validates the complete versioned `markets.toml`, verifies each
+configured mapping against Bybit linear perpetual metadata before database
+mutation, then invokes the existing single-stream bootstrap sequentially. A
+recoverable source failure is reported and later streams are still attempted; a
+fatal configuration, payload, or storage failure stops the run.
+
+
+The validated market config may declare multiple canonical timeframes per ticker. `backfill --all --full` expands the config into every enabled `ticker × timeframe` stream and processes them sequentially with an independent window budget and durable stream state.
+
+Example configured streams in v1: `BTCUSDT.P:1m`, `BTCUSDT.P:5m`, `BTCUSDT.P:1h`, `ETHUSDT.P:1m`, `ETHUSDT.P:5m`, and `ETHUSDT.P:1h`.
+
 ## Local smoke commands
 
 The bounded REST smoke commands use temporary SQLite databases by default and do
@@ -138,6 +157,7 @@ not touch production persistence:
 ```text
 market-data-service smoke-rest
 market-data-service smoke-backfill --minutes 120
+market-data-service smoke-all-backfill --max-windows 20
 market-data-service smoke-full-bootstrap --max-windows 20
 market-data-service smoke-audit-continuity --minutes 120
 market-data-service smoke-gap-repair --minutes 5
@@ -149,6 +169,12 @@ runs `BackfillStreamHistory`, replays the same window to prove duplicate
 classification, reopens SQLite for persistence checks, and performs a basic
 1m continuity assertion. This assertion is smoke-only; full continuity proof is
 performed by `AuditStreamContinuity`.
+
+
+`smoke-all-backfill` validates BTCUSDT.P and ETHUSDT.P against real Bybit
+metadata, advances both streams sequentially in a temporary SQLite database,
+reopens the same database through a second bounded invocation, and confirms
+durable independent resume for both streams.
 
 `smoke-full-bootstrap` uses real Bybit REST and a temporary SQLite database to
 resolve the observed BTCUSDT.P `1m` lower bound, run full-history bootstrap

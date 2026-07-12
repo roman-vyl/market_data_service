@@ -13,6 +13,7 @@ from market_data_service.application.backfill_types import (
     Clock,
 )
 from market_data_service.application.import_window import ImportHistoricalWindow
+from market_data_service.application.source_failure import SourceFailureDecision
 from market_data_service.application.stream_failure import record_stream_failure
 from market_data_service.domain.gaps import Gap, iter_fetch_windows
 from market_data_service.domain.identity import StreamKey
@@ -74,7 +75,7 @@ class BackfillStreamHistory:
             try:
                 imported = self._window_importer.execute(request.stream, window)
             except Exception as exc:
-                self._record_failure(request.stream, exc)
+                decision = self._record_failure(request.stream, exc)
                 return BackfillStreamResult(
                     stream=request.stream,
                     requested_window=requested_window,
@@ -85,6 +86,7 @@ class BackfillStreamHistory:
                     window_results=tuple(results),
                     error_code=type(exc).__name__,
                     error_detail=str(exc),
+                    failure_disposition=decision.disposition.value,
                 )
             self._record_window_success(request.stream)
             results.append(
@@ -144,8 +146,10 @@ class BackfillStreamHistory:
             unit_of_work.save_stream_state(snapshot)
             unit_of_work.commit()
 
-    def _record_failure(self, stream: StreamKey, exc: Exception) -> None:
-        record_stream_failure(
+    def _record_failure(
+        self, stream: StreamKey, exc: Exception
+    ) -> SourceFailureDecision:
+        return record_stream_failure(
             self._unit_of_work_factory,
             stream,
             exc,

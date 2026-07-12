@@ -97,7 +97,7 @@ Implementation status note: single-stream bounded REST backfill, historical lowe
 
 The following capabilities are intentionally outside this base change and are specified independently:
 
-- `validated-market-config-and-multi-stream-backfill-v1` — validated market configuration, BTC/ETH metadata verification, shared source-failure classification, and deterministic bounded `backfill --all`;
+- `validated-market-config-and-multi-stream-backfill-v1` — implemented validated market configuration, BTC/ETH metadata verification, shared source-failure classification, and deterministic bounded `backfill --all`;
 - `runtime-startup-orchestration-v1` — process startup, configured-stream orchestration, health/readiness, shutdown, logging, and Docker runtime;
 - `websocket-realtime-recovery-v1` — confirmed-close realtime ingestion, reconnect, stale detection, and REST recovery;
 - `consumer-read-api-v1` — deterministic candle reads, OpenAPI, readiness gating, and consumer catch-up;

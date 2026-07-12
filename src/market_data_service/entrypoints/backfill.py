@@ -8,24 +8,31 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from market_data_service.adapters.bybit import BybitRestCandleSource
-from market_data_service.adapters.sqlite import (
-    SqliteUnitOfWork,
-    initialize_database,
-    register_stream,
-)
+from market_data_service.adapters.sqlite import SqliteUnitOfWork, initialize_database, register_stream
 from market_data_service.application.backfill_stream import BackfillStreamHistory
 from market_data_service.application.backfill_types import BackfillStreamRequest
 from market_data_service.application.full_bootstrap import (
     BootstrapFullStreamHistory,
     FullHistoryBootstrapRequest,
-    FullHistoryBootstrapResult,
 )
 from market_data_service.application.import_window import ImportHistoricalWindow
 from market_data_service.application.lower_bound import ResolveHistoricalLowerBound
-from market_data_service.domain import InstrumentKey, StreamKey, get_timeframe
+from market_data_service.application.market_metadata import VerifyConfiguredInstrumentMetadata
+from market_data_service.application.multi_stream_backfill import (
+    BackfillAllConfiguredStreams,
+    MultiStreamBackfillRequest,
+    MultiStreamBackfillResult,
+)
+from market_data_service.config import ValidatedMarketConfig
+from market_data_service.domain import InstrumentCoverage, StreamKey, get_timeframe
+from market_data_service.entrypoints.backfill_output import (
+    print_all_result,
+    print_full_result,
+    print_range_result,
+)
 from market_data_service.entrypoints.market_config import (
     entry_for_ticker,
-    load_enabled_market_entries,
+    load_validated_market_config,
 )
 
 
@@ -37,53 +44,34 @@ class SystemClock:
 
 def main(argv: list[str] | None = None) -> int:
     args = _build_parser().parse_args(argv)
-    config = load_enabled_market_entries(args.config)
-    entry = entry_for_ticker(config, args.ticker)
-    stream = StreamKey(InstrumentKey(entry.ticker), args.timeframe)
+    config = load_validated_market_config(args.config)
+    if args.all:
+        return _run_all(args, config)
+    if args.ticker is None:
+        raise ValueError("provide --ticker or --all")
+    return _run_one(args, config)
+
+
+def _run_one(args: argparse.Namespace, config: ValidatedMarketConfig) -> int:
+    entry = entry_for_ticker(config.enabled_instruments, args.ticker)
+    stream = next(
+        candidate
+        for candidate in entry.stream_keys
+        if candidate.timeframe == args.timeframe
+    )
     clock = SystemClock()
-
-    args.database.parent.mkdir(parents=True, exist_ok=True)
-    initialize_database(args.database)
-    register_stream(
-        args.database,
-        stream,
-        exchange_symbol=entry.exchange_symbol,
-        now_ms=clock.now_ms(),
-    )
-
-    source = BybitRestCandleSource(
-        exchange_symbols={item.ticker: item.exchange_symbol for item in config}
-    )
-    importer = ImportHistoricalWindow(
-        source,
-        lambda: SqliteUnitOfWork(args.database),
-        clock,
-    )
-    backfill = BackfillStreamHistory(
-        importer,
-        lambda: SqliteUnitOfWork(args.database),
-        clock,
-    )
+    source = _source(config)
+    VerifyConfiguredInstrumentMetadata(source, category=config.source.category).execute(entry)
+    _prepare_stream(args.database, stream, entry, clock)
+    backfill = _build_backfill(args.database, source, clock)
 
     if args.full:
         if args.start is not None or args.end is not None or args.minutes is not None:
             raise ValueError("--full cannot be combined with --start/--end/--minutes")
-        lower_bound = ResolveHistoricalLowerBound(
-            source,
-            source,
-            lambda: SqliteUnitOfWork(args.database),
-            clock,
-        )
-        full_bootstrap = BootstrapFullStreamHistory(
-            lower_bound,
-            backfill,
-            lambda: SqliteUnitOfWork(args.database),
-            clock,
-        )
-        full_result = full_bootstrap.execute(
+        full_result = _build_full_bootstrap(args.database, source, backfill, clock).execute(
             FullHistoryBootstrapRequest(stream=stream, max_windows=args.max_windows)
         )
-        _print_full_result(args.database, entry.exchange_symbol, full_result, args.max_windows)
+        print_full_result(args.database, entry.exchange_symbol, full_result, args.max_windows)
         return 0 if full_result.error_code is None else 1
 
     start_ms, end_ms = _resolve_range(args, stream)
@@ -95,35 +83,93 @@ def main(argv: list[str] | None = None) -> int:
             max_windows=args.max_windows,
         )
     )
+    print_range_result(args.database, entry.exchange_symbol, result, start_ms, end_ms, args.max_windows)
+    return 0 if result.error_code is None else 1
 
-    print(f"database={args.database}")
-    print(f"stream={stream.canonical_id} bybit_symbol={entry.exchange_symbol}")
-    print(f"requested_window=[{start_ms}, {end_ms}) max_windows={args.max_windows}")
-    for index, window_result in enumerate(result.window_results, start=1):
-        window = window_result.window
-        print(
-            f"window[{index}]=[{window.start_ms}, {window.end_ms}) "
-            f"observed={window_result.observed} committed={window_result.committed} "
-            f"duplicate={window_result.duplicates} corrected={window_result.corrected} "
-            f"rejected={window_result.rejected} unexpected={window_result.unexpected}"
-        )
-    print(
-        f"backfill_result completed_windows={result.completed_windows} "
-        f"attempted_windows={result.attempted_windows} "
-        f"reached_end={str(result.reached_end).lower()} "
-        f"next_start_time_ms={result.next_start_time_ms}"
+
+def _run_all(args: argparse.Namespace, config: ValidatedMarketConfig) -> int:
+    if not args.full:
+        raise ValueError("--all requires --full")
+    if args.start is not None or args.end is not None or args.minutes is not None:
+        raise ValueError("--all --full cannot be combined with --start/--end/--minutes")
+    clock = SystemClock()
+    source = _source(config)
+    verifier = VerifyConfiguredInstrumentMetadata(source, category=config.source.category)
+
+    def bootstrap_factory(
+        coverage: InstrumentCoverage, stream: StreamKey
+    ) -> BootstrapFullStreamHistory:
+        _prepare_stream(args.database, stream, coverage, clock)
+        backfill = _build_backfill(args.database, source, clock)
+        return _build_full_bootstrap(args.database, source, backfill, clock)
+
+    result = BackfillAllConfiguredStreams(verifier.execute, bootstrap_factory).execute(
+        config.enabled_instruments,
+        MultiStreamBackfillRequest(max_windows_per_stream=args.max_windows),
     )
-    if result.error_code is not None:
-        print(f"backfill_error code={result.error_code} detail={result.error_detail}")
-        return 1
-    return 0
+    print_all_result(args.database, result, args.max_windows)
+    return 1 if result.has_errors else 0
+
+
+def _source(config: ValidatedMarketConfig) -> BybitRestCandleSource:
+    return BybitRestCandleSource(
+        exchange_symbols=config.exchange_symbols,
+        category=config.source.category,
+    )
+
+
+def _prepare_stream(
+    database: Path,
+    stream: StreamKey,
+    coverage: InstrumentCoverage,
+    clock: SystemClock,
+) -> None:
+    database.parent.mkdir(parents=True, exist_ok=True)
+    initialize_database(database)
+    register_stream(
+        database,
+        stream,
+        exchange_symbol=coverage.exchange_symbol,
+        now_ms=clock.now_ms(),
+    )
+
+
+def _build_backfill(
+    database: Path,
+    source: BybitRestCandleSource,
+    clock: SystemClock,
+) -> BackfillStreamHistory:
+    importer = ImportHistoricalWindow(source, lambda: SqliteUnitOfWork(database), clock)
+    return BackfillStreamHistory(importer, lambda: SqliteUnitOfWork(database), clock)
+
+
+def _build_full_bootstrap(
+    database: Path,
+    source: BybitRestCandleSource,
+    backfill: BackfillStreamHistory,
+    clock: SystemClock,
+) -> BootstrapFullStreamHistory:
+    lower_bound = ResolveHistoricalLowerBound(
+        source,
+        source,
+        lambda: SqliteUnitOfWork(database),
+        clock,
+    )
+    return BootstrapFullStreamHistory(
+        lower_bound,
+        backfill,
+        lambda: SqliteUnitOfWork(database),
+        clock,
+    )
 
 
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--database", type=Path, default=Path("data/market.sqlite3"))
     parser.add_argument("--config", type=Path, default=Path("config/markets.toml"))
-    parser.add_argument("--ticker", required=True)
+    selection = parser.add_mutually_exclusive_group(required=True)
+    selection.add_argument("--ticker")
+    selection.add_argument("--all", action="store_true")
     parser.add_argument("--timeframe", default="1m")
     parser.add_argument("--start", type=int)
     parser.add_argument("--end", type=int)
@@ -148,53 +194,3 @@ def _resolve_range(args: argparse.Namespace, stream: StreamKey) -> tuple[int, in
     return args.start, args.end
 
 
-def _print_full_result(
-    database: Path,
-    exchange_symbol: str,
-    result: FullHistoryBootstrapResult,
-    max_windows: int,
-) -> None:
-    print(f"database={database}")
-    print(f"stream={result.stream.canonical_id} bybit_symbol={exchange_symbol}")
-    print(f"full_history=true max_windows={max_windows}")
-    print(
-        "budget "
-        f"max_windows={result.max_windows} "
-        f"discovery_windows={result.discovery_windows_used} "
-        f"backfill_windows={result.backfill_windows_attempted} "
-        f"total_windows={result.total_windows_used} "
-        f"lower_bound_resolved={str(result.lower_bound_resolved).lower()} "
-        f"target_reached={str(result.reached_target).lower()}"
-    )
-    if result.lower_bound is not None:
-        lower_bound = result.lower_bound
-        observed_earliest = lower_bound.earliest_available_open_time_ms
-        print(
-            "lower_bound "
-            f"launch_time_ms={lower_bound.launch_time_ms} "
-            f"search_start_time_ms={lower_bound.search_start_time_ms} "
-            f"observed_earliest_open_time_ms="
-            f"{observed_earliest} "
-            f"metadata_cached={str(lower_bound.metadata_cached).lower()} "
-            f"lower_bound_cached={str(lower_bound.lower_bound_cached).lower()} "
-            f"unresolved_reason={lower_bound.unresolved_reason}"
-        )
-    print(f"target_open_time_ms={result.target_open_time_ms}")
-    if result.backfill is not None:
-        for index, window_result in enumerate(result.backfill.window_results, start=1):
-            window = window_result.window
-            print(
-                f"window[{index}]=[{window.start_ms}, {window.end_ms}) "
-                f"observed={window_result.observed} committed={window_result.committed} "
-                f"duplicate={window_result.duplicates} corrected={window_result.corrected} "
-                f"rejected={window_result.rejected} unexpected={window_result.unexpected}"
-            )
-        print(
-            f"backfill_result completed_windows={result.backfill.completed_windows} "
-            f"attempted_windows={result.backfill.attempted_windows} "
-            f"reached_target={str(result.reached_target).lower()} "
-            f"next_start_time_ms={result.backfill.next_start_time_ms}"
-        )
-    print(f"full_bootstrap_status={result.status}")
-    if result.error_code is not None:
-        print(f"full_bootstrap_error code={result.error_code} detail={result.error_detail}")

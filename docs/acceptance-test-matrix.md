@@ -21,7 +21,8 @@ It is intentionally defined before SQLite, Bybit REST, WebSocket, and HTTP adapt
 | CFG-03 | Duplicate exchange symbol | Application integration | Configuration is rejected before database mutation. |
 | CFG-04 | Missing mandatory 1m stream | Application integration | Configuration is rejected. |
 | CFG-05 | Unknown timeframe | Domain | Configuration is rejected by the timeframe registry. |
-| CFG-06 | Ticker mapping mismatch | Bybit smoke/application integration | Stream remains unready and the mismatch is quarantined. |
+| CFG-06 | Ticker mapping mismatch | Bybit smoke/application integration | Configuration is rejected before database mutation and is not silently rewritten. |
+| CFG-07 | Invalid schema/source/history fields | Application integration | Configuration is rejected before network or storage mutation. |
 
 ## B. Decimal and candle validation
 
@@ -82,6 +83,8 @@ It is intentionally defined before SQLite, Bybit REST, WebSocket, and HTTP adapt
 | BST-12 | Ordinary bounded backfill starts later than history | Application integration | Do not persist the requested window start as the historical lower bound. |
 | BST-13 | Full bootstrap lower-bound discovery exhausts budget | Application integration | Return incomplete without backfill, keep the stream bootstrapping, and do not persist a false lower bound. |
 | BST-14 | Full bootstrap discovery and backfill share budget | Application integration | Discovery windows plus backfill attempted windows never exceed the requested `max_windows`. |
+| BST-15 | Recoverable failure during `--all` | Application integration | The failure is reported, committed progress remains durable, and later configured streams are attempted. |
+| BST-16 | Fatal failure during `--all` | Application integration | The failing stream is reported and later streams are not attempted. |
 
 ## F. Gap audit and repair
 
@@ -150,6 +153,7 @@ It is intentionally defined before SQLite, Bybit REST, WebSocket, and HTTP adapt
 | RST-08 | Real bounded backfill smoke | Bybit/SQLite smoke | Temporary SQLite is created, `BackfillStreamHistory` imports a small BTCUSDT 1m range, duplicate replay adds no rows, persistence reopens cleanly, and smoke-only 1m continuity passes. |
 | RST-09 | Real backfill plus continuity audit smoke | Bybit/SQLite smoke | Temporary SQLite is created, bounded BTCUSDT 1m backfill succeeds, `AuditStreamContinuity` over the same range is continuous, and no gaps are reported. |
 | RST-10 | Real full-history bootstrap restart/resume smoke | Bybit/SQLite smoke | Temporary SQLite resolves observed BTCUSDT.P 1m lower bound with a shared small window budget, reopens through a fresh workflow, runs again, and confirms total candle windows stay within budget, cached discovery uses zero windows, and backfill resumes. |
+| RST-11 | Real two-stream sequential backfill smoke | Bybit/SQLite smoke | BTCUSDT.P and ETHUSDT.P metadata mappings validate, both streams advance sequentially with the same bounded per-stream budget, and a second invocation resumes each stream independently. |
 
 ## K. WebSocket realtime
 
@@ -229,3 +233,24 @@ RST-10, BST-01, BST-02, BST-04, BST-05, BST-06, BST-11, BST-13, BST-14, ING-01, 
 
 pass through real Bybit REST lower-bound discovery, temporary SQLite
 persistence, two bounded bootstrap invocations, and durable resume.
+
+## First real multi-stream backfill smoke milestone
+
+The first real validated multi-stream smoke is accepted when:
+
+```text
+CFG-01, CFG-02, CFG-03, CFG-04, CFG-06, CFG-07,
+BST-08, BST-09, BST-15, BST-16, MUL-02, MUL-03, RST-11
+```
+
+pass through the fully validated market configuration, exact Bybit instrument
+metadata checks, deterministic sequential `backfill --all`, temporary SQLite,
+and durable independent resume for BTCUSDT.P and ETHUSDT.P.
+
+### Multi-symbol and multi-timeframe orchestration
+
+- Validated config expands every enabled instrument into all configured canonical timeframes.
+- Sequential `backfill --all` preserves deterministic instrument-then-timeframe order.
+- Fake Bybit HTTP matrix covers BTC and ETH across `1m`, `5m`, and `1h`.
+- Storage, lower bounds, resume, gaps, and repair remain isolated per ticker-by-timeframe stream.
+- Bybit requests carry the correct interval for each canonical timeframe.
