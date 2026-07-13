@@ -1,0 +1,25 @@
+---
+alwaysApply: true
+---
+
+# Market Data Runtime
+
+- `market_data_service` usually runs in Docker Compose as `market-data-service`; container port is HTTP `8080`.
+- `127.0.0.1:8080` from the agent sandbox may be unreachable and does not prove the service is down.
+- Verify HTTP from the project root inside the container:
+
+```bash
+docker compose exec -T market-data-service python -c "
+import urllib.request
+for p in ('/health','/readiness','/openapi.json'):
+    try:
+        r=urllib.request.urlopen('http://127.0.0.1:8080'+p, timeout=5)
+        print(p, r.status, r.read().decode()[:500])
+    except Exception as e:
+        print(p, type(e).__name__, e)
+"
+```
+
+- Host `./data/market.sqlite3` and container `/data/market.sqlite3` are the same database.
+- Do not conclude HTTP is broken until checking it from inside the container.
+- If the Docker socket is unavailable to the agent, state that limitation plainly.
