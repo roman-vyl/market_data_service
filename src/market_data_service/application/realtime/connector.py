@@ -16,9 +16,12 @@ from market_data_service.application.realtime.events import (
     Stopped,
     TransportFailed,
 )
-from market_data_service.application.realtime.handler import RealtimeCandleHandler
 from market_data_service.application.realtime.outcomes import RealtimeIngestionOutcome
 from market_data_service.ports.realtime import WebSocketDisconnected, WebSocketTransport
+
+
+class RealtimeCandleEventHandler(Protocol):
+    def handle(self, event: CandleObserved) -> RealtimeIngestionOutcome | None: ...
 
 
 class RealtimeProtocolAdapter(Protocol):
@@ -46,7 +49,7 @@ class RealtimeConnector:
         url: str,
         transport: WebSocketTransport,
         adapter: RealtimeProtocolAdapter,
-        candle_handler: RealtimeCandleHandler,
+        candle_handler: RealtimeCandleEventHandler,
         now_ms: Callable[[], int],
         on_event: Callable[[RealtimeEvent], Awaitable[None]],
         on_outcome: Callable[[RealtimeIngestionOutcome], Awaitable[None]],

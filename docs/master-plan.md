@@ -291,34 +291,37 @@ On WebSocket loss:
 
 WebSocket is the low-latency delivery path. REST and the local database provide recovery and durable truth.
 
-## 14. External API
+## 14. External Consumer Read API
 
-Planned versioned API:
+The approved v1 API design is specified by `openspec/changes/consumer-read-api-v1/`. It adds one canonical backend-to-backend range endpoint: Before implementation, Slice 0 requires a repository-aware architecture gate covering existing range reads, state reads, HTTP registration, wiring, dependency direction, and central-file growth.
 
 ```text
-GET /health
-GET /readiness
 GET /v1/candles
-GET /v1/candles/latest
 ```
 
-### 14.1 Candle range API
+Required query parameters:
 
-Filters:
+- `ticker`: configured canonical identity such as `BTCUSDT.P`;
+- `timeframe`: configured textual timeframe such as `5m`, `1h`, `4h`, or `1d`;
+- `from_ms`: inclusive timeframe-aligned boundary;
+- `to_ms`: exclusive timeframe-aligned boundary.
 
-- venue;
-- market_category;
-- symbol;
-- timeframe;
-- from_open_time_ms;
-- to_open_time_ms;
-- limit.
+Version 1 returns the entire requested range in one JSON response. It does not expose `limit`, pagination, cursoring, request chunking, streaming JSON, Arrow, or Parquet. Those remain evidence-driven future options after real performance measurements.
 
-Ordering is deterministic and ascending by open time unless explicitly documented otherwise.
+A successful response is permitted only for a configured stream whose current status is `ready` and only when the complete requested range lies inside the stream's proven available half-open window. The API never clamps or silently returns partial history. OHLCV is serialized as normalized decimal text.
 
-### 14.2 Latest candle API
+The external API is a thin inbound adapter:
 
-Returns the latest committed candle for one stream.
+```text
+HTTP router
+→ GetCandleRange application query
+→ CandleReader port
+→ canonical SQLite read adapter
+```
+
+The query does not run audit, repair, bootstrap, or realtime recovery. Runtime reconciliation remains the sole authority for continuity and readiness. A defensive complete-grid invariant prevents a broken ready state from producing a partial `200` response.
+
+BBB is the reference consumer. `research_api` remains the Workbench BFF and preserves `/api/market/candles-window`. A subsequent BBB change will replace its direct legacy SQLite market reader with a pooled HTTP client, migrate market-data-facing identity to canonical `.P` tickers, parse decimal text into `Decimal`, and retain explicit conversion to existing float-based research and chart boundaries only where necessary. BBB implementation is not part of the market-data-service API change.
 
 ## 15. Health and readiness
 
@@ -439,7 +442,7 @@ See `docs/source-reuse-audit.md`.
 
 ## 20A. Sequential bounded backfill
 
-Version 1 deliberately avoids a parallel multi-stream REST scheduler. Deep history is loaded through finite administrative runs. One bounded REST window is processed and committed atomically at a time, and `--all` visits configured streams sequentially in deterministic order with a per-stream window budget. Completed data is durable and later runs resume from the latest committed candle in stream state. That resume point is not a continuity proof; audit remains responsible for detecting gaps. Unlimited deep bootstrap is not part of normal service startup.
+Version 1 deliberately avoids parallel multi-stream REST work. Administrative `backfill --all` remains finite and sequential, while the long-running runtime autonomously owns every configured stream until full-window continuity is proven. Runtime uses the existing continuity audit and `RepairStreamGaps` workflow in small deterministic round-robin turns. A per-stream window budget limits one turn, not the lifetime task. Incomplete streams are scheduled again; recoverable failures use per-stream capped backoff; other streams continue. Canonical candles and fresh preflight reconstruct remaining prefix, internal, and suffix gaps after restart. No separate persisted job queue is required for v1.
 
 ## 21. Implementation phases
 
@@ -669,3 +672,7 @@ Implementation phases must cite and satisfy the relevant scenario IDs. The first
 ## Architecture Decision Records
 
 Accepted durable decisions are recorded in `docs/adr/`. ADRs are short and normative; they do not duplicate implementation specifications.
+
+## Consumer Read API v1 implementation
+
+The canonical backend-to-backend range API is implemented as `GET /v1/candles` with canonical `.P` ticker identity, aligned half-open windows, ready-only admission, Decimal-text OHLCV, and one unpaginated JSON response. BBB integration remains a required separate repository change that preserves the Workbench BFF contract.

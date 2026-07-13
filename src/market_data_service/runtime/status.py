@@ -24,6 +24,7 @@ class RuntimeStatusStore:
         self._lock = RLock()
         self._healthy = False
         self._fatal_error: str | None = None
+        self._blocking_reasons: dict[StreamKey, str] = {}
         self._streams = {
             stream: RuntimeStreamStatus(
                 stream=stream.canonical_id,
@@ -52,7 +53,8 @@ class RuntimeStatusStore:
     ) -> None:
         realtime_status = "not_started" if realtime is None else realtime.status.value
         ready = bool(durable.is_ready and realtime is not None and realtime.realtime_ready)
-        reason = None if ready else self._reason(durable, realtime)
+        override = self._blocking_reasons.get(durable.stream)
+        reason = None if ready else (override or self._reason(durable, realtime))
         with self._lock:
             self._streams[durable.stream] = RuntimeStreamStatus(
                 stream=durable.stream.canonical_id,
@@ -61,6 +63,23 @@ class RuntimeStatusStore:
                 ready=ready,
                 reason=reason,
             )
+
+
+    def set_blocking_reason(self, stream: StreamKey, reason: str) -> None:
+        with self._lock:
+            self._blocking_reasons[stream] = reason
+            current = self._streams[stream]
+            self._streams[stream] = RuntimeStreamStatus(
+                stream=current.stream,
+                durable_state=current.durable_state,
+                realtime_status=current.realtime_status,
+                ready=False,
+                reason=reason,
+            )
+
+    def clear_blocking_reason(self, stream: StreamKey) -> None:
+        with self._lock:
+            self._blocking_reasons.pop(stream, None)
 
     def health_document(self) -> dict[str, object]:
         with self._lock:

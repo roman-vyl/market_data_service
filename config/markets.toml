@@ -12,12 +12,12 @@ category = "linear"
 ticker = "BTCUSDT.P"
 exchange_symbol = "BTCUSDT"
 enabled = true
-canonical_timeframes = ["1m", "5m", "1h"]
+canonical_timeframes = ["5m", "1h", "4h", "1d"]
 history_policy = "full_available"
 
 [[instruments]]
 ticker = "ETHUSDT.P"
 exchange_symbol = "ETHUSDT"
 enabled = true
-canonical_timeframes = ["1m", "5m", "1h"]
+canonical_timeframes = ["5m", "1h", "4h", "1d"]
 history_policy = "full_available"

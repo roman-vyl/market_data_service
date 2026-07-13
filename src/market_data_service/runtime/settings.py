@@ -17,6 +17,8 @@ class RuntimeSettings:
     websocket_url: str = "wss://stream.bybit.com/v5/public/linear"
     startup_backfill_windows_per_stream: int = 2
     startup_repair_windows_per_stream: int = 2
+    historical_retry_base_seconds: float = 1.0
+    historical_retry_max_seconds: float = 60.0
     reconnect_max_attempts: int = 3
     reconnect_delay_seconds: float = 1.0
     stale_intervals: int = 2
@@ -36,6 +38,10 @@ class RuntimeSettings:
         ):
             if getattr(self, name) <= 0:
                 raise ValueError(f"{name} must be positive")
+        if self.historical_retry_base_seconds < 0:
+            raise ValueError("historical_retry_base_seconds must be non-negative")
+        if self.historical_retry_max_seconds < self.historical_retry_base_seconds:
+            raise ValueError("historical_retry_max_seconds must be >= base")
         if self.reconnect_delay_seconds < 0:
             raise ValueError("reconnect_delay_seconds must be non-negative")
         if self.stale_grace_ms < 0:
@@ -60,6 +66,12 @@ class RuntimeSettings:
             ),
             startup_repair_windows_per_stream=int(
                 env.get("MDS_STARTUP_REPAIR_WINDOWS_PER_STREAM", "2")
+            ),
+            historical_retry_base_seconds=float(
+                env.get("MDS_HISTORICAL_RETRY_BASE_SECONDS", "1.0")
+            ),
+            historical_retry_max_seconds=float(
+                env.get("MDS_HISTORICAL_RETRY_MAX_SECONDS", "60.0")
             ),
             reconnect_max_attempts=int(env.get("MDS_RECONNECT_MAX_ATTEMPTS", "3")),
             reconnect_delay_seconds=float(env.get("MDS_RECONNECT_DELAY_SECONDS", "1.0")),

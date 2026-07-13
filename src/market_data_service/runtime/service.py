@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from collections.abc import Sequence
 
 from market_data_service.adapters.bybit.websocket import (
     BybitTopicMap,
@@ -20,10 +19,19 @@ from market_data_service.application.realtime.supervisor import RealtimeSupervis
 from market_data_service.application.realtime.supervisor_types import StalePolicy
 from market_data_service.config import ValidatedMarketConfig
 from market_data_service.domain.identity import StreamKey
+from market_data_service.runtime.admission import (
+    AdmissionGatedCandleHandler,
+    RealtimeAdmissionGate,
+)
+from market_data_service.runtime.historical_worker import HistoricalReconciliationWorker
 from market_data_service.runtime.realtime import RuntimeRealtimeCoordinator
+from market_data_service.runtime.reconciliation import HistoricalStreamReconciler
 from market_data_service.runtime.settings import RuntimeSettings
 from market_data_service.runtime.startup import StartupCoordinator
-from market_data_service.runtime.startup_types import StartupClassification
+from market_data_service.runtime.startup_types import (
+    StartupClassification,
+    StartupStreamOutcome,
+)
 from market_data_service.runtime.status import RuntimeStatusStore
 from market_data_service.runtime.wiring import RuntimeWiring
 
@@ -48,13 +56,28 @@ class RuntimeService:
     async def run(self, stop_event: asyncio.Event) -> None:
         self._http_server.start()
         try:
-            eligible = self._startup()
+            coordinator, outcomes = self._startup()
+            admitted = tuple(
+                outcome.stream
+                for outcome in outcomes
+                if outcome.classification is StartupClassification.CONNECTING
+            )
+            operation_gate = asyncio.Lock()
+            realtime = self._build_realtime(admitted, operation_gate)
+            worker = HistoricalReconciliationWorker(
+                coordinator=coordinator,
+                initial_outcomes=outcomes,
+                status=self._status,
+                operation_gate=operation_gate,
+                on_complete=realtime.admit,
+                base_backoff_seconds=self._settings.historical_retry_base_seconds,
+                max_backoff_seconds=self._settings.historical_retry_max_seconds,
+            )
             self._status.mark_healthy()
-            if not eligible:
-                await stop_event.wait()
-                return
-            runtime = self._build_realtime(eligible)
-            await runtime.run(stop_event)
+            await asyncio.gather(
+                realtime.run(stop_event),
+                worker.run(stop_event),
+            )
         except Exception as exc:
             self._status.mark_fatal(f"{type(exc).__name__}: {exc}")
             self._logger.exception("runtime failed")
@@ -62,45 +85,50 @@ class RuntimeService:
         finally:
             self._http_server.close()
 
-    def _startup(self) -> tuple[StreamKey, ...]:
-        coordinator = StartupCoordinator(
-            bootstrap_factory=self._wiring.bootstrap,
-            auditor=self._wiring.auditor(),
+    def _startup(self) -> tuple[StartupCoordinator, tuple[StartupStreamOutcome, ...]]:
+        reconciler = HistoricalStreamReconciler(
+            lower_bound=self._wiring.lower_bound(),
             repair=self._wiring.repair(),
             lifecycle=self._wiring.lifecycle(),
-            backfill_windows_per_stream=(
+            now_ms=self._wiring.clock.now_ms,
+            discovery_windows_per_pass=(
                 self._settings.startup_backfill_windows_per_stream
             ),
-            repair_windows_per_stream=self._settings.startup_repair_windows_per_stream,
+            repair_windows_per_pass=self._settings.startup_repair_windows_per_stream,
         )
+        coordinator = StartupCoordinator(reconciler)
         outcomes = coordinator.execute(self._config.enabled_streams)
-        eligible: list[StreamKey] = []
         lifecycle = self._wiring.lifecycle()
         for outcome in outcomes:
-            snapshot = lifecycle.snapshot(outcome.stream)
-            self._status.update_stream(snapshot, None)
+            if outcome.classification in {
+                StartupClassification.INCOMPLETE,
+                StartupClassification.RECOVERABLE_FAILURE,
+            }:
+                self._status.set_blocking_reason(
+                    outcome.stream,
+                    "historical_reconciliation"
+                    if outcome.classification is StartupClassification.INCOMPLETE
+                    else "historical_backoff",
+                )
+            elif outcome.classification is StartupClassification.FATAL_FAILURE:
+                self._status.set_blocking_reason(
+                    outcome.stream, "historical_fatal_failure"
+                )
+            self._status.update_stream(lifecycle.snapshot(outcome.stream), None)
             self._logger.info(
                 "startup stream=%s classification=%s",
                 outcome.stream.canonical_id,
                 outcome.classification.value,
             )
-            if outcome.classification is StartupClassification.CONNECTING:
-                eligible.append(outcome.stream)
-        return tuple(eligible)
+        return coordinator, outcomes
 
     def _build_realtime(
         self,
-        streams: Sequence[StreamKey],
+        admitted_streams: tuple[StreamKey, ...],
+        operation_gate: asyncio.Lock,
     ) -> RuntimeRealtimeCoordinator:
-        full_map = BybitTopicMap.from_config(self._config)
-        allowed = set(streams)
-        topic_map = BybitTopicMap(
-            {
-                topic: stream
-                for topic, stream in full_map.topic_to_stream.items()
-                if stream in allowed
-            }
-        )
+        topic_map = BybitTopicMap.from_config(self._config)
+        streams = self._config.enabled_streams
         lifecycle = self._wiring.lifecycle()
         initial = {
             stream: lifecycle.snapshot(stream).latest_committed_open_time_ms
@@ -116,6 +144,7 @@ class RuntimeService:
             ),
             initial_latest_open_time_ms=initial,
         )
+        admission = RealtimeAdmissionGate(admitted_streams)
         holder: dict[str, RuntimeRealtimeCoordinator] = {}
 
         async def on_event(event: object) -> None:
@@ -128,7 +157,10 @@ class RuntimeService:
             url=self._settings.websocket_url,
             transport=WebsocketsTransport(),
             adapter=BybitWebSocketAdapter(topic_map),
-            candle_handler=self._wiring.candle_handler(),
+            candle_handler=AdmissionGatedCandleHandler(
+                admission,
+                self._wiring.candle_handler(),
+            ),
             now_ms=self._wiring.clock.now_ms,
             on_event=on_event,
             on_outcome=on_outcome,
@@ -144,6 +176,8 @@ class RuntimeService:
             recovery=self._wiring.recovery(),
             lifecycle=lifecycle,
             status=self._status,
+            admission=admission,
+            operation_gate=operation_gate,
             now_ms=self._wiring.clock.now_ms,
             max_backfill_windows=self._settings.startup_backfill_windows_per_stream,
             max_repair_windows=self._settings.startup_repair_windows_per_stream,

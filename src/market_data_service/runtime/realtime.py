@@ -1,4 +1,4 @@
-"""Dispatch existing realtime connector, supervisor, and recovery components."""
+"""Dispatch realtime connector, supervisor, and REST recovery components."""
 
 from __future__ import annotations
 
@@ -7,6 +7,7 @@ from collections.abc import Callable, Sequence
 
 from market_data_service.application.realtime.connector import RealtimeConnector
 from market_data_service.application.realtime.events import (
+    CandleObserved,
     RealtimeEvent,
     RecoveryReason,
     RecoveryRequired,
@@ -21,6 +22,7 @@ from market_data_service.application.realtime.recovery_types import (
 from market_data_service.application.realtime.supervisor import RealtimeSupervisor
 from market_data_service.domain.identity import StreamKey
 from market_data_service.domain.stream_state import StreamLifecycleState
+from market_data_service.runtime.admission import RealtimeAdmissionGate
 from market_data_service.runtime.lifecycle import RuntimeLifecycleRecorder
 from market_data_service.runtime.status import RuntimeStatusStore
 
@@ -35,6 +37,8 @@ class RuntimeRealtimeCoordinator:
         recovery: RealtimeRecoveryCoordinator,
         lifecycle: RuntimeLifecycleRecorder,
         status: RuntimeStatusStore,
+        admission: RealtimeAdmissionGate,
+        operation_gate: asyncio.Lock,
         now_ms: Callable[[], int],
         max_backfill_windows: int,
         max_repair_windows: int,
@@ -46,6 +50,8 @@ class RuntimeRealtimeCoordinator:
         self._recovery = recovery
         self._lifecycle = lifecycle
         self._status = status
+        self._admission = admission
+        self._operation_gate = operation_gate
         self._now_ms = now_ms
         self._max_backfill_windows = max_backfill_windows
         self._max_repair_windows = max_repair_windows
@@ -64,10 +70,32 @@ class RuntimeRealtimeCoordinator:
             await asyncio.gather(recovery, stale, return_exceptions=True)
             self._refresh_status()
 
+    async def admit(self, stream: StreamKey) -> None:
+        self._admission.admit(stream)
+        self._status.clear_blocking_reason(stream)
+        facts = self._supervisor.facts(stream)
+        if facts.subscription_active and not facts.recovery_pending:
+            await self._enqueue(
+                RecoveryRequired(
+                    stream=stream,
+                    reason=RecoveryReason.STARTUP_RECONCILIATION,
+                    detected_at_ms=self._now_ms(),
+                )
+            )
+        self._sync_lifecycle()
+
     async def on_event(self, event: RealtimeEvent) -> None:
-        signals = self._supervisor.observe_event(event)
+        if isinstance(event, CandleObserved) and not self._admission.allows(event.stream):
+            return
+        signals = tuple(
+            signal
+            for signal in self._supervisor.observe_event(event)
+            if self._admission.allows(signal.stream)
+        )
         if isinstance(event, SubscriptionConfirmed):
             for stream in self._streams:
+                if not self._admission.allows(stream):
+                    continue
                 facts = self._supervisor.facts(stream)
                 if facts.subscription_active and not facts.recovery_restored:
                     await self._enqueue(
@@ -82,6 +110,8 @@ class RuntimeRealtimeCoordinator:
         self._sync_lifecycle()
 
     async def on_outcome(self, outcome: RealtimeIngestionOutcome) -> None:
+        if not self._admission.allows(outcome.stream):
+            return
         for signal in self._supervisor.observe_outcome(outcome):
             await self._enqueue(signal)
         self._sync_lifecycle()
@@ -99,13 +129,14 @@ class RuntimeRealtimeCoordinator:
             except TimeoutError:
                 continue
             try:
-                result = await self._recovery.execute(
-                    RealtimeRecoveryRequest(
-                        signal=signal,
-                        max_backfill_windows=self._max_backfill_windows,
-                        max_repair_windows=self._max_repair_windows,
+                async with self._operation_gate:
+                    result = await self._recovery.execute(
+                        RealtimeRecoveryRequest(
+                            signal=signal,
+                            max_backfill_windows=self._max_backfill_windows,
+                            max_repair_windows=self._max_repair_windows,
+                        )
                     )
-                )
                 fatal = result.classification is RecoveryClassification.FATAL_FAILURE
                 self._supervisor.record_recovery_result(
                     signal.stream,
@@ -121,7 +152,8 @@ class RuntimeRealtimeCoordinator:
     async def _stale_worker(self, stop_event: asyncio.Event) -> None:
         while not stop_event.is_set():
             for signal in self._supervisor.detect_stale():
-                await self._enqueue(signal)
+                if self._admission.allows(signal.stream):
+                    await self._enqueue(signal)
             self._sync_lifecycle()
             try:
                 await asyncio.wait_for(stop_event.wait(), timeout=self._stale_check_seconds)
@@ -131,6 +163,9 @@ class RuntimeRealtimeCoordinator:
     def _sync_lifecycle(self) -> None:
         for facts in self._supervisor.all_facts():
             durable = self._lifecycle.snapshot(facts.stream)
+            if not self._admission.allows(facts.stream):
+                self._status.update_stream(durable, facts)
+                continue
             if facts.fatal_error_code and durable.state is not StreamLifecycleState.FAILED:
                 durable = self._lifecycle.mark_failed(
                     facts.stream, reason=facts.fatal_error_code

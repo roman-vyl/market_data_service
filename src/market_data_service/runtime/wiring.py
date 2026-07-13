@@ -8,7 +8,11 @@ from pathlib import Path
 
 from market_data_service.adapters.bybit import BybitRestCandleSource
 from market_data_service.adapters.sqlite import SqliteUnitOfWork
+from market_data_service.adapters.sqlite.consumer_candle_reader import (
+    SqliteConsumerCandleReader,
+)
 from market_data_service.application.audit_continuity import AuditStreamContinuity
+from market_data_service.application.consumer_read import GetCandleRange
 from market_data_service.application.backfill_stream import BackfillStreamHistory
 from market_data_service.application.full_bootstrap import BootstrapFullStreamHistory
 from market_data_service.application.import_window import ImportHistoricalWindow
@@ -57,18 +61,27 @@ class RuntimeWiring:
     def unit_of_work(self) -> SqliteUnitOfWork:
         return SqliteUnitOfWork(self.database)
 
+    def consumer_read(self) -> GetCandleRange:
+        return GetCandleRange(
+            self.config,
+            SqliteConsumerCandleReader(self.database),
+        )
+
     def backfill(self) -> BackfillStreamHistory:
         importer = ImportHistoricalWindow(self.rest_source, self.unit_of_work, self.clock)
         return BackfillStreamHistory(importer, self.unit_of_work, self.clock)
 
-    def bootstrap(self, stream: StreamKey) -> BootstrapFullStreamHistory:
-        backfill = self.backfill()
-        lower_bound = ResolveHistoricalLowerBound(
+    def lower_bound(self) -> ResolveHistoricalLowerBound:
+        return ResolveHistoricalLowerBound(
             self.rest_source,
             self.rest_source,
             self.unit_of_work,
             self.clock,
         )
+
+    def bootstrap(self, stream: StreamKey) -> BootstrapFullStreamHistory:
+        backfill = self.backfill()
+        lower_bound = self.lower_bound()
         return BootstrapFullStreamHistory(
             lower_bound,
             backfill,

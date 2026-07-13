@@ -17,10 +17,21 @@ class StartupClassification(StrEnum):
 
 
 @dataclass(frozen=True, slots=True)
+class ReconciliationWindow:
+    start_time_ms: int
+    end_time_ms: int
+
+    def __post_init__(self) -> None:
+        if self.start_time_ms < 0 or self.end_time_ms <= self.start_time_ms:
+            raise ValueError("invalid reconciliation window")
+
+
+@dataclass(frozen=True, slots=True)
 class StartupStreamOutcome:
     stream: StreamKey
     classification: StartupClassification
     audit: ContinuityReport | None = None
+    window: ReconciliationWindow | None = None
     error_code: str | None = None
     error_detail: str | None = None
 

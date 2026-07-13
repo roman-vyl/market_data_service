@@ -53,11 +53,30 @@ ingestion, duplicate/correction handling, atomic stream-state persistence,
 rollback, restart persistence, continuity gaps, repair idempotency, and
 multi-stream isolation are covered by integration tests.
 
-Not implemented yet:
+Implemented runtime capabilities now include:
 
-- Bybit WebSocket realtime ingestion;
-- external HTTP API;
-- live consumer runtime.
+- Bybit WebSocket realtime ingestion and recovery;
+- `/health` and `/readiness`;
+- autonomous bounded historical reconciliation for configured streams;
+- per-stream realtime admission after continuous post-audit.
+
+A consumer candle-read API is specified in `openspec/changes/consumer-read-api-v1/` but is not yet implemented. Its first implementation slice is a mandatory architecture/file-responsibility audit; production code must not begin until reuse paths and dependency direction are proven.
+
+
+## Consumer Read API v1 planning
+
+The approved design target is a backend-to-backend canonical range endpoint:
+
+```text
+GET /v1/candles?ticker=BTCUSDT.P&timeframe=5m&from_ms=<inclusive>&to_ms=<exclusive>
+```
+
+Version 1 is intentionally unpaginated: one aligned half-open range is returned in one JSON response. OHLCV values remain normalized decimal text. Candle reads are allowed only when the requested configured stream is `ready`, and out-of-bounds or invariant-breaking ranges are rejected rather than truncated.
+
+BBB remains the Workbench BFF. A later BBB change will replace its direct legacy SQLite market reader with an HTTP client while keeping the existing Workbench `/api/market/candles-window` contract. See:
+
+- `openspec/changes/consumer-read-api-v1/`
+- `docs/integrations/bbb-consumer-api-current-state.docx`
 
 ## Planned first vertical slice
 
@@ -122,7 +141,7 @@ The skeleton now encodes the strongest preserved old-engine semantics in code:
 - named application use-case and infrastructure port boundaries.
 
 The contracts now have SQLite persistence plus bounded Bybit REST ingestion.
-WebSocket realtime delivery and the external HTTP API remain deferred.
+WebSocket realtime delivery is implemented. The external consumer candle-read API is specified but remains unimplemented.
 
 ## Step 2 decision
 
@@ -272,6 +291,8 @@ MDS_REST_BASE_URL
 MDS_WEBSOCKET_URL
 MDS_STARTUP_BACKFILL_WINDOWS_PER_STREAM
 MDS_STARTUP_REPAIR_WINDOWS_PER_STREAM
+MDS_HISTORICAL_RETRY_BASE_SECONDS
+MDS_HISTORICAL_RETRY_MAX_SECONDS
 MDS_RECONNECT_MAX_ATTEMPTS
 MDS_RECONNECT_DELAY_SECONDS
 MDS_STALE_INTERVALS
@@ -280,9 +301,17 @@ MDS_LOG_LEVEL
 ```
 
 Startup processes every enabled `ticker × timeframe` stream in deterministic
-configuration order, performs bounded historical bootstrap/audit/repair, then
-starts the existing WebSocket connector, supervisor, and recovery coordinator.
-Persisted `ready` is never trusted after restart.
+configuration order and performs one bounded full-window reconciliation pass.
+The existing continuity audit and `RepairStreamGaps` workflow find and repair
+prefix, internal, and suffix gaps. A pass budget limits only one turn: incomplete
+streams remain owned by the running process and receive later fair sequential
+turns until post-audit proves continuity or a fatal failure occurs.
+
+The WebSocket transport subscribes to all configured topics, while canonical
+realtime ingestion is gated per stream. Each stream is admitted immediately after
+historical continuity is proven, then uses existing realtime recovery to close the
+moving tail and still requires a fresh confirmed close before readiness. Persisted
+`ready` is never trusted after restart.
 
 Process endpoints:
 
@@ -294,3 +323,13 @@ GET /readiness
 `/health` reports process operation independently from market-data readiness.
 `/readiness` returns success only when every required stream has durable
 `ready` state and fresh realtime supervisor facts after recovery.
+
+## Consumer candle read API
+
+A ready canonical stream can be read through:
+
+```bash
+curl 'http://127.0.0.1:8080/v1/candles?ticker=BTCUSDT.P&timeframe=5m&from_ms=1710000000000&to_ms=1710000300000'
+```
+
+The range is aligned and half-open. OHLCV values are normalized decimal strings. Version 1 returns the complete requested range in one JSON response and intentionally has no pagination, cursor, or response chunking. Non-ready streams and out-of-bounds ranges never return partial candle data. The maintained schema is available at `/openapi.json`; see `docs/consumer-read-api-v1.md` for the full contract and BBB integration boundary.
