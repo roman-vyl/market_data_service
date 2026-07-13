@@ -10,11 +10,13 @@ The database may serve both live consumers and research. A complete minute histo
 
 For each configured ticker, store the full available Bybit 1m history. `launchTime` is only a search floor; the service must discover the first candle actually available from the kline API.
 
+Later v1 configuration may choose native higher-timeframe streams without making `1m` mandatory for every deployment; see ADR-012.
+
 ## Consequences
 
 - Heavy initial bootstrap is expected.
 - Bootstrap must be resumable and bounded by command options.
-- Higher timeframes may later be derived or materialized.
+- Native configured higher timeframes have their own stream-scoped history and continuity proof.
 
 ## Rejected alternatives
 

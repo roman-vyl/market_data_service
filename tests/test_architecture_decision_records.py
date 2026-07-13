@@ -14,6 +14,7 @@ EXPECTED = {
     "009-per-stream-state-machine.md",
     "010-sequential-bounded-backfill.md",
     "011-layered-architecture.md",
+    "012-native-configured-timeframes.md",
 }
 
 

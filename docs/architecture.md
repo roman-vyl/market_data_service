@@ -27,6 +27,7 @@ src/market_data_service/
 │   ├── bybit/       # REST and WebSocket normalization
 │   ├── sqlite/      # migrations and persistence
 │   └── http/        # consumer-facing API
+├── runtime/         # process orchestration, scheduling, status projection
 └── entrypoints/     # composition roots and process startup
 ```
 
@@ -80,13 +81,25 @@ domain/windows.py        half-open interval contract
 domain/gaps.py           pure gap detection and bounded fetch windows
 domain/candles.py        observed-versus-canonical candle boundary
 domain/classification.py ingestion outcome vocabulary
-application/use_cases.py explicit orchestration boundaries
+application/           explicit use cases and historical/realtime workflows
 ports/market_data_source.py vendor-neutral metadata/history capabilities
-ports/unit_of_work.py     future atomic commit capability
+ports/storage.py           canonical storage unit-of-work contract
 ```
 
 No `utils.py`, catch-all manager, database facade, or transport-specific domain
 type may replace these boundaries.
+
+## Runtime orchestration boundary
+
+The `runtime/` package is the long-running process coordinator. It wires settings,
+validated configuration, SQLite adapters, historical reconciliation, realtime
+connector/recovery, admission gates, and status projection. It does not parse
+Bybit payloads, decide candle validity, write SQL directly, or implement another
+gap/repair algorithm.
+
+`adapters/http/runtime_server.py` owns transport routing for `/health`,
+`/readiness`, `/openapi.json`, and `/v1/candles`. It depends on a small read-only
+status view protocol, not on the concrete runtime status store.
 
 ## Consumer recovery boundary
 

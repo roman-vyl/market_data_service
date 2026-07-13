@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from contextlib import closing
 from pathlib import Path
 
 from market_data_service.adapters.sqlite.candle_repository import SqliteCandleRepository
@@ -23,7 +24,7 @@ class SqliteConsumerCandleReader:
         start_time_ms: int,
         end_time_ms: int,
     ) -> ConsumerReadSnapshot:
-        with open_connection(self._database_path) as connection:
+        with closing(open_connection(self._database_path)) as connection:
             connection.execute("BEGIN")
             catalog = SqliteCatalogRepository(connection)
             state = SqliteStreamStateRepository(connection, catalog).get(stream)

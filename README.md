@@ -58,20 +58,19 @@ Implemented runtime capabilities now include:
 - Bybit WebSocket realtime ingestion and recovery;
 - `/health` and `/readiness`;
 - autonomous bounded historical reconciliation for configured streams;
-- per-stream realtime admission after continuous post-audit.
+- per-stream realtime admission after continuous post-audit;
+- `GET /v1/candles` ready-only canonical range reads.
 
-A consumer candle-read API is specified in `openspec/changes/consumer-read-api-v1/` but is not yet implemented. Its first implementation slice is a mandatory architecture/file-responsibility audit; production code must not begin until reuse paths and dependency direction are proven.
 
+## Consumer Read API v1
 
-## Consumer Read API v1 planning
-
-The approved design target is a backend-to-backend canonical range endpoint:
+The implemented backend-to-backend canonical range endpoint is:
 
 ```text
 GET /v1/candles?ticker=BTCUSDT.P&timeframe=5m&from_ms=<inclusive>&to_ms=<exclusive>
 ```
 
-Version 1 is intentionally unpaginated: one aligned half-open range is returned in one JSON response. OHLCV values remain normalized decimal text. Candle reads are allowed only when the requested configured stream is `ready`, and out-of-bounds or invariant-breaking ranges are rejected rather than truncated.
+Version 1 is intentionally unpaginated: one aligned half-open range is returned in one JSON response. OHLCV values remain normalized decimal text. Candle reads are allowed only when the requested configured stream is `ready`, and out-of-bounds or invariant-breaking ranges are rejected rather than truncated. The maintained schema is available at `/openapi.json`.
 
 BBB remains the Workbench BFF. A later BBB change will replace its direct legacy SQLite market reader with an HTTP client while keeping the existing Workbench `/api/market/candles-window` contract. See:
 
@@ -114,8 +113,10 @@ See:
 
 ## Core data policy
 
-- Every configured symbol has a mandatory canonical `1m` stream.
-- The default goal is the full minute history Bybit actually exposes.
+- Every enabled instrument declares at least one configured canonical stream.
+- `1m` is supported, but it is not mandatory in every market configuration.
+- Configured higher timeframes are native Bybit streams in v1, not derived from `1m`.
+- The default goal is the full history Bybit actually exposes for each configured stream.
 - Instrument `launchTime` is a discovery floor, not proof of the first candle.
 - Full bootstrap is resumable and followed by a complete continuity audit.
 - Readiness is the consumer processing gate: when a stream is not `ready`, consumers must pause decisions and later catch up by range read from their own cursor.
@@ -131,7 +132,7 @@ See `docs/operational-scenarios.md` for cold-start, repair, reconnect, and readi
 The skeleton now encodes the strongest preserved old-engine semantics in code:
 
 - canonical `InstrumentKey` and `StreamKey`;
-- mandatory `1m` timeframe registry;
+- canonical timeframe registry with `1m` plus native configured higher timeframes;
 - half-open `TimeWindow`;
 - deterministic grid math;
 - pure gap detection;
@@ -140,8 +141,8 @@ The skeleton now encodes the strongest preserved old-engine semantics in code:
 - explicit ingestion classifications;
 - named application use-case and infrastructure port boundaries.
 
-The contracts now have SQLite persistence plus bounded Bybit REST ingestion.
-WebSocket realtime delivery is implemented. The external consumer candle-read API is specified but remains unimplemented.
+The contracts now have SQLite persistence, bounded Bybit REST ingestion,
+WebSocket realtime delivery, and the ready-only consumer candle range API.
 
 ## Step 2 decision
 
@@ -293,6 +294,10 @@ MDS_STARTUP_BACKFILL_WINDOWS_PER_STREAM
 MDS_STARTUP_REPAIR_WINDOWS_PER_STREAM
 MDS_HISTORICAL_RETRY_BASE_SECONDS
 MDS_HISTORICAL_RETRY_MAX_SECONDS
+MDS_REALTIME_RECOVERY_BASE_SECONDS
+MDS_REALTIME_RECOVERY_MAX_SECONDS
+MDS_REALTIME_RECOVERY_IDLE_SECONDS
+MDS_REALTIME_STALE_CHECK_SECONDS
 MDS_RECONNECT_MAX_ATTEMPTS
 MDS_RECONNECT_DELAY_SECONDS
 MDS_STALE_INTERVALS

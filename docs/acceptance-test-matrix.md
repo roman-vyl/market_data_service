@@ -175,7 +175,6 @@ It is intentionally defined before SQLite, Bybit REST, WebSocket, and HTTP adapt
 | ID | Scenario | Level | Required result |
 |---|---|---|---|
 | API-01 | Candle range query | API integration | Half-open range, ascending order, decimal strings. |
-| API-02 | Latest candle query | API integration | Return latest committed candle for one stream. |
 | API-03 | Per-stream readiness query | API integration | Return state and timestamps for each configured stream. |
 | API-04 | Overall readiness query | API integration | Strict aggregation across all required streams. |
 | WSR-01 | Real bounded WebSocket confirmed close | Bybit/SQLite smoke | Configured topics subscribe, at least one confirmed close enters canonical ingestion within the timeout, and the connector exits cleanly. |

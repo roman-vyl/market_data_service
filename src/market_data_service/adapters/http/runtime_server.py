@@ -5,11 +5,23 @@ from __future__ import annotations
 import json
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from typing import Protocol
 from urllib.parse import urlsplit
 
 from market_data_service.adapters.http.consumer_read import ConsumerReadHttpHandler
 from market_data_service.adapters.http.consumer_read.openapi import openapi_document
-from market_data_service.runtime.status import RuntimeStatusStore
+
+
+class RuntimeStatusView(Protocol):
+    @property
+    def healthy(self) -> bool: ...
+
+    @property
+    def ready(self) -> bool: ...
+
+    def health_document(self) -> dict[str, object]: ...
+
+    def readiness_document(self) -> dict[str, object]: ...
 
 
 class RuntimeHttpServer:
@@ -17,7 +29,7 @@ class RuntimeHttpServer:
         self,
         host: str,
         port: int,
-        status: RuntimeStatusStore,
+        status: RuntimeStatusView,
         consumer_read: ConsumerReadHttpHandler | None = None,
     ) -> None:
         self._status = status

@@ -227,31 +227,25 @@ Change:
 
 - model diagnostics explicitly rather than relying only on CLI reports or process logs.
 
-## Minute-history implications
+## Configured-history implications
 
-The new service SHALL support `1m` as the mandatory canonical stream for every configured symbol.
+The new service SHALL support `1m`, but current v1 configuration may declare any supported canonical timeframe subset. Each configured timeframe is its own native Bybit stream.
 
 Default history policy:
 
 ```text
-required_history_start_1m = observed_earliest_available_1m_candle
+required_history_start = observed_earliest_available_candle_for_configured_stream
 ```
 
 Cold bootstrap is expected to be heavy once and resumable thereafter.
 
-## Higher-timeframe decision remains evidence-driven
+## Higher-timeframe decision
 
-Do not yet assume whether 5m/15m/1h/4h/1d are:
+ADR-012 resolves the v1 policy for 5m/15m/1h/4h/1d:
 
-- Bybit-native stored streams;
-- materialized derivations from canonical `1m`;
-- or both with explicit provenance.
-
-Before implementation, compare:
-
-1. resampled stored `1m`;
-2. Bybit-native higher-timeframe candles;
-3. existing BBB research datasets.
+- configured higher timeframes are Bybit-native stored streams;
+- materialized derivations from canonical `1m` are deferred;
+- storing both forms requires an explicit provenance model in a later change.
 
 ## Required parity process
 

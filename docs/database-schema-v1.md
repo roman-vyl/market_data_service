@@ -97,7 +97,10 @@ Schema v1 does not contain:
 - candle revision history;
 - metadata revision history;
 - feature or indicator storage;
-- derived timeframe storage.
+- derived timeframe/provenance storage.
+
+Configured native Bybit timeframes use ordinary `streams` and `candles` rows;
+schema v1 does not add separate aggregation tables.
 
 
 ## Stream lifecycle

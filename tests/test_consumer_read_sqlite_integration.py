@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import replace
 from pathlib import Path
 
+import market_data_service.adapters.sqlite.consumer_candle_reader as reader_module
 from market_data_service.adapters.sqlite import (
     SqliteUnitOfWork,
     initialize_database,
@@ -71,3 +72,38 @@ def test_sqlite_reader_reuses_canonical_range_path(tmp_path: Path) -> None:
     )
     assert [c.open_time_ms for c in result.candles] == [0, 60_000]
     assert result.candles[0].ohlcv_text == ("1.23", "2", "1", "1.5", "10.5")
+
+
+def test_sqlite_reader_closes_connection_after_snapshot(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    stream = StreamKey(InstrumentKey("BTCUSDT.P"), "1m")
+    database = tmp_path / "market.sqlite3"
+    initialize_database(database)
+    register_stream(database, stream, exchange_symbol="BTCUSDT", now_ms=1)
+    closed = 0
+    original_open_connection = reader_module.open_connection
+
+    class TrackedConnection:
+        def __init__(self, connection):
+            self._connection = connection
+
+        def __getattr__(self, name: str):
+            return getattr(self._connection, name)
+
+        def close(self) -> None:
+            nonlocal closed
+            closed += 1
+            self._connection.close()
+
+    def tracked_open_connection(path):
+        return TrackedConnection(original_open_connection(path))
+
+    monkeypatch.setattr(reader_module, "open_connection", tracked_open_connection)
+    reader = SqliteConsumerCandleReader(database)
+
+    for _ in range(3):
+        reader.read_snapshot(stream, start_time_ms=0, end_time_ms=60_000)
+
+    assert closed == 3

@@ -17,3 +17,4 @@ Each ADR records one durable decision, its context, consequences, and rejected a
 - [ADR-009: Per-stream persisted state machine](009-per-stream-state-machine.md)
 - [ADR-010: Sequential bounded backfill](010-sequential-bounded-backfill.md)
 - [ADR-011: Layered architecture and small modules](011-layered-architecture.md)
+- [ADR-012: Native configured timeframes](012-native-configured-timeframes.md)

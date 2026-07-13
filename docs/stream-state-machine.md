@@ -25,7 +25,7 @@ The stream is registered but historical initialization has not started.
 
 ### `bootstrapping`
 
-The service is loading the full available canonical `1m` history. Restart resumes from the actual latest committed candle and later performs a complete continuity audit.
+The service is loading the full available history for this configured canonical stream. Restart resumes from the actual latest committed candle and later performs a complete continuity audit.
 
 ### `auditing`
 
@@ -41,7 +41,7 @@ History is continuous and the service is establishing realtime WebSocket deliver
 
 ### `ready`
 
-The stream is complete, current, and acceptable for a future live consumer. This is the only ready lifecycle state.
+The stream is complete, current, and acceptable for consumers. This is the only ready lifecycle state. A fresh realtime close after recovery updates live diagnostics, but it is not required before already proven canonical history can be read.
 
 ### `degraded`
 

@@ -1,9 +1,9 @@
 .PHONY: install test lint typecheck verify run docker-build docker-run check-python
 
-PYTHON ?= python3
+PYTHON ?= $(if $(wildcard .venv/bin/python),.venv/bin/python,python3)
 
 check-python:
-	@$(PYTHON) -c 'import sys; raise SystemExit(0 if sys.version_info >= (3, 12) else "Python 3.12+ required; current interpreter is %s.%s at %s" % (sys.version_info.major, sys.version_info.minor, sys.executable))'
+	@$(PYTHON) -c 'import sys; raise SystemExit(0 if sys.version_info >= (3, 12) else "Python 3.12+ required; current interpreter: %s.%s at %s" % (sys.version_info.major, sys.version_info.minor, sys.executable))'
 
 install: check-python
 	$(PYTHON) -m pip install -e '.[dev]'

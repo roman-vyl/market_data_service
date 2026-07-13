@@ -14,7 +14,6 @@ from market_data_service.adapters.sqlite.consumer_candle_reader import (
 from market_data_service.application.audit_continuity import AuditStreamContinuity
 from market_data_service.application.backfill_stream import BackfillStreamHistory
 from market_data_service.application.consumer_read import GetCandleRange
-from market_data_service.application.full_bootstrap import BootstrapFullStreamHistory
 from market_data_service.application.import_window import ImportHistoricalWindow
 from market_data_service.application.ingest import IngestObservedCandle
 from market_data_service.application.lower_bound import ResolveHistoricalLowerBound
@@ -22,7 +21,6 @@ from market_data_service.application.realtime.handler import RealtimeCandleHandl
 from market_data_service.application.realtime.recovery import RealtimeRecoveryCoordinator
 from market_data_service.application.repair_gaps import RepairStreamGaps
 from market_data_service.config import ValidatedMarketConfig
-from market_data_service.domain.identity import StreamKey
 from market_data_service.runtime.lifecycle import RuntimeLifecycleRecorder
 
 
@@ -75,16 +73,6 @@ class RuntimeWiring:
         return ResolveHistoricalLowerBound(
             self.rest_source,
             self.rest_source,
-            self.unit_of_work,
-            self.clock,
-        )
-
-    def bootstrap(self, stream: StreamKey) -> BootstrapFullStreamHistory:
-        backfill = self.backfill()
-        lower_bound = self.lower_bound()
-        return BootstrapFullStreamHistory(
-            lower_bound,
-            backfill,
             self.unit_of_work,
             self.clock,
         )

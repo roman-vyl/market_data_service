@@ -61,25 +61,31 @@ class RealtimeRecoveryWorker:
         await self._queue.put(_PendingRecovery(signal))
 
     async def run(self, stop_event: asyncio.Event) -> None:
-        while not stop_event.is_set() or not self._queue.empty():
-            try:
-                pending = await asyncio.wait_for(self._queue.get(), timeout=0.2)
-            except TimeoutError:
-                continue
-            loop = asyncio.get_running_loop()
-            now = loop.time()
-            if pending.due_at > now:
-                await self._queue.put(pending)
+        try:
+            while not stop_event.is_set():
+                try:
+                    pending = await asyncio.wait_for(self._queue.get(), timeout=0.2)
+                except TimeoutError:
+                    continue
+                loop = asyncio.get_running_loop()
+                now = loop.time()
+                if pending.due_at > now:
+                    await self._queue.put(pending)
+                    self._queue.task_done()
+                    await self._wait(
+                        stop_event,
+                        min(self._idle_seconds, pending.due_at - now),
+                    )
+                    continue
+                retry = await self._execute(pending, loop)
+                if retry is not None and not stop_event.is_set():
+                    await self._queue.put(retry)
+                else:
+                    self._pending.discard(pending.signal.stream)
                 self._queue.task_done()
-                await self._wait(stop_event, min(self._idle_seconds, pending.due_at - now))
-                continue
-            retry = await self._execute(pending, loop)
-            if retry is not None and not stop_event.is_set():
-                await self._queue.put(retry)
-            else:
-                self._pending.discard(pending.signal.stream)
-            self._queue.task_done()
-            self._sync_lifecycle()
+                self._sync_lifecycle()
+        finally:
+            self._pending.clear()
 
     async def _execute(
         self,

@@ -19,3 +19,4 @@ def test_runtime_server_remains_small_transport_composition() -> None:
     path = ROOT / "adapters" / "http" / "runtime_server.py"
     assert len(path.read_text().splitlines()) < 100
     assert "sqlite" not in path.read_text().lower()
+    assert "market_data_service.runtime.status" not in path.read_text()

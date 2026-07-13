@@ -26,7 +26,7 @@
 - [x] Add identity stability, timeframe validation, and multi-instrument isolation tests.
 - [x] Resolve Phase 1 numeric precision representation: domain Decimal, canonical decimal TEXT in SQLite/API.
 - [x] Approve readiness-first consumer recovery with consumer-owned cursors and no v1 event log.
-- [ ] Decide native-versus-derived higher timeframe policy using parity evidence.
+- [x] Decide native-versus-derived higher timeframe policy using parity evidence.
 - [x] Approve minimal SQLite schema v1 and storage responsibilities.
 - [x] Resolve concrete SQLite driver/schema implementation using Python sqlite3 and schema v1 validation.
 - [x] Approve versioned multi-instrument configuration schema and identity/metadata/coverage split.

@@ -103,9 +103,12 @@ src/market_data_service/domain/windows.py
 src/market_data_service/domain/gaps.py
 src/market_data_service/domain/candles.py
 src/market_data_service/domain/classification.py
-src/market_data_service/application/use_cases.py
+src/market_data_service/application/ingest.py
+src/market_data_service/application/backfill_stream.py
+src/market_data_service/application/audit_continuity.py
+src/market_data_service/application/repair_gaps.py
 src/market_data_service/ports/market_data_source.py
-src/market_data_service/ports/unit_of_work.py
+src/market_data_service/ports/storage.py
 ```
 
 These are not permission to skip the remaining design steps. SQLite schema,

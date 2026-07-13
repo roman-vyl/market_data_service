@@ -551,9 +551,7 @@ Acceptance:
 Deliver:
 
 - candle range endpoint;
-- latest candle endpoint;
 - readiness endpoint;
-- deterministic pagination;
 - OpenAPI contract;
 - API contract tests.
 
@@ -633,8 +631,8 @@ These do not block repository initialization:
 3. Exact numeric representation is resolved: Python `Decimal` in the domain and normalized decimal strings in SQLite/API; binary floats are rejected at ingestion.
 4. Whether correction history later receives a dedicated revision table.
 6. Whether PostgreSQL replaces SQLite after the local production version.
-7. Which concrete symbols form the first demo deployment. `1m` is mandatory.
-8. Whether higher timeframes are stored as native Bybit candles, derived from canonical `1m`, or both with explicit provenance.
+7. Which concrete symbols form the first demo deployment.
+8. Higher timeframe policy is resolved by ADR-012: configured timeframes are native Bybit streams in v1; derived/provenance storage is a future change.
 
 Each deferred decision must be resolved before its implementation phase, not guessed inside code.
 

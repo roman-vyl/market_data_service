@@ -17,6 +17,12 @@ Runtime concerns SHALL remain separate:
 
 No runtime module may become a replacement for the existing application use cases.
 
+Runtime-owned background tasks are supervised fail-fast. If the realtime
+connector, recovery worker, or stale detector raises unexpectedly, sibling tasks
+are stopped and the exception reaches `RuntimeService`, which publishes fatal
+health. Graceful stop finishes any in-flight bounded recovery but does not run
+queued delayed retries after the stop signal.
+
 ## Settings and precedence
 
 Runtime settings use this precedence:
@@ -35,6 +41,8 @@ The v1 settings are:
 - Bybit REST and WebSocket URLs;
 - startup historical window budget per stream;
 - startup repair window budget per stream;
+- historical retry base/max backoff;
+- realtime recovery base/max backoff, idle cadence, and stale scan cadence;
 - realtime reconnect attempts/delay;
 - stale interval count and grace;
 - log level.

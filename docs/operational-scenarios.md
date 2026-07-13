@@ -4,7 +4,7 @@ This document defines observable service behavior during startup, recovery, and 
 
 ## Multi-symbol execution rule
 
-Every scenario below runs per enabled `StreamKey`, for example `BTCUSDT.P:1m` and `ETHUSDT.P:1m`. Durable cursors, gaps, subscriptions, and readiness must never be shared between symbols. The implementation may schedule streams sequentially initially, but state and outcomes remain independent.
+Every scenario below runs per enabled `StreamKey`, for example `BTCUSDT.P:5m` and `ETHUSDT.P:1d`. Durable cursors, gaps, subscriptions, and readiness must never be shared between symbols or timeframes. The implementation may schedule streams sequentially initially, but state and outcomes remain independent.
 
 Aggregate readiness is strict by default: every enabled required stream must be ready. Per-stream state is always exposed.
 
@@ -287,15 +287,15 @@ A future consumer such as BBB research bootstraps bulk history through candle ra
 
 The implementation must not force a downstream consumer to replay millions of per-minute realtime-style events merely to obtain an existing historical dataset.
 
-## 16. Higher timeframe policy remains explicit
+## 16. Higher timeframe policy
 
-The existence of canonical `1m` data does not silently decide whether `5m`, `15m`, `1h`, `4h`, and `1d` are:
+Configured higher timeframes such as `5m`, `15m`, `1h`, `4h`, and `1d` are independent native Bybit streams in v1:
 
-- fetched natively from Bybit;
-- derived from canonical minute candles;
-- or stored in both forms with provenance.
+- REST and WebSocket use the registered Bybit interval mapping;
+- continuity, repair, lifecycle, and readiness are scoped by `StreamKey`;
+- local aggregation equivalence against `1m` is not a v1 invariant.
 
-That decision requires parity tests against the old BBB research datasets. Until approved, `1m` is the only mandatory canonical timeframe.
+Derived or dual native/derived storage requires a later change with explicit provenance.
 
 
 ## Persisted lifecycle reference

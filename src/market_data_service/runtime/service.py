@@ -181,6 +181,14 @@ class RuntimeService:
             now_ms=self._wiring.clock.now_ms,
             max_backfill_windows=self._settings.startup_backfill_windows_per_stream,
             max_repair_windows=self._settings.startup_repair_windows_per_stream,
+            stale_check_seconds=self._settings.realtime_stale_check_seconds,
+            recovery_base_backoff_seconds=(
+                self._settings.realtime_recovery_base_seconds
+            ),
+            recovery_max_backoff_seconds=(
+                self._settings.realtime_recovery_max_seconds
+            ),
+            recovery_idle_seconds=self._settings.realtime_recovery_idle_seconds,
         )
         holder["runtime"] = runtime
         return runtime

@@ -58,14 +58,11 @@ The completed historical-storage core now includes:
 - persisted lifecycle and strict readiness projection domain contracts;
 - real Bybit smoke coverage for backfill, audit, repair, and bounded bootstrap resume.
 
-The following capabilities are intentionally not yet implemented in the active codebase:
-
-- complete validated multi-instrument configuration and deterministic `backfill --all`;
-- complete source-failure classification;
-- service-process startup orchestration and runtime surfaces;
-- WebSocket realtime ingestion and reconnect recovery;
-- consumer HTTP read API and downstream BBB adoption;
-- operational hardening.
+Follow-up changes have since implemented validated multi-instrument
+configuration, deterministic `backfill --all`, source-failure classification,
+service-process startup orchestration, WebSocket realtime recovery, and the
+consumer HTTP range API. Remaining closure work is operational hardening,
+Docker/runtime smoke proof, and downstream BBB adoption.
 
 ## Follow-up OpenSpec changes
 

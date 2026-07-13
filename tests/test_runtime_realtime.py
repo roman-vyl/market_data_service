@@ -5,6 +5,8 @@ from collections import deque
 from dataclasses import replace
 from pathlib import Path
 
+import pytest
+
 from market_data_service.adapters.sqlite import (
     SqliteUnitOfWork,
     initialize_database,
@@ -71,6 +73,11 @@ class FakeRecovery:
             if classification is RecoveryClassification.RECOVERABLE_FAILURE
             else None,
         )
+
+
+class ExplodingRecovery:
+    async def execute(self, request: RealtimeRecoveryRequest) -> RealtimeRecoveryResult:
+        raise RuntimeError(f"recovery exploded for {request.signal.stream.canonical_id}")
 
 
 def _factory(path: Path):
@@ -322,4 +329,64 @@ async def _fatal_no_retry_scenario(tmp_path: Path) -> None:
     stop.set()
     await runner
 
+    assert recovery.calls == [stream]
+
+
+def test_recovery_worker_failure_terminates_realtime_coordinator(tmp_path: Path) -> None:
+    asyncio.run(_recovery_worker_failure_scenario(tmp_path))
+
+
+async def _recovery_worker_failure_scenario(tmp_path: Path) -> None:
+    path = tmp_path / "market.sqlite3"
+    initialize_database(path)
+    stream = _stream("BTCUSDT.P")
+    _register_connecting(path, stream)
+    runtime, _ = _runtime(path, (stream,), ExplodingRecovery())  # type: ignore[arg-type]
+    stop = asyncio.Event()
+    runner = asyncio.create_task(runtime.run(stop))
+    await runtime.on_event(
+        SubscriptionConfirmed(("kline.1.BTCUSDT",), observed_at_ms=10)
+    )
+
+    with pytest.raises(ExceptionGroup) as exc_info:
+        await asyncio.wait_for(runner, timeout=1)
+    assert any(
+        "recovery exploded for BTCUSDT.P:1m" in str(error)
+        for error in exc_info.value.exceptions
+    )
+
+
+def test_stop_does_not_wait_for_or_execute_delayed_realtime_retry(
+    tmp_path: Path,
+) -> None:
+    asyncio.run(_stop_during_realtime_backoff_scenario(tmp_path))
+
+
+async def _stop_during_realtime_backoff_scenario(tmp_path: Path) -> None:
+    path = tmp_path / "market.sqlite3"
+    initialize_database(path)
+    stream = _stream("BTCUSDT.P")
+    _register_connecting(path, stream)
+    recovery = FakeRecovery(
+        {
+            stream: (
+                RecoveryClassification.RECOVERABLE_FAILURE,
+                RecoveryClassification.RESTORED,
+            )
+        }
+    )
+    runtime, _ = _runtime(path, (stream,), recovery, backoff_seconds=60)
+    stop = asyncio.Event()
+    runner = asyncio.create_task(runtime.run(stop))
+    await runtime.on_event(
+        SubscriptionConfirmed(("kline.1.BTCUSDT",), observed_at_ms=10)
+    )
+    for _ in range(200):
+        if len(recovery.calls) == 1:
+            break
+        await asyncio.sleep(0.001)
+    assert recovery.calls == [stream]
+
+    stop.set()
+    await asyncio.wait_for(runner, timeout=0.5)
     assert recovery.calls == [stream]

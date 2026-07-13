@@ -66,15 +66,20 @@ class RuntimeRealtimeCoordinator:
         )
 
     async def run(self, stop_event: asyncio.Event) -> None:
-        connector = asyncio.create_task(self._connector.run(stop_event))
-        recovery = asyncio.create_task(self._recovery_worker.run(stop_event))
-        stale = asyncio.create_task(self._stale_worker(stop_event))
         try:
-            await connector
+            async with asyncio.TaskGroup() as task_group:
+                task_group.create_task(self._run_connector(stop_event))
+                task_group.create_task(self._recovery_worker.run(stop_event))
+                task_group.create_task(self._stale_worker(stop_event))
         finally:
             stop_event.set()
-            await asyncio.gather(recovery, stale, return_exceptions=True)
             self._refresh_status()
+
+    async def _run_connector(self, stop_event: asyncio.Event) -> None:
+        try:
+            await self._connector.run(stop_event)
+        finally:
+            stop_event.set()
 
     async def admit(self, stream: StreamKey) -> None:
         self._admission.admit(stream)

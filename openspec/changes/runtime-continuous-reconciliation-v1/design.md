@@ -158,6 +158,7 @@ On SIGINT/SIGTERM:
 
 - stop scheduling new historical passes;
 - allow the active bounded pass to finish or stop only at an existing safe application boundary;
+- do not run queued historical or realtime retries whose backoff has not become due before stop;
 - preserve every committed SQLite transaction;
 - stop realtime connector/recovery and HTTP resources;
 - rely on startup preflight to reconstruct remaining work after restart.
