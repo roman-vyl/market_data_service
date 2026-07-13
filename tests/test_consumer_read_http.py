@@ -12,10 +12,12 @@ from market_data_service.config.markets import MarketSourceConfig, ValidatedMark
 from market_data_service.domain.candles import CanonicalCandle, ObservationSource
 from market_data_service.domain.identity import InstrumentKey, StreamKey
 from market_data_service.domain.instruments import HistoryPolicy, InstrumentCoverage
-from market_data_service.domain.stream_state import StreamLifecycleState, StreamStateSnapshot
-from market_data_service.runtime.status import RuntimeStatusStore
+from market_data_service.domain.stream_state import (
+    StreamLifecycleState,
+    StreamStateSnapshot,
+)
 from market_data_service.ports.consumer_read import ConsumerReadSnapshot
-
+from market_data_service.runtime.status import RuntimeStatusStore
 
 STREAM = StreamKey(InstrumentKey("BTCUSDT.P"), "5m")
 CONFIG = ValidatedMarketConfig(

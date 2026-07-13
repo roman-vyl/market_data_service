@@ -12,8 +12,8 @@ from market_data_service.adapters.sqlite.consumer_candle_reader import (
     SqliteConsumerCandleReader,
 )
 from market_data_service.application.audit_continuity import AuditStreamContinuity
-from market_data_service.application.consumer_read import GetCandleRange
 from market_data_service.application.backfill_stream import BackfillStreamHistory
+from market_data_service.application.consumer_read import GetCandleRange
 from market_data_service.application.full_bootstrap import BootstrapFullStreamHistory
 from market_data_service.application.import_window import ImportHistoricalWindow
 from market_data_service.application.ingest import IngestObservedCandle

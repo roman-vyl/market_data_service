@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import json
 import threading
-from urllib.parse import urlsplit
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from urllib.parse import urlsplit
 
 from market_data_service.adapters.http.consumer_read import ConsumerReadHttpHandler
 from market_data_service.adapters.http.consumer_read.openapi import openapi_document
