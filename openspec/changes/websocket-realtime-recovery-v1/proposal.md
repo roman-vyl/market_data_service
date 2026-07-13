@@ -47,8 +47,8 @@ stream becomes not ready
 → connector restores transport/subscription
 → recovery coordinator performs bounded REST reconciliation
 → post-recovery continuity is proven
-→ fresh realtime activity is observed
-→ stream may become ready
+→ stream may become data-ready
+→ fresh realtime activity later advances live diagnostics
 ```
 
 ## What does not change

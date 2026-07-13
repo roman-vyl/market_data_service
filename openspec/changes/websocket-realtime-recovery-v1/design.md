@@ -232,8 +232,9 @@ disconnect/stale/sequence signal
 → connector re-establishes transport and subscriptions
 → recovery coordinator proves historical continuity
 → coordinator reports the restored-through canonical boundary
-→ supervisor observes a confirmed close at or after recovery completion
-→ readiness may be projected true
+→ data readiness may be projected true
+→ supervisor later observes a confirmed close at or after recovery completion
+→ realtime-live diagnostics may be projected true
 ```
 
 The final service-level readiness projection and HTTP exposure belong to `runtime-startup-orchestration-v1`. This change provides the realtime and recovery facts required by that projection.

@@ -47,13 +47,20 @@ class RealtimeStreamFacts:
     fatal_error_code: str | None = None
 
     @property
-    def realtime_ready(self) -> bool:
+    def data_ready(self) -> bool:
         return (
             self.subscription_active
-            and self.status is RealtimeStreamStatus.LIVE
             and self.recovery_restored
+            and not self.recovery_pending
+            and self.fatal_error_code is None
+        )
+
+    @property
+    def realtime_live(self) -> bool:
+        return (
+            self.data_ready
+            and self.status is RealtimeStreamStatus.LIVE
             and self.recovery_completed_at_ms is not None
             and self.last_confirmed_observed_at_ms is not None
             and self.last_confirmed_observed_at_ms >= self.recovery_completed_at_ms
-            and self.fatal_error_code is None
         )

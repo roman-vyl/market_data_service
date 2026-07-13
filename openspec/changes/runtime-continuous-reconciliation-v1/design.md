@@ -104,7 +104,7 @@ After a continuous post-audit:
 - runtime opens the stream's admission gate;
 - the existing supervisor/recovery path receives the stream;
 - startup/tail recovery closes any interval between the fixed historical target and current closed boundary;
-- a fresh confirmed WebSocket close remains required before readiness.
+- successful tail recovery is sufficient for data readiness.
 
 This permits a stream to enter realtime without restarting the process and prevents a current WebSocket candle from masking an older historical gap.
 
@@ -148,7 +148,7 @@ A stream SHALL remain not ready while any of these apply:
 - historical fatal failure;
 - realtime admission not yet opened;
 - realtime recovery pending;
-- fresh confirmed close not yet observed.
+- fatal realtime failure.
 
 The readiness projection SHALL expose a stable blocking reason sufficient to distinguish these states. Aggregate readiness remains true only when every enabled required stream is ready.
 

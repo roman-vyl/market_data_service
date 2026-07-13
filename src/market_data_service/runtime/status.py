@@ -15,6 +15,8 @@ class RuntimeStreamStatus:
     stream: str
     durable_state: str
     realtime_status: str
+    data_ready: bool
+    realtime_live: bool
     ready: bool
     reason: str | None
 
@@ -30,6 +32,8 @@ class RuntimeStatusStore:
                 stream=stream.canonical_id,
                 durable_state="uninitialized",
                 realtime_status="expected",
+                data_ready=False,
+                realtime_live=False,
                 ready=False,
                 reason="startup_pending",
             )
@@ -52,7 +56,9 @@ class RuntimeStatusStore:
         realtime: RealtimeStreamFacts | None,
     ) -> None:
         realtime_status = "not_started" if realtime is None else realtime.status.value
-        ready = bool(durable.is_ready and realtime is not None and realtime.realtime_ready)
+        data_ready = bool(durable.is_ready and realtime is not None and realtime.data_ready)
+        realtime_live = bool(realtime is not None and realtime.realtime_live)
+        ready = data_ready
         override = self._blocking_reasons.get(durable.stream)
         reason = None if ready else (override or self._reason(durable, realtime))
         with self._lock:
@@ -60,6 +66,8 @@ class RuntimeStatusStore:
                 stream=durable.stream.canonical_id,
                 durable_state=durable.state.value,
                 realtime_status=realtime_status,
+                data_ready=data_ready,
+                realtime_live=realtime_live,
                 ready=ready,
                 reason=reason,
             )
@@ -73,6 +81,8 @@ class RuntimeStatusStore:
                 stream=current.stream,
                 durable_state=current.durable_state,
                 realtime_status=current.realtime_status,
+                data_ready=False,
+                realtime_live=current.realtime_live,
                 ready=False,
                 reason=reason,
             )
@@ -121,4 +131,8 @@ class RuntimeStatusStore:
             return realtime.fatal_error_code
         if realtime.recovery_pending:
             return "recovery_pending"
+        if not realtime.subscription_active:
+            return "subscription_inactive"
+        if not realtime.recovery_restored:
+            return "recovery_not_restored"
         return realtime.status.value

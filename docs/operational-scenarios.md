@@ -39,7 +39,7 @@ The open timestamp of the most recent candle that should already be fully closed
 
 ### Ready stream
 
-A stream is ready only when its required historical interval is known, canonical continuity has been audited, all required repair is complete, and realtime freshness is acceptable.
+A stream is ready only when its required historical interval is known, canonical continuity has been audited, all required repair is complete, and startup or reconnect tail recovery has proven the latest closed boundary. Later confirmed WebSocket closes are realtime-live diagnostics, not a prerequisite for reading proven history.
 
 ## 2. Cold start: database file does not exist
 
@@ -217,7 +217,8 @@ Partial current-candle updates do not become canonical candles in v1.
 5. Fetch and repair through REST.
 6. Audit continuity.
 7. Resume live handling.
-8. Mark ready only after repair and freshness checks pass.
+8. Mark ready after repair and tail continuity checks pass.
+9. Advance realtime-live diagnostics after a later confirmed close.
 
 ## 11. Process crash after candle commit
 

@@ -36,7 +36,7 @@ A fatal failure SHALL stop automatic retries only for the affected stream.
 
 After process restart, runtime SHALL reconstruct unfinished reconciliation by running a new full-window preflight against canonical SQLite state. The service SHALL NOT require a persisted reconciliation-job queue when candles, lower-bound metadata, stream lifecycle, and fresh audit are sufficient to identify remaining work.
 
-Persisted `ready` SHALL be distrusted until historical continuity and realtime freshness are re-proven.
+Persisted `ready` SHALL be distrusted until historical continuity and realtime tail recovery are re-proven.
 
 ## Requirement: Per-stream realtime admission
 
@@ -44,9 +44,11 @@ Historically incomplete streams SHALL NOT send confirmed WebSocket observations 
 
 A completed stream SHALL be admitted without restarting the process and SHALL be permitted to operate in realtime while other streams continue historical reconciliation.
 
-## Requirement: Tail reconciliation and fresh close
+## Requirement: Tail reconciliation and data readiness
 
-After historical admission, the existing realtime recovery path SHALL reconcile any tail between the fixed historical target and the current latest-closed boundary. The stream SHALL remain not ready until recovery succeeds and a fresh confirmed WebSocket close is observed.
+After historical admission, the existing realtime recovery path SHALL reconcile any tail between the fixed historical target and the current latest-closed boundary. The stream SHALL remain not ready until recovery succeeds.
+
+A fresh confirmed WebSocket close after recovery SHALL be treated as realtime-live diagnostics, not as a prerequisite for reading already proven canonical history.
 
 ## Requirement: Serialized REST-authoritative work
 
@@ -54,7 +56,7 @@ Continuous historical reconciliation and realtime REST recovery SHALL be seriali
 
 ## Requirement: Readiness transparency
 
-The readiness projection SHALL distinguish historical reconciliation, historical backoff, fatal historical failure, realtime admission pending, realtime recovery pending, and fresh-close waiting. Aggregate readiness SHALL remain false while any enabled required stream is not ready.
+The readiness projection SHALL distinguish historical reconciliation, historical backoff, fatal historical failure, realtime admission pending, realtime recovery pending, and fatal realtime failure. Aggregate readiness SHALL remain false while any enabled required stream is not ready.
 
 ## Requirement: Graceful shutdown
 
@@ -62,4 +64,4 @@ Shutdown SHALL prevent new historical passes, preserve all committed progress, s
 
 ## Requirement: Autonomous convergence acceptance
 
-The implementation SHALL prove with fake REST, fake WebSocket, and temporary SQLite that an empty multi-stream database converges without mandatory administrative backfill, that internal gaps are repaired, that recoverable failures do not lose progress or block other streams, that completed streams enter realtime early, and that aggregate readiness is reached only after all required streams complete historical and realtime proof.
+The implementation SHALL prove with fake REST, fake WebSocket, and temporary SQLite that an empty multi-stream database converges without mandatory administrative backfill, that internal gaps are repaired, that recoverable failures do not lose progress or block other streams, that completed streams enter realtime early, and that aggregate readiness is reached only after all required streams complete historical proof and realtime tail recovery.

@@ -53,7 +53,7 @@
 ## Readiness facts and integration boundary
 
 - [x] Expose per-stream realtime facts needed by future service readiness projection.
-- [x] Require active subscription, successful recovery, and acceptable fresh realtime activity before realtime readiness can be true.
+- [x] Require active subscription and successful recovery before data readiness can be true, with fresh realtime activity tracked separately as live diagnostics.
 - [x] Leave process startup, HTTP `/health`, HTTP `/readiness`, and aggregate service readiness to `runtime-startup-orchestration-v1`.
 
 ## Verification and documentation

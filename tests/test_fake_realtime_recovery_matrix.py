@@ -244,7 +244,8 @@ async def _scenario(tmp_path: Path) -> None:
                 restored=True,
                 restored_through_open_time_ms=result.restored_through_open_time_ms,
             )
-        assert not any(facts.realtime_ready for facts in supervisor.all_facts())
+        assert all(facts.data_ready for facts in supervisor.all_facts())
+        assert not any(facts.realtime_live for facts in supervisor.all_facts())
 
         for stream in config.enabled_streams:
             topic = next(topic for topic in topic_map.topics if topic_map.resolve(topic) == stream)
@@ -263,7 +264,8 @@ async def _scenario(tmp_path: Path) -> None:
             fresh_outcome = handler.handle(fresh_event)
             assert fresh_outcome is not None
             supervisor.observe_outcome(fresh_outcome)
-        assert all(facts.realtime_ready for facts in supervisor.all_facts())
+        assert all(facts.data_ready for facts in supervisor.all_facts())
+        assert all(facts.realtime_live for facts in supervisor.all_facts())
 
         with uow_factory() as unit_of_work:
             assert unit_of_work.get_candle(btc, 120_000) is not None

@@ -45,7 +45,7 @@ serve starts
 → unfinished streams remain scheduled
 → transient failures preserve committed progress and retry later
 → continuous post-audit admits each completed stream to realtime
-→ aggregate readiness becomes true after all required streams also prove fresh realtime activity
+→ aggregate readiness becomes true after all required streams complete tail recovery
 ```
 
 Completed streams may operate in realtime while other configured streams continue historical reconciliation.

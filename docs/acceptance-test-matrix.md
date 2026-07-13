@@ -167,7 +167,7 @@ It is intentionally defined before SQLite, Bybit REST, WebSocket, and HTTP adapt
 | WSS-06 | Disconnect and reconnect | Runtime smoke | Catch-up and audit complete before ready is restored. |
 | WSS-07 | Timeframe-aware stale stream | Application integration | Only the stale stream emits recovery-required and independent streams remain unchanged. |
 | WSS-08 | Sequence discontinuity after durable tail | WebSocket/REST/SQLite integration | The suspected internal range is backfilled, audited, repaired if necessary, and post-audit is continuous. |
-| WSS-09 | Recovery readiness gate | Application integration | Recovery success alone is insufficient; a fresh confirmed close after recovery is required. |
+| WSS-09 | Recovery data-readiness gate | Application integration | Transport reconnect alone is insufficient; active subscription plus successful REST recovery makes the stream data-ready, while a later fresh confirmed close only advances realtime-live diagnostics. |
 | WSS-10 | Recovery classification | Application integration | Incomplete, recoverable, and fatal results remain distinct and typed. |
 
 ## L. API and runtime
@@ -265,7 +265,7 @@ and durable independent resume for BTCUSDT.P and ETHUSDT.P.
 The first bounded realtime ingestion smoke is accepted when `WSR-01` passes
 through the real Bybit public linear WebSocket, configured multi-symbol and
 multi-timeframe routing, canonical ingestion, temporary SQLite, and clean stop.
-The full fake realtime recovery matrix additionally covers supervisor state, stale and sequence signals, disconnect/resubscribe, bounded REST recovery, gap repair, post-audit, restored-through boundaries, and fresh-after-recovery readiness gating.
+The full fake realtime recovery matrix additionally covers supervisor state, stale and sequence signals, disconnect/resubscribe, bounded REST recovery, gap repair, post-audit, restored-through boundaries, data readiness after recovery, and later realtime-live diagnostics.
 
 
 ## Realtime recovery integration milestone
@@ -277,8 +277,9 @@ WSS-01 through WSS-10, WSR-01
 ```
 
 pass through transport-neutral WebSocket events, canonical ingestion, per-stream
-supervision, fake REST, temporary SQLite, bounded backfill/repair, post-audit, and
-fresh-after-recovery readiness facts across multiple symbols and timeframes.
+supervision, fake REST, temporary SQLite, bounded backfill/repair, post-audit,
+data-readiness facts, and realtime-live diagnostics across multiple symbols and
+timeframes.
 
 
 ## Runtime startup orchestration

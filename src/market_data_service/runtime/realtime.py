@@ -170,7 +170,7 @@ class RuntimeRealtimeCoordinator:
                 durable = self._lifecycle.mark_failed(
                     facts.stream, reason=facts.fatal_error_code
                 )
-            elif facts.realtime_ready and durable.state is StreamLifecycleState.CONNECTING:
+            elif facts.data_ready and durable.state is StreamLifecycleState.CONNECTING:
                 durable = self._lifecycle.mark_ready(facts.stream)
             elif (
                 facts.recovery_pending

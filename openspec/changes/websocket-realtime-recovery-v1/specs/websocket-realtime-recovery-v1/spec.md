@@ -99,15 +99,16 @@ latest canonical open time covered by that proof.
 
 ## Requirement: Reconnect does not imply readiness
 
-A restored WebSocket transport or subscription SHALL NOT by itself make a stream ready.
+A restored WebSocket transport or subscription SHALL NOT by itself make a stream data-ready.
 
-Realtime readiness MAY be true only after:
+Data readiness MAY be true only after:
 
 - the configured subscription is active;
 - required REST recovery is complete;
 - post-recovery continuity is proven;
-- acceptable confirmed realtime activity is observed after recovery completion;
 - no fatal ingestion/storage failure is active.
+
+Realtime-live diagnostics MAY be true only after acceptable confirmed realtime activity is observed after recovery completion.
 
 Aggregate process readiness and HTTP readiness exposure belong to `runtime-startup-orchestration-v1`.
 

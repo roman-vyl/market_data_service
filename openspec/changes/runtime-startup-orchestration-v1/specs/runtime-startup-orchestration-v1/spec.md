@@ -32,7 +32,9 @@ Recovery SHALL be bounded, serialized per stream, and duplicate pending signals 
 
 ## Requirement: Strict readiness
 
-A stream SHALL be public-ready only when durable lifecycle state is `ready` and supervisor facts report realtime readiness after subscription, successful recovery reconciliation, and a fresh confirmed close.
+A stream SHALL be public-ready only when durable lifecycle state is `ready` and supervisor facts report data readiness after subscription and successful recovery reconciliation.
+
+A fresh confirmed close after recovery MAY advance realtime diagnostics to `live`, but it SHALL NOT be required before exposing already proven canonical history as ready.
 
 Disconnect, stale state, sequence discontinuity, rejected observation, pending recovery, or fatal ingestion failure SHALL make the affected stream not ready without mutating independent streams.
 
@@ -42,7 +44,7 @@ Aggregate readiness SHALL be true only when at least one required stream exists 
 
 `GET /health` SHALL return HTTP 200 with a typed JSON process-health document when the runtime is operational, and HTTP 503 for fatal process initialization/runtime failure.
 
-`GET /readiness` SHALL return HTTP 200 only when aggregate readiness is true; otherwise it SHALL return HTTP 503. The response SHALL list every configured stream with durable state, realtime status, ready flag, and blocking reason.
+`GET /readiness` SHALL return HTTP 200 only when aggregate readiness is true; otherwise it SHALL return HTTP 503. The response SHALL list every configured stream with durable state, realtime status, data-ready flag, realtime-live flag, ready flag, and blocking reason.
 
 ## Requirement: Failure isolation
 

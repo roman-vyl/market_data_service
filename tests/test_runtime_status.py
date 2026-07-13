@@ -9,7 +9,25 @@ from market_data_service.domain.stream_state import StreamLifecycleState, Stream
 from market_data_service.runtime.status import RuntimeStatusStore
 
 
-def test_runtime_readiness_requires_durable_and_realtime_ready() -> None:
+def test_runtime_readiness_requires_durable_and_recovered_subscription() -> None:
+    stream = StreamKey(InstrumentKey("BTCUSDT.P"), "1m")
+    store = RuntimeStatusStore((stream,))
+    durable = StreamStateSnapshot(stream, StreamLifecycleState.READY)
+    realtime = RealtimeStreamFacts(
+        stream=stream,
+        status=RealtimeStreamStatus.SUBSCRIBED,
+        subscription_active=True,
+        recovery_restored=True,
+        recovery_completed_at_ms=100,
+    )
+    store.update_stream(durable, realtime)
+    assert store.ready is True
+    stream_status = store.readiness_document()["streams"][0]
+    assert stream_status["data_ready"] is True
+    assert stream_status["realtime_live"] is False
+
+
+def test_runtime_reports_realtime_live_separately_from_data_readiness() -> None:
     stream = StreamKey(InstrumentKey("BTCUSDT.P"), "1m")
     store = RuntimeStatusStore((stream,))
     durable = StreamStateSnapshot(stream, StreamLifecycleState.READY)
@@ -22,7 +40,10 @@ def test_runtime_readiness_requires_durable_and_realtime_ready() -> None:
         last_confirmed_observed_at_ms=101,
     )
     store.update_stream(durable, realtime)
-    assert store.ready is True
+    stream_status = store.readiness_document()["streams"][0]
+    assert stream_status["ready"] is True
+    assert stream_status["data_ready"] is True
+    assert stream_status["realtime_live"] is True
 
 
 def test_runtime_readiness_is_strict_across_streams() -> None:
@@ -31,11 +52,10 @@ def test_runtime_readiness_is_strict_across_streams() -> None:
     store = RuntimeStatusStore((btc, eth))
     ready_facts = RealtimeStreamFacts(
         stream=btc,
-        status=RealtimeStreamStatus.LIVE,
+        status=RealtimeStreamStatus.SUBSCRIBED,
         subscription_active=True,
         recovery_restored=True,
         recovery_completed_at_ms=1,
-        last_confirmed_observed_at_ms=2,
     )
     store.update_stream(StreamStateSnapshot(btc, StreamLifecycleState.READY), ready_facts)
     assert store.ready is False

@@ -90,16 +90,16 @@ REST recovery SHALL NOT execute inside WebSocket transport callbacks. Recovery w
 A stream is ready only when both are true:
 
 1. durable lifecycle is `ready`;
-2. realtime supervisor facts report `realtime_ready=true`.
+2. realtime supervisor facts report `data_ready=true`.
 
-Historically reconciled streams enter `connecting`. After subscription, successful recovery reconciliation, and a fresh confirmed close, runtime persists `ready`. Disconnect, stale, rejected observations, recovery pending, or fatal ingestion failure makes the stream not ready and persists degraded/failed state according to the existing lifecycle contract.
+Historically reconciled streams enter `connecting`. After subscription and successful recovery reconciliation, runtime persists `ready`. A later fresh confirmed close may advance realtime diagnostics to `live`, but it does not gate access to already proven canonical history. Disconnect, stale, rejected observations, recovery pending, or fatal ingestion failure makes the stream not ready and persists degraded/failed state according to the existing lifecycle contract.
 
 Aggregate readiness is true only when every enabled required stream is ready.
 
 ## Process surfaces
 
 - `/health` returns HTTP 200 only when configuration, SQLite initialization, startup coordinator, HTTP server, and runtime loop are operational. Fatal process errors return HTTP 503.
-- `/readiness` returns HTTP 200 only when aggregate readiness is true; otherwise HTTP 503. Its JSON includes every configured stream, durable state, realtime status, ready flag, and blocking reason.
+- `/readiness` returns HTTP 200 only when aggregate readiness is true; otherwise HTTP 503. Its JSON includes every configured stream, durable state, realtime status, data-ready flag, realtime-live flag, ready flag, and blocking reason.
 
 Health does not imply readiness.
 
