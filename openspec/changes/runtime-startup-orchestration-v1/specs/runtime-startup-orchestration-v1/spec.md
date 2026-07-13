@@ -28,7 +28,7 @@ Incomplete bootstrap, unresolved gaps, recoverable source failure, or fatal fail
 
 Connector events and ingestion outcomes SHALL be passed to the existing realtime supervisor. `RecoveryRequired` signals SHALL be processed by the existing realtime recovery coordinator outside WebSocket transport callbacks.
 
-Recovery SHALL be bounded, serialized per stream, and duplicate pending signals SHALL be coalesced.
+Recovery SHALL be bounded, serialized per stream, and duplicate pending signals SHALL be coalesced. Non-terminal realtime recovery outcomes SHALL remain runtime-owned: `incomplete` is requeued, `recoverable_failure` is retried after per-stream backoff, and `fatal_failure` is not retried.
 
 ## Requirement: Strict readiness
 

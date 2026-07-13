@@ -189,7 +189,12 @@ For one affected stream it:
 7. reports `restored`, `incomplete`, `recoverable_failure`, or `fatal_failure`;
 8. on `restored`, reports the canonical open time through which history was proven.
 
-The coordinator does not run inside a WebSocket message callback. Recovery work is serialized per stream. Independent streams remain isolated.
+The coordinator does not run inside a WebSocket message callback. Runtime owns
+`incomplete` and `recoverable_failure` recovery results for the process lifetime:
+`incomplete` is requeued immediately, `recoverable_failure` is requeued after
+per-stream backoff, and `fatal_failure` is not retried. Recovery work is
+serialized per stream and scheduled fairly so one affected stream cannot starve
+another due stream. Independent streams remain isolated.
 
 REST remains the authority for reconnect recovery and conflict resolution. WebSocket observations use canonical duplicate/correction classification but do not silently override REST-authoritative recovery results.
 

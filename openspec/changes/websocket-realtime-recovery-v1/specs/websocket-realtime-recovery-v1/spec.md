@@ -87,6 +87,12 @@ The coordinator SHALL NOT implement a second window splitter, gap detector, cand
 
 Recovery SHALL be serialized per affected stream. Independent streams SHALL remain isolated.
 
+Runtime SHALL retain ownership of non-terminal realtime recovery results.
+`incomplete` SHALL be requeued for another bounded recovery attempt.
+`recoverable_failure` SHALL enter per-stream backoff and then be requeued.
+`fatal_failure` SHALL fail the affected stream without retry. One stream in
+recovery backoff SHALL NOT prevent another due stream from running.
+
 The recovery result SHALL distinguish at least:
 
 - `restored`;

@@ -48,6 +48,7 @@
 - [x] Require post-recovery audit before reporting `restored`.
 - [x] Serialize recovery per stream while allowing independent streams to remain unaffected.
 - [x] Classify incomplete, recoverable, and fatal recovery outcomes consistently.
+- [x] Requeue incomplete recovery, retry recoverable recovery after per-stream backoff, and avoid retrying fatal recovery.
 - [x] Do not add a recovery-job table or a second candle ingestion path.
 
 ## Readiness facts and integration boundary

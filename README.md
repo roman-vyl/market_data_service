@@ -310,8 +310,9 @@ turns until post-audit proves continuity or a fatal failure occurs.
 The WebSocket transport subscribes to all configured topics, while canonical
 realtime ingestion is gated per stream. Each stream is admitted immediately after
 historical continuity is proven, then uses existing realtime recovery to close the
-moving tail and still requires a fresh confirmed close before readiness. Persisted
-`ready` is never trusted after restart.
+moving tail. Successful tail recovery makes the stream data-ready; a later fresh
+confirmed close advances realtime-live diagnostics but does not gate access to
+already proven canonical history. Persisted `ready` is never trusted after restart.
 
 Process endpoints:
 
@@ -322,7 +323,7 @@ GET /readiness
 
 `/health` reports process operation independently from market-data readiness.
 `/readiness` returns success only when every required stream has durable
-`ready` state and fresh realtime supervisor facts after recovery.
+`ready` state and realtime supervisor data-ready facts after recovery.
 
 ## Consumer candle read API
 
