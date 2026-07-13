@@ -77,7 +77,7 @@ BBB remains the Workbench BFF. A later BBB change will replace its direct legacy
 - `openspec/changes/consumer-read-api-v1/`
 - `docs/integrations/bbb-consumer-api-current-state.docx`
 
-## Planned first vertical slice
+## Canonical ingestion path
 
 ```text
 Bybit REST candle

@@ -2,7 +2,7 @@
 
 - [x] Define validated runtime settings and CLI/environment/default precedence.
 - [x] Add deterministic configured-stream runtime loading and registration.
-- [x] Add one-shot historical startup reconciliation using existing bootstrap/audit/repair.
+- [x] Add the initial deterministic bounded startup reconciliation pass.
 - [x] Implement interrupted durable-state recovery and persisted-ready distrust.
 - [x] Enforce explicit per-stream startup backfill and repair budgets.
 - [x] Add startup outcomes and failure isolation.

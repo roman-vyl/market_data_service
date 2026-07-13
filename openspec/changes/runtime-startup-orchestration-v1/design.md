@@ -9,7 +9,7 @@ The runtime is a thin process coordinator. It wires existing validated configura
 Runtime concerns SHALL remain separate:
 
 - `runtime/settings.py` owns environment/CLI parsing and validation;
-- `runtime/startup.py` owns deterministic one-shot historical reconciliation;
+- `runtime/startup.py` owns the initial deterministic bounded historical pass;
 - `runtime/realtime.py` owns event/outcome/recovery dispatch between existing realtime components;
 - `runtime/status.py` owns thread-safe health/readiness snapshots;
 - `adapters/http/runtime_server.py` owns `/health` and `/readiness` transport;
@@ -113,7 +113,11 @@ Health does not imply readiness.
 
 ## Process lifetime and shutdown
 
-Historical startup reconciliation runs once. After it completes, the process runs the realtime connector, stale checker, recovery worker, and HTTP server. No periodic deep-history scheduler is introduced.
+Startup performs one deterministic bounded initial pass for every configured stream.
+Streams that remain `INCOMPLETE` or recoverable after that pass are owned by the
+continuous bounded historical reconciliation worker. That worker repeats
+full-window preflight and repair passes until the stream reaches `COMPLETE`, hits
+a fatal failure, or shutdown begins.
 
 SIGINT/SIGTERM SHALL stop accepting HTTP work, signal realtime cancellation, allow bounded in-flight recovery to finish or cancel cleanly, close WebSocket and HTTP transports, and release process resources. Already committed SQLite UoWs remain durable.
 

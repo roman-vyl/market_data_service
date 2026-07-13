@@ -74,15 +74,18 @@ class RuntimeService:
                 max_backoff_seconds=self._settings.historical_retry_max_seconds,
             )
             self._status.mark_healthy()
-            await asyncio.gather(
-                realtime.run(stop_event),
-                worker.run(stop_event),
-            )
+            async with asyncio.TaskGroup() as task_group:
+                task_group.create_task(realtime.run(stop_event))
+                task_group.create_task(worker.run(stop_event))
+        except ExceptionGroup as exc:
+            root = _root_exception(exc)
+            self._mark_fatal(root)
+            raise root from exc
         except Exception as exc:
-            self._status.mark_fatal(f"{type(exc).__name__}: {exc}")
-            self._logger.exception("runtime failed")
+            self._mark_fatal(exc)
             raise
         finally:
+            stop_event.set()
             self._http_server.close()
 
     def _startup(self) -> tuple[StartupCoordinator, tuple[StartupStreamOutcome, ...]]:
@@ -192,3 +195,13 @@ class RuntimeService:
         )
         holder["runtime"] = runtime
         return runtime
+
+    def _mark_fatal(self, exc: BaseException) -> None:
+        self._status.mark_fatal(f"{type(exc).__name__}: {exc}")
+        self._logger.exception("runtime failed")
+
+
+def _root_exception(exc: BaseException) -> BaseException:
+    if isinstance(exc, BaseExceptionGroup) and exc.exceptions:
+        return _root_exception(exc.exceptions[0])
+    return exc
