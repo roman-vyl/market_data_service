@@ -4,14 +4,24 @@ from __future__ import annotations
 
 import json
 import threading
+from urllib.parse import urlsplit
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
+from market_data_service.adapters.http.consumer_read import ConsumerReadHttpHandler
+from market_data_service.adapters.http.consumer_read.openapi import openapi_document
 from market_data_service.runtime.status import RuntimeStatusStore
 
 
 class RuntimeHttpServer:
-    def __init__(self, host: str, port: int, status: RuntimeStatusStore) -> None:
+    def __init__(
+        self,
+        host: str,
+        port: int,
+        status: RuntimeStatusStore,
+        consumer_read: ConsumerReadHttpHandler | None = None,
+    ) -> None:
         self._status = status
+        self._consumer_read = consumer_read
         outer = self
 
         class Handler(BaseHTTPRequestHandler):
@@ -23,6 +33,16 @@ class RuntimeHttpServer:
                 if self.path == "/readiness":
                     document = outer._status.readiness_document()
                     outer._write(self, 200 if outer._status.ready else 503, document)
+                    return
+                if urlsplit(self.path).path == "/openapi.json":
+                    outer._write(self, 200, openapi_document())
+                    return
+                if (
+                    urlsplit(self.path).path == "/v1/candles"
+                    and outer._consumer_read is not None
+                ):
+                    status, document = outer._consumer_read.handle(self.path)
+                    outer._write(self, status, document)
                     return
                 outer._write(self, 404, {"error": "not_found"})
 

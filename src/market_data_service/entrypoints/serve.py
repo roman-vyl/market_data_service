@@ -11,6 +11,7 @@ from dataclasses import replace
 from pathlib import Path
 
 from market_data_service.adapters.http import RuntimeHttpServer
+from market_data_service.adapters.http.consumer_read import ConsumerReadHttpHandler
 from market_data_service.adapters.sqlite import initialize_database, register_stream
 from market_data_service.application.market_metadata import VerifyConfiguredInstrumentMetadata
 from market_data_service.config import load_market_config
@@ -59,7 +60,12 @@ async def _run(settings: RuntimeSettings) -> int:
         )
 
     status = RuntimeStatusStore(config.enabled_streams)
-    http_server = RuntimeHttpServer(settings.http_host, settings.http_port, status)
+    http_server = RuntimeHttpServer(
+        settings.http_host,
+        settings.http_port,
+        status,
+        ConsumerReadHttpHandler(wiring.consumer_read()),
+    )
     service = RuntimeService(
         settings=settings,
         config=config,
