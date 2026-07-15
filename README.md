@@ -339,3 +339,7 @@ curl 'http://127.0.0.1:8080/v1/candles?ticker=BTCUSDT.P&timeframe=5m&from_ms=171
 ```
 
 The range is aligned and half-open. OHLCV values are normalized decimal strings. Version 1 returns the complete requested range in one JSON response and intentionally has no pagination, cursor, or response chunking. Non-ready streams and out-of-bounds ranges never return partial candle data. The maintained schema is available at `/openapi.json`; see `docs/consumer-read-api-v1.md` for the full contract and BBB integration boundary.
+
+## Research history planning contracts
+
+MDS exposes read-only committed bounds and explicit continuity audits for Research Service planning, plus an MDS-owned canonical hash on candle-range responses. See `docs/research-history-integration-v1.md` and `openspec/changes/research-history-integration-v1/`.
