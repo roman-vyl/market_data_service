@@ -172,9 +172,7 @@ def test_transaction_rolls_back_candle_and_state_together(tmp_path: Path) -> Non
         canonical = _candle(stream)
         from market_data_service.domain.candles import CanonicalCandle
 
-        unit_of_work.insert_candle(
-            CanonicalCandle.from_observation(canonical, committed_at_ms=100)
-        )
+        unit_of_work.insert_candle(CanonicalCandle.from_observation(canonical, committed_at_ms=100))
         state = unit_of_work.get_stream_state(stream)
         unit_of_work.save_stream_state(
             replace(state, latest_committed_open_time_ms=0, updated_at_ms=100)

@@ -51,22 +51,19 @@ def test_sequence_rejected_stale_and_stream_isolation() -> None:
         stale_policy=StalePolicy(intervals=1, grace_ms=0),
     )
     supervisor.observe_event(
-        SubscriptionConfirmed(
-            ("kline.1.BTCUSDT", "kline.5.ETHUSDT"), observed_at_ms=1_000
-        )
+        SubscriptionConfirmed(("kline.1.BTCUSDT", "kline.5.ETHUSDT"), observed_at_ms=1_000)
     )
 
     supervisor.observe_event(CandleObserved(btc, _candle(btc, 0, 2_000)))
-    assert supervisor.observe_outcome(
-        RealtimeIngestionOutcome(
-            btc, 0, RealtimeIngestionClassification.COMMITTED
+    assert (
+        supervisor.observe_outcome(
+            RealtimeIngestionOutcome(btc, 0, RealtimeIngestionClassification.COMMITTED)
         )
-    ) == ()
+        == ()
+    )
     supervisor.observe_event(CandleObserved(btc, _candle(btc, 120_000, 3_000)))
     signals = supervisor.observe_outcome(
-        RealtimeIngestionOutcome(
-            btc, 120_000, RealtimeIngestionClassification.COMMITTED
-        )
+        RealtimeIngestionOutcome(btc, 120_000, RealtimeIngestionClassification.COMMITTED)
     )
     assert signals[0].reason is RecoveryReason.SEQUENCE_DISCONTINUITY
     assert signals[0].suspected_start_time_ms == 60_000
@@ -89,26 +86,25 @@ def test_sequence_rejected_stale_and_stream_isolation() -> None:
 
 def test_disconnect_emits_recovery_only_after_resubscribe_and_failed_is_fatal() -> None:
     btc = _stream()
-    supervisor = RealtimeSupervisor(
-        (btc,), {"kline.1.BTCUSDT": btc}, lambda: 10_000
-    )
-    supervisor.observe_event(
-        SubscriptionConfirmed(("kline.1.BTCUSDT",), observed_at_ms=1_000)
-    )
+    supervisor = RealtimeSupervisor((btc,), {"kline.1.BTCUSDT": btc}, lambda: 10_000)
+    supervisor.observe_event(SubscriptionConfirmed(("kline.1.BTCUSDT",), observed_at_ms=1_000))
     assert supervisor.observe_event(Disconnected(1006, "lost", 2_000)) == ()
     signals = supervisor.observe_event(
         SubscriptionConfirmed(("kline.1.BTCUSDT",), observed_at_ms=3_000)
     )
     assert signals[0].reason is RecoveryReason.DISCONNECT
 
-    assert supervisor.observe_outcome(
-        RealtimeIngestionOutcome(
-            btc,
-            0,
-            RealtimeIngestionClassification.FAILED,
-            error_code="SqliteError",
+    assert (
+        supervisor.observe_outcome(
+            RealtimeIngestionOutcome(
+                btc,
+                0,
+                RealtimeIngestionClassification.FAILED,
+                error_code="SqliteError",
+            )
         )
-    ) == ()
+        == ()
+    )
     facts = supervisor.facts(btc)
     assert facts.status is RealtimeStreamStatus.FAILED
     assert facts.fatal_error_code == "SqliteError"

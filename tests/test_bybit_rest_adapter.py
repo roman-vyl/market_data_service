@@ -291,9 +291,7 @@ def test_adapter_honors_retry_after_when_present() -> None:
 
 
 def test_adapter_does_not_retry_fatal_api_error() -> None:
-    transport = SequencedTransport(
-        [{"retCode": 10001, "retMsg": "bad request"}, _payload()]
-    )
+    transport = SequencedTransport([{"retCode": 10001, "retMsg": "bad request"}, _payload()])
     delays: list[float] = []
     source = BybitRestCandleSource(
         exchange_symbols={"BTCUSDT.P": "BTCUSDT"},

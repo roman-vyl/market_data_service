@@ -50,9 +50,7 @@ async def _run(database: Path, args: argparse.Namespace) -> int:
     config = load_market_config(args.config)
     topic_map = BybitTopicMap.from_config(config)
     initialize_database(database)
-    coverage_by_ticker = {
-        item.instrument.ticker: item for item in config.enabled_instruments
-    }
+    coverage_by_ticker = {item.instrument.ticker: item for item in config.enabled_instruments}
     for stream in config.enabled_streams:
         register_stream(
             database,

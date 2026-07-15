@@ -72,7 +72,6 @@ class RuntimeStatusStore:
                 reason=reason,
             )
 
-
     def set_blocking_reason(self, stream: StreamKey, reason: str) -> None:
         with self._lock:
             self._blocking_reasons[stream] = reason

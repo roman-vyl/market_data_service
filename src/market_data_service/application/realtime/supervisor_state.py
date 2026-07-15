@@ -128,9 +128,7 @@ class RealtimeSupervisorState:
             recovery_completed_at_ms=completed_at_ms if restored else None,
             last_successful_open_time_ms=(
                 max(
-                    facts.last_successful_open_time_ms
-                    or restored_through_open_time_ms
-                    or 0,
+                    facts.last_successful_open_time_ms or restored_through_open_time_ms or 0,
                     restored_through_open_time_ms or 0,
                 )
                 if restored
@@ -164,9 +162,7 @@ class RealtimeSupervisorState:
     def touch_subscribed(self, observed_at_ms: int) -> None:
         for stream, facts in tuple(self._facts.items()):
             if facts.subscription_active:
-                self._facts[stream] = replace(
-                    facts, last_transport_activity_ms=observed_at_ms
-                )
+                self._facts[stream] = replace(facts, last_transport_activity_ms=observed_at_ms)
 
     def facts(self, stream: StreamKey) -> RealtimeStreamFacts:
         return self._facts[stream]

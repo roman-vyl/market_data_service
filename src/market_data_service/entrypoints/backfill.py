@@ -58,9 +58,7 @@ def main(argv: list[str] | None = None) -> int:
 def _run_one(args: argparse.Namespace, config: ValidatedMarketConfig) -> int:
     entry = entry_for_ticker(config.enabled_instruments, args.ticker)
     stream = next(
-        candidate
-        for candidate in entry.stream_keys
-        if candidate.timeframe == args.timeframe
+        candidate for candidate in entry.stream_keys if candidate.timeframe == args.timeframe
     )
     clock = SystemClock()
     source = _source(config)
@@ -202,5 +200,3 @@ def _resolve_range(args: argparse.Namespace, stream: StreamKey) -> tuple[int, in
     if args.start is None or args.end is None:
         raise ValueError("provide either --minutes or both --start and --end")
     return args.start, args.end
-
-

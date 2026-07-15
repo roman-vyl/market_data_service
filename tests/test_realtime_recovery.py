@@ -78,13 +78,9 @@ def _wire(database: Path, source: SequencedHistoricalSource, clock: Clock):
         return SqliteUnitOfWork(database)
 
     importer = ImportHistoricalWindow(source, uow_factory, clock)
-    backfill = BackfillStreamHistory(
-        importer, uow_factory, clock, max_candles_per_window=10
-    )
+    backfill = BackfillStreamHistory(importer, uow_factory, clock, max_candles_per_window=10)
     auditor = AuditStreamContinuity(uow_factory)
-    repair = RepairStreamGaps(
-        auditor, importer, uow_factory, clock, max_candles_per_window=10
-    )
+    repair = RepairStreamGaps(auditor, importer, uow_factory, clock, max_candles_per_window=10)
     coordinator = RealtimeRecoveryCoordinator(
         backfill=backfill,
         auditor=auditor,

@@ -28,7 +28,7 @@ from market_data_service.domain.timeframes import get_timeframe
 def _write_config(tmp_path: Path) -> Path:
     path = tmp_path / "markets.toml"
     path.write_text(
-        '''
+        """
 schema_version = 1
 [source]
 venue = "bybit"
@@ -45,7 +45,7 @@ exchange_symbol = "ETHUSDT"
 enabled = true
 canonical_timeframes = ["1m", "5m", "1h"]
 history_policy = "full_available"
-''',
+""",
         encoding="utf-8",
     )
     return path

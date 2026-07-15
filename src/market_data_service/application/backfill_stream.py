@@ -151,9 +151,7 @@ class BackfillStreamHistory:
             unit_of_work.save_stream_state(snapshot)
             unit_of_work.commit()
 
-    def _record_failure(
-        self, stream: StreamKey, exc: Exception
-    ) -> SourceFailureDecision:
+    def _record_failure(self, stream: StreamKey, exc: Exception) -> SourceFailureDecision:
         return record_stream_failure(
             self._unit_of_work_factory,
             stream,

@@ -69,9 +69,7 @@ class Reader:
 
     def read_snapshot(self, stream: StreamKey, *, start_time_ms: int, end_time_ms: int):
         assert stream == STREAM
-        candles = tuple(
-            c for c in self.candles if start_time_ms <= c.open_time_ms < end_time_ms
-        )
+        candles = tuple(c for c in self.candles if start_time_ms <= c.open_time_ms < end_time_ms)
         return ConsumerReadSnapshot(self.state, candles)
 
 
@@ -101,6 +99,4 @@ def test_ready_stream_refuses_gapped_result() -> None:
     reader = Reader()
     reader.candles = (candle(0),)
     with pytest.raises(ContinuityInvariantBroken):
-        GetCandleRange(CONFIG, reader).execute(
-            CandleRangeRequest("BTCUSDT.P", "5m", 0, 600_000)
-        )
+        GetCandleRange(CONFIG, reader).execute(CandleRangeRequest("BTCUSDT.P", "5m", 0, 600_000))

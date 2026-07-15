@@ -143,9 +143,7 @@ def run_smoke_gap_repair(
         )
 
     auditor = AuditStreamContinuity(unit_of_work_factory)
-    initial_audit = auditor.execute(
-        _audit_request(stream=stream, window=window)
-    )
+    initial_audit = auditor.execute(_audit_request(stream=stream, window=window))
     delete_candle_for_smoke(database_path, stream, deleted_open_time_ms)
     gap_audit = auditor.execute(_audit_request(stream=stream, window=window))
 

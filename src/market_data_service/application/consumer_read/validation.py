@@ -27,8 +27,7 @@ def validate_available_range(
 ) -> None:
     if from_ms < available_from_ms or to_ms > available_to_ms:
         raise RangeOutOfBounds(
-            f"requested [{from_ms}, {to_ms}) outside "
-            f"[{available_from_ms}, {available_to_ms})"
+            f"requested [{from_ms}, {to_ms}) outside [{available_from_ms}, {available_to_ms})"
         )
 
 

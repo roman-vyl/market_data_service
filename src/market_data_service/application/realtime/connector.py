@@ -77,16 +77,10 @@ class RealtimeConnector:
             except asyncio.CancelledError:
                 raise
             except WebSocketDisconnected as exc:
-                await self._on_event(
-                    Disconnected(exc.code, exc.reason, self._now_ms())
-                )
-                await self._on_event(
-                    TransportFailed(type(exc).__name__, str(exc), self._now_ms())
-                )
+                await self._on_event(Disconnected(exc.code, exc.reason, self._now_ms()))
+                await self._on_event(TransportFailed(type(exc).__name__, str(exc), self._now_ms()))
             except Exception as exc:
-                await self._on_event(
-                    TransportFailed(type(exc).__name__, str(exc), self._now_ms())
-                )
+                await self._on_event(TransportFailed(type(exc).__name__, str(exc), self._now_ms()))
             if attempt < self._reconnect_policy.max_attempts:
                 await self._wait_or_stop(stop_event)
                 if stop_event.is_set():

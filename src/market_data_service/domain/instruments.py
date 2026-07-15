@@ -60,6 +60,7 @@ class InstrumentCoverage:
             StreamKey(self.instrument, timeframe) for timeframe in self.canonical_timeframes
         )
 
+
 @dataclass(frozen=True, slots=True)
 class ExchangeInstrumentSpecification:
     """Exchange-declared identity facts used to validate operator mappings."""

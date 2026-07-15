@@ -38,17 +38,12 @@ class ValidatedMarketConfig:
     @property
     def enabled_streams(self) -> tuple[StreamKey, ...]:
         return tuple(
-            stream
-            for coverage in self.enabled_instruments
-            for stream in coverage.stream_keys
+            stream for coverage in self.enabled_instruments for stream in coverage.stream_keys
         )
 
     @property
     def exchange_symbols(self) -> dict[str, str]:
-        return {
-            item.instrument.ticker: item.exchange_symbol
-            for item in self.enabled_instruments
-        }
+        return {item.instrument.ticker: item.exchange_symbol for item in self.enabled_instruments}
 
 
 def load_market_config(path: Path) -> ValidatedMarketConfig:
@@ -122,9 +117,7 @@ def _reject_duplicates(coverages: list[InstrumentCoverage]) -> None:
             raise MarketConfigError(f"duplicate canonical ticker: {ticker}")
         tickers.add(ticker)
         if coverage.exchange_symbol in symbols:
-            raise MarketConfigError(
-                f"duplicate exact exchange symbol: {coverage.exchange_symbol}"
-            )
+            raise MarketConfigError(f"duplicate exact exchange symbol: {coverage.exchange_symbol}")
         symbols.add(coverage.exchange_symbol)
         for stream in coverage.stream_keys:
             if stream in streams:

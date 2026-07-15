@@ -94,9 +94,7 @@ class RuntimeService:
             repair=self._wiring.repair(),
             lifecycle=self._wiring.lifecycle(),
             now_ms=self._wiring.clock.now_ms,
-            discovery_windows_per_pass=(
-                self._settings.startup_backfill_windows_per_stream
-            ),
+            discovery_windows_per_pass=(self._settings.startup_backfill_windows_per_stream),
             repair_windows_per_pass=self._settings.startup_repair_windows_per_stream,
         )
         coordinator = StartupCoordinator(reconciler)
@@ -114,9 +112,7 @@ class RuntimeService:
                     else "historical_backoff",
                 )
             elif outcome.classification is StartupClassification.FATAL_FAILURE:
-                self._status.set_blocking_reason(
-                    outcome.stream, "historical_fatal_failure"
-                )
+                self._status.set_blocking_reason(outcome.stream, "historical_fatal_failure")
             self._status.update_stream(lifecycle.snapshot(outcome.stream), None)
             self._logger.info(
                 "startup stream=%s classification=%s",
@@ -134,8 +130,7 @@ class RuntimeService:
         streams = self._config.enabled_streams
         lifecycle = self._wiring.lifecycle()
         initial = {
-            stream: lifecycle.snapshot(stream).latest_committed_open_time_ms
-            for stream in streams
+            stream: lifecycle.snapshot(stream).latest_committed_open_time_ms for stream in streams
         }
         supervisor = RealtimeSupervisor(
             streams,
@@ -185,12 +180,8 @@ class RuntimeService:
             max_backfill_windows=self._settings.startup_backfill_windows_per_stream,
             max_repair_windows=self._settings.startup_repair_windows_per_stream,
             stale_check_seconds=self._settings.realtime_stale_check_seconds,
-            recovery_base_backoff_seconds=(
-                self._settings.realtime_recovery_base_seconds
-            ),
-            recovery_max_backoff_seconds=(
-                self._settings.realtime_recovery_max_seconds
-            ),
+            recovery_base_backoff_seconds=(self._settings.realtime_recovery_base_seconds),
+            recovery_max_backoff_seconds=(self._settings.realtime_recovery_max_seconds),
             recovery_idle_seconds=self._settings.realtime_recovery_idle_seconds,
         )
         holder["runtime"] = runtime

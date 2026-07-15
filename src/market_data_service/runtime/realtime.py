@@ -148,9 +148,7 @@ class RuntimeRealtimeCoordinator:
                 self._status.update_stream(durable, facts)
                 continue
             if facts.fatal_error_code and durable.state is not StreamLifecycleState.FAILED:
-                durable = self._lifecycle.mark_failed(
-                    facts.stream, reason=facts.fatal_error_code
-                )
+                durable = self._lifecycle.mark_failed(facts.stream, reason=facts.fatal_error_code)
             elif facts.data_ready:
                 if durable.state is StreamLifecycleState.DEGRADED:
                     durable = self._lifecycle.mark_connecting(facts.stream)
@@ -163,9 +161,7 @@ class RuntimeRealtimeCoordinator:
                 StreamLifecycleState.CONNECTING,
                 StreamLifecycleState.READY,
             }:
-                durable = self._lifecycle.mark_degraded(
-                    facts.stream, reason=facts.status.value
-                )
+                durable = self._lifecycle.mark_degraded(facts.stream, reason=facts.status.value)
             self._status.update_stream(durable, facts)
 
     def _refresh_status(self) -> None:

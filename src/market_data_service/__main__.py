@@ -51,9 +51,7 @@ def main(argv: list[str] | None = None) -> int:
         "smoke-audit-continuity",
         help="run real REST backfill plus continuity smoke",
     )
-    subparsers.add_parser(
-        "smoke-all-backfill", help="run real two-stream bounded resume smoke"
-    )
+    subparsers.add_parser("smoke-all-backfill", help="run real two-stream bounded resume smoke")
     subparsers.add_parser("smoke-backfill", help="run real bounded backfill smoke")
     subparsers.add_parser(
         "smoke-full-bootstrap",

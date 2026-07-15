@@ -58,8 +58,7 @@ def run_backfill_smoke_workflow(
     )
     if duplicate.error_code is not None:
         raise RuntimeError(
-            f"backfill duplicate smoke failed: {duplicate.error_code}: "
-            f"{duplicate.error_detail}"
+            f"backfill duplicate smoke failed: {duplicate.error_code}: {duplicate.error_detail}"
         )
     if not duplicate.window_results:
         raise RuntimeError("backfill duplicate smoke did not import a window")

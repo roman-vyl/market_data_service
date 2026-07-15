@@ -44,7 +44,5 @@ class RealtimeRecoveryPlanner:
         with self._unit_of_work_factory() as unit_of_work:
             latest = unit_of_work.get_stream_state(stream).latest_committed_open_time_ms
         return not (
-            latest is not None
-            and window.start_ms == latest
-            and window.end_ms == latest + step_ms
+            latest is not None and window.start_ms == latest and window.end_ms == latest + step_ms
         )

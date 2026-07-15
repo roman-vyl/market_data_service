@@ -26,9 +26,7 @@ def classify_source_failure(exc: Exception) -> SourceFailureDecision:
     recoverable = isinstance(exc, RecoverableMarketDataFailure)
     return SourceFailureDecision(
         disposition=(
-            SourceFailureDisposition.RECOVERABLE
-            if recoverable
-            else SourceFailureDisposition.FATAL
+            SourceFailureDisposition.RECOVERABLE if recoverable else SourceFailureDisposition.FATAL
         ),
         target_state=(
             StreamLifecycleState.DEGRADED if recoverable else StreamLifecycleState.FAILED

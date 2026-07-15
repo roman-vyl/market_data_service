@@ -101,6 +101,7 @@ def _backfill(
     unit_of_work_factory: Callable[[], CanonicalStorageUnitOfWork] | None = None,
 ) -> BackfillStreamHistory:
     if unit_of_work_factory is None:
+
         def unit_of_work_factory() -> CanonicalStorageUnitOfWork:
             return SqliteUnitOfWork(path)
 

@@ -22,9 +22,7 @@ class FakeCoordinator:
         count = self.attempts.get(stream, 0) + 1
         self.attempts[stream] = count
         classification = (
-            StartupClassification.CONNECTING
-            if count >= 2
-            else StartupClassification.INCOMPLETE
+            StartupClassification.CONNECTING if count >= 2 else StartupClassification.INCOMPLETE
         )
         return StartupStreamOutcome(stream, classification, window=window)
 

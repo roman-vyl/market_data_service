@@ -67,9 +67,7 @@ class HistoricalReconciliationWorker:
                 await self._wait(stop_event, min(self._idle_seconds, pending.due_at - now))
                 continue
             self._status.set_blocking_reason(pending.stream, "historical_reconciliation")
-            self._logger.info(
-                "historical pass begin stream=%s", pending.stream.canonical_id
-            )
+            self._logger.info("historical pass begin stream=%s", pending.stream.canonical_id)
             async with self._operation_gate:
                 outcome = await asyncio.to_thread(
                     self._coordinator.execute_stream,
@@ -106,9 +104,7 @@ class HistoricalReconciliationWorker:
             else:
                 pending.failures = 0
                 pending.due_at = 0.0
-                self._status.set_blocking_reason(
-                    pending.stream, "historical_reconciliation"
-                )
+                self._status.set_blocking_reason(pending.stream, "historical_reconciliation")
             self._queue.append(pending)
 
     @staticmethod

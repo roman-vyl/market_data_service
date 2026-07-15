@@ -43,8 +43,10 @@ def _wire(path: Path, base_url: str):
         exchange_symbols={"BTCUSDT.P": "BTCUSDT"},
         base_url=base_url,
     )
+
     def factory() -> SqliteUnitOfWork:
         return SqliteUnitOfWork(path)
+
     importer = ImportHistoricalWindow(source, factory, clock)
     backfill = BackfillStreamHistory(importer, factory, clock, max_candles_per_window=3)
     auditor = AuditStreamContinuity(factory)
@@ -68,9 +70,11 @@ def test_fake_api_pipeline_matrix(tmp_path: Path) -> None:
         assert sum(item.committed for item in first.window_results) == 8
         assert _audit(auditor, stream, 480_000).is_continuous
 
-        replay = backfill.execute(BackfillStreamRequest(
-            stream, 0, 480_000, max_windows=3, resume_from_latest_committed=False
-        ))
+        replay = backfill.execute(
+            BackfillStreamRequest(
+                stream, 0, 480_000, max_windows=3, resume_from_latest_committed=False
+            )
+        )
         assert sum(item.duplicates for item in replay.window_results) == 8
 
         state.remove("BTCUSDT", 120_000, 300_000)
@@ -85,7 +89,8 @@ def test_fake_api_pipeline_matrix(tmp_path: Path) -> None:
             connection.close()
         gaps = _audit(auditor, stream, 480_000)
         assert [(gap.start_ms, gap.end_ms) for gap in gaps.gaps] == [
-            (120_000, 180_000), (300_000, 360_000)
+            (120_000, 180_000),
+            (300_000, 360_000),
         ]
 
         state.seed_symbol("BTCUSDT", start_ms=0, count=8, base=100)
@@ -101,16 +106,20 @@ def test_fake_api_pipeline_matrix(tmp_path: Path) -> None:
         assert candle is not None and candle.ohlcv_text[3] == "105"
 
         state.transient_kline_failures = 1
-        failed = backfill.execute(BackfillStreamRequest(
-            stream, 0, 60_000, max_windows=1, resume_from_latest_committed=False
-        ))
+        failed = backfill.execute(
+            BackfillStreamRequest(
+                stream, 0, 60_000, max_windows=1, resume_from_latest_committed=False
+            )
+        )
         assert failed.failure_disposition == "recoverable"
         with factory() as uow:
             snapshot = uow.get_stream_state(stream)
         assert snapshot.state is StreamLifecycleState.DEGRADED
 
-        recovered = backfill.execute(BackfillStreamRequest(
-            stream, 0, 60_000, max_windows=1, resume_from_latest_committed=False
-        ))
+        recovered = backfill.execute(
+            BackfillStreamRequest(
+                stream, 0, 60_000, max_windows=1, resume_from_latest_committed=False
+            )
+        )
         assert recovered.error_code is None
         assert recovered.window_results[0].duplicates == 1

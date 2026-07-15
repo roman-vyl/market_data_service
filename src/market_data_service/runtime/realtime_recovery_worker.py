@@ -123,9 +123,7 @@ class RealtimeRecoveryWorker:
             pending.failures += 1
             delay = min(self._max_backoff, self._base_backoff * (2 ** (pending.failures - 1)))
             pending.due_at = loop.time() + delay
-            self._status.set_blocking_reason(
-                pending.signal.stream, "realtime_recovery_backoff"
-            )
+            self._status.set_blocking_reason(pending.signal.stream, "realtime_recovery_backoff")
             self._logger.warning(
                 "realtime recovery backoff stream=%s delay_seconds=%s error=%s",
                 pending.signal.stream.canonical_id,

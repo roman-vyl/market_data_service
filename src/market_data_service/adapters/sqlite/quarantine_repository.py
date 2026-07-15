@@ -31,7 +31,12 @@ class SqliteQuarantineRepository:
             ) VALUES (?, ?, ?, ?, ?, ?, ?)
             """,
             (
-                self._catalog.stream_id(stream), start_ms, end_ms, reason_code,
-                detail, payload_json, created_at_ms,
+                self._catalog.stream_id(stream),
+                start_ms,
+                end_ms,
+                reason_code,
+                detail,
+                payload_json,
+                created_at_ms,
             ),
         )

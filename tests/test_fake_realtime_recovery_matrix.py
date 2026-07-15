@@ -48,7 +48,7 @@ class MutableClock:
 def _write_config(tmp_path: Path) -> Path:
     path = tmp_path / "markets.toml"
     path.write_text(
-        '''
+        """
 schema_version = 1
 [source]
 venue = "bybit"
@@ -65,7 +65,7 @@ exchange_symbol = "ETHUSDT"
 enabled = true
 canonical_timeframes = ["1m", "5m"]
 history_policy = "full_available"
-''',
+""",
         encoding="utf-8",
     )
     return path
@@ -208,9 +208,7 @@ async def _scenario(tmp_path: Path) -> None:
 
         clock.value = 240_000
         btc_recovery = await coordinator.execute(
-            RealtimeRecoveryRequest(
-                btc_signals[0], max_backfill_windows=1, max_repair_windows=1
-            )
+            RealtimeRecoveryRequest(btc_signals[0], max_backfill_windows=1, max_repair_windows=1)
         )
         assert btc_recovery.classification is RecoveryClassification.RESTORED
         supervisor.record_recovery_result(
@@ -230,9 +228,7 @@ async def _scenario(tmp_path: Path) -> None:
         results = await asyncio.gather(
             *(
                 coordinator.execute(
-                    RealtimeRecoveryRequest(
-                        signal, max_backfill_windows=2, max_repair_windows=1
-                    )
+                    RealtimeRecoveryRequest(signal, max_backfill_windows=2, max_repair_windows=1)
                 )
                 for signal in resubscribe_signals
             )

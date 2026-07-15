@@ -114,8 +114,7 @@ class RealtimeRecoveryCoordinator:
                     audit=audit,
                     post_audit=audit,
                     restored_through_open_time_ms=(
-                        recovery_window.end_ms
-                        - get_timeframe(stream.timeframe).duration_ms
+                        recovery_window.end_ms - get_timeframe(stream.timeframe).duration_ms
                     ),
                 )
 
@@ -168,8 +167,7 @@ class RealtimeRecoveryCoordinator:
                 repair=repair,
                 post_audit=post_audit,
                 restored_through_open_time_ms=(
-                    recovery_window.end_ms
-                    - get_timeframe(stream.timeframe).duration_ms
+                    recovery_window.end_ms - get_timeframe(stream.timeframe).duration_ms
                 ),
             )
         except Exception as exc:

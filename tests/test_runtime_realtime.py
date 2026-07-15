@@ -54,8 +54,7 @@ class FakeRecovery:
         results: dict[StreamKey, tuple[RecoveryClassification, ...]],
     ) -> None:
         self._results = {
-            stream: deque(classifications)
-            for stream, classifications in results.items()
+            stream: deque(classifications) for stream, classifications in results.items()
         }
         self.calls: list[StreamKey] = []
 
@@ -139,8 +138,7 @@ def _runtime(
 ) -> tuple[RuntimeRealtimeCoordinator, RuntimeStatusStore]:
     clock = Clock()
     topics = {
-        f"kline.1.{stream.instrument.ticker.removesuffix('.P')}": stream
-        for stream in streams
+        f"kline.1.{stream.instrument.ticker.removesuffix('.P')}": stream for stream in streams
     }
     status = RuntimeStatusStore(streams)
     runtime = RuntimeRealtimeCoordinator(
@@ -275,9 +273,7 @@ async def _data_ready_consumer_read_scenario(tmp_path: Path) -> None:
     runtime, status = _runtime(path, (stream,), recovery)
     stop = asyncio.Event()
     runner = asyncio.create_task(runtime.run(stop))
-    await runtime.on_event(
-        SubscriptionConfirmed(("kline.1.BTCUSDT",), observed_at_ms=10)
-    )
+    await runtime.on_event(SubscriptionConfirmed(("kline.1.BTCUSDT",), observed_at_ms=10))
 
     await _wait_for_state(path, stream, StreamLifecycleState.READY)
     document = status.readiness_document()
@@ -321,9 +317,7 @@ async def _fatal_no_retry_scenario(tmp_path: Path) -> None:
     runtime, _ = _runtime(path, (stream,), recovery)
     stop = asyncio.Event()
     runner = asyncio.create_task(runtime.run(stop))
-    await runtime.on_event(
-        SubscriptionConfirmed(("kline.1.BTCUSDT",), observed_at_ms=10)
-    )
+    await runtime.on_event(SubscriptionConfirmed(("kline.1.BTCUSDT",), observed_at_ms=10))
 
     await _wait_for_state(path, stream, StreamLifecycleState.FAILED)
     stop.set()
@@ -344,15 +338,12 @@ async def _recovery_worker_failure_scenario(tmp_path: Path) -> None:
     runtime, _ = _runtime(path, (stream,), ExplodingRecovery())  # type: ignore[arg-type]
     stop = asyncio.Event()
     runner = asyncio.create_task(runtime.run(stop))
-    await runtime.on_event(
-        SubscriptionConfirmed(("kline.1.BTCUSDT",), observed_at_ms=10)
-    )
+    await runtime.on_event(SubscriptionConfirmed(("kline.1.BTCUSDT",), observed_at_ms=10))
 
     with pytest.raises(ExceptionGroup) as exc_info:
         await asyncio.wait_for(runner, timeout=1)
     assert any(
-        "recovery exploded for BTCUSDT.P:1m" in str(error)
-        for error in exc_info.value.exceptions
+        "recovery exploded for BTCUSDT.P:1m" in str(error) for error in exc_info.value.exceptions
     )
 
 
@@ -378,9 +369,7 @@ async def _stop_during_realtime_backoff_scenario(tmp_path: Path) -> None:
     runtime, _ = _runtime(path, (stream,), recovery, backoff_seconds=60)
     stop = asyncio.Event()
     runner = asyncio.create_task(runtime.run(stop))
-    await runtime.on_event(
-        SubscriptionConfirmed(("kline.1.BTCUSDT",), observed_at_ms=10)
-    )
+    await runtime.on_event(SubscriptionConfirmed(("kline.1.BTCUSDT",), observed_at_ms=10))
     for _ in range(200):
         if len(recovery.calls) == 1:
             break

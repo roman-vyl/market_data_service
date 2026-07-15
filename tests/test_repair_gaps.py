@@ -240,6 +240,7 @@ def _repair(
     max_candles_per_window: int = 2,
 ) -> RepairStreamGaps:
     if unit_of_work_factory is None:
+
         def unit_of_work_factory() -> CanonicalStorageUnitOfWork:
             return SqliteUnitOfWork(path)
 

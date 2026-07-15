@@ -115,9 +115,7 @@ class FakeBybitApi(AbstractContextManager["FakeBybitApi"]):
                             for ts, row in parent.state.candles.get(key, {}).items()
                             if start <= ts <= end
                         ]
-                        rows = sorted(
-                            rows, key=lambda row: int(row[0]), reverse=True
-                        )[:limit]
+                        rows = sorted(rows, key=lambda row: int(row[0]), reverse=True)[:limit]
                         payload = {
                             "retCode": 0,
                             "retMsg": "OK",

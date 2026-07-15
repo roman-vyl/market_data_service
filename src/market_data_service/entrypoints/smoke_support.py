@@ -189,7 +189,4 @@ def _count_rows(connection: sqlite3.Connection, table: str, stream_id: int) -> i
 
 
 def is_contiguous_1m(open_times_ms: tuple[int, ...]) -> bool:
-    return all(
-        previous + 60_000 == current
-        for previous, current in pairwise(open_times_ms)
-    )
+    return all(previous + 60_000 == current for previous, current in pairwise(open_times_ms))

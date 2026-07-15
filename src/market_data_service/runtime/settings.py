@@ -70,9 +70,7 @@ class RuntimeSettings:
             http_host=env.get("MDS_HTTP_HOST", "127.0.0.1"),
             http_port=int(env.get("MDS_HTTP_PORT", "8080")),
             rest_base_url=env.get("MDS_REST_BASE_URL", "https://api.bybit.com"),
-            websocket_url=env.get(
-                "MDS_WEBSOCKET_URL", "wss://stream.bybit.com/v5/public/linear"
-            ),
+            websocket_url=env.get("MDS_WEBSOCKET_URL", "wss://stream.bybit.com/v5/public/linear"),
             startup_backfill_windows_per_stream=int(
                 env.get("MDS_STARTUP_BACKFILL_WINDOWS_PER_STREAM", "2")
             ),
@@ -82,9 +80,7 @@ class RuntimeSettings:
             historical_retry_base_seconds=float(
                 env.get("MDS_HISTORICAL_RETRY_BASE_SECONDS", "1.0")
             ),
-            historical_retry_max_seconds=float(
-                env.get("MDS_HISTORICAL_RETRY_MAX_SECONDS", "60.0")
-            ),
+            historical_retry_max_seconds=float(env.get("MDS_HISTORICAL_RETRY_MAX_SECONDS", "60.0")),
             realtime_recovery_base_seconds=float(
                 env.get("MDS_REALTIME_RECOVERY_BASE_SECONDS", "1.0")
             ),
@@ -94,9 +90,7 @@ class RuntimeSettings:
             realtime_recovery_idle_seconds=float(
                 env.get("MDS_REALTIME_RECOVERY_IDLE_SECONDS", "0.1")
             ),
-            realtime_stale_check_seconds=float(
-                env.get("MDS_REALTIME_STALE_CHECK_SECONDS", "1.0")
-            ),
+            realtime_stale_check_seconds=float(env.get("MDS_REALTIME_STALE_CHECK_SECONDS", "1.0")),
             reconnect_max_attempts=int(env.get("MDS_RECONNECT_MAX_ATTEMPTS", "3")),
             reconnect_delay_seconds=float(env.get("MDS_RECONNECT_DELAY_SECONDS", "1.0")),
             stale_intervals=int(env.get("MDS_STALE_INTERVALS", "2")),

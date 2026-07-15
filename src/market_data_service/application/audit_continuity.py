@@ -45,9 +45,7 @@ class AuditStreamContinuity:
     def execute(self, request: AuditStreamContinuityRequest) -> ContinuityReport:
         with self._unit_of_work_factory() as unit_of_work:
             if not unit_of_work.stream_exists(request.stream):
-                raise UnknownStreamError(
-                    f"stream is not registered: {request.stream.canonical_id}"
-                )
+                raise UnknownStreamError(f"stream is not registered: {request.stream.canonical_id}")
             candles = unit_of_work.list_candles(
                 request.stream,
                 start_time_ms=request.start_time_ms,

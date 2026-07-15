@@ -92,6 +92,7 @@ def test_fake_api_multi_symbol_multi_timeframe_orchestration_and_repair(tmp_path
             base_url=api.base_url,
         )
         verifier = VerifyConfiguredInstrumentMetadata(source, category="linear")
+
         def uow_factory() -> SqliteUnitOfWork:
             return SqliteUnitOfWork(database)
 
@@ -187,9 +188,7 @@ def test_fake_api_multi_symbol_multi_timeframe_orchestration_and_repair(tmp_path
                 clock,
                 max_candles_per_window=2,
             )
-            repaired = repair.execute(
-                RepairStreamGapsRequest(stream, 0, end_ms, max_windows=1)
-            )
+            repaired = repair.execute(RepairStreamGapsRequest(stream, 0, end_ms, max_windows=1))
             assert repaired.status is RepairStatus.COMPLETE
             assert repaired.post_repair_audit
             assert repaired.post_repair_audit.is_continuous

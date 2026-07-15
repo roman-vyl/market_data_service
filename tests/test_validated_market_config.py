@@ -6,7 +6,7 @@ import pytest
 
 from market_data_service.config import MarketConfigError, load_market_config
 
-VALID = '''
+VALID = """
 schema_version = 1
 [source]
 venue = "bybit"
@@ -23,7 +23,7 @@ exchange_symbol = "ETHUSDT"
 enabled = true
 canonical_timeframes = ["1m"]
 history_policy = "full_available"
-'''
+"""
 
 
 def _write(tmp_path: Path, content: str) -> Path:
@@ -68,7 +68,7 @@ def test_loads_config_without_mandatory_minute_stream(tmp_path: Path) -> None:
         ("schema_version = 1", "schema_version = 2", "schema_version"),
         ('venue = "bybit"', 'venue = "other"', "source.venue"),
         ('category = "linear"', 'category = "spot"', "source.category"),
-        ('enabled = true', 'enabled = "yes"', "enabled"),
+        ("enabled = true", 'enabled = "yes"', "enabled"),
         ('canonical_timeframes = ["1m"]', 'canonical_timeframes = ["2m"]', "unsupported"),
         ('history_policy = "full_available"', 'history_policy = "recent"', "HistoryPolicy"),
     ],

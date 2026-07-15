@@ -67,9 +67,7 @@ class RealtimeSupervisor:
             self._state.mark_stopped(event.observed_at_ms)
         return ()
 
-    def observe_outcome(
-        self, outcome: RealtimeIngestionOutcome
-    ) -> tuple[RecoveryRequired, ...]:
+    def observe_outcome(self, outcome: RealtimeIngestionOutcome) -> tuple[RecoveryRequired, ...]:
         if outcome.classification is RealtimeIngestionClassification.FAILED:
             self._state.record_failed(outcome)
             return ()
@@ -84,9 +82,7 @@ class RealtimeSupervisor:
         previous = self._state.record_success(outcome)
         step_ms = get_timeframe(outcome.stream.timeframe).duration_ms
         if previous is not None and outcome.open_time_ms > previous + step_ms:
-            self._state.require_recovery(
-                outcome.stream, RealtimeStreamStatus.RECOVERY_REQUIRED
-            )
+            self._state.require_recovery(outcome.stream, RealtimeStreamStatus.RECOVERY_REQUIRED)
             return self._signal(
                 outcome.stream,
                 RecoveryReason.SEQUENCE_DISCONTINUITY,
@@ -148,9 +144,7 @@ class RealtimeSupervisor:
             stream = self._topic_to_stream[topic]
             self._state.subscribe(stream, event.observed_at_ms)
             if restored_after_disconnect:
-                self._state.require_recovery(
-                    stream, RealtimeStreamStatus.RECOVERY_REQUIRED
-                )
+                self._state.require_recovery(stream, RealtimeStreamStatus.RECOVERY_REQUIRED)
                 signals.extend(self._signal(stream, RecoveryReason.DISCONNECT, None))
         return tuple(signals)
 

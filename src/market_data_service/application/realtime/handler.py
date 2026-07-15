@@ -16,9 +16,7 @@ from market_data_service.domain.classification import IngestionClassification
 
 
 class CanonicalRealtimeIngestion(Protocol):
-    def execute(
-        self, candle: ObservedCandle, *, committed_at_ms: int
-    ) -> IngestionResult: ...
+    def execute(self, candle: ObservedCandle, *, committed_at_ms: int) -> IngestionResult: ...
 
 
 _CLASSIFICATION_MAP = {
