@@ -80,8 +80,7 @@ def test_http_contract_decimal_text_and_errors() -> None:
     host, port = server.address
     try:
         code, payload = get(
-            f"http://{host}:{port}/v1/candles?"
-            "ticker=BTCUSDT.P&timeframe=5m&from_ms=0&to_ms=300000"
+            f"http://{host}:{port}/v1/candles?ticker=BTCUSDT.P&timeframe=5m&from_ms=0&to_ms=300000"
         )
         assert code == 200
         assert payload["candles"][0]["open"] == "1.23"
@@ -103,5 +102,7 @@ def test_openapi_document_is_served() -> None:
         code, payload = get(f"http://{host}:{port}/openapi.json")
         assert code == 200
         assert "/v1/candles" in payload["paths"]
+        assert "/v1/streams/{ticker}/{timeframe}/bounds" in payload["paths"]
+        assert "/v1/streams/{ticker}/{timeframe}/continuity-audits" in payload["paths"]
     finally:
         server.close()

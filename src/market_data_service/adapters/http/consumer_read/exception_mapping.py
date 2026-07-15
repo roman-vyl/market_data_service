@@ -6,6 +6,7 @@ from market_data_service.application.consumer_read.errors import (
     ConfiguredStreamNotFound,
     ConsumerReadError,
     ContinuityInvariantBroken,
+    CoverageStale,
     InvalidRange,
     RangeNotAligned,
     RangeOutOfBounds,
@@ -16,7 +17,7 @@ from market_data_service.application.consumer_read.errors import (
 def map_exception(exc: Exception) -> tuple[int, dict[str, object]]:
     if isinstance(exc, ConfiguredStreamNotFound):
         status = 404
-    elif isinstance(exc, StreamNotReady):
+    elif isinstance(exc, (StreamNotReady, CoverageStale)):
         status = 409
     elif isinstance(exc, (InvalidRange, RangeNotAligned, RangeOutOfBounds)):
         status = 422

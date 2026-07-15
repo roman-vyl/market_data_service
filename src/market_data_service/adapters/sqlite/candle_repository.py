@@ -70,6 +70,18 @@ class SqliteCandleRepository:
             for row in rows
         )
 
+    def committed_bounds(self, stream: StreamKey) -> tuple[int | None, int | None]:
+        stream_id = self._catalog.stream_id(stream)
+        row = self._connection.execute(
+            """
+            SELECT MIN(open_time_ms) AS earliest, MAX(open_time_ms) AS latest
+            FROM candles
+            WHERE stream_id = ?
+            """,
+            (stream_id,),
+        ).fetchone()
+        return row["earliest"], row["latest"]
+
     def insert(self, candle: CanonicalCandle) -> None:
         self._connection.execute(
             """
@@ -78,8 +90,13 @@ class SqliteCandleRepository:
                 close_value, volume_value, source, committed_at_ms
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
-            (self._catalog.stream_id(candle.stream), candle.open_time_ms, *candle.ohlcv_text,
-             candle.source.value, candle.committed_at_ms),
+            (
+                self._catalog.stream_id(candle.stream),
+                candle.open_time_ms,
+                *candle.ohlcv_text,
+                candle.source.value,
+                candle.committed_at_ms,
+            ),
         )
 
     def replace(self, candle: CanonicalCandle) -> None:
@@ -90,6 +107,11 @@ class SqliteCandleRepository:
                 volume_value = ?, source = ?, committed_at_ms = ?
             WHERE stream_id = ? AND open_time_ms = ?
             """,
-            (*candle.ohlcv_text, candle.source.value, candle.committed_at_ms,
-             self._catalog.stream_id(candle.stream), candle.open_time_ms),
+            (
+                *candle.ohlcv_text,
+                candle.source.value,
+                candle.committed_at_ms,
+                self._catalog.stream_id(candle.stream),
+                candle.open_time_ms,
+            ),
         )

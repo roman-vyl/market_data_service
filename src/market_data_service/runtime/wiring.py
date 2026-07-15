@@ -13,7 +13,11 @@ from market_data_service.adapters.sqlite.consumer_candle_reader import (
 )
 from market_data_service.application.audit_continuity import AuditStreamContinuity
 from market_data_service.application.backfill_stream import BackfillStreamHistory
-from market_data_service.application.consumer_read import GetCandleRange
+from market_data_service.application.consumer_read import (
+    GetCandleRange,
+    GetHistoricalCandleRange,
+)
+from market_data_service.application.history_planning import AuditStreamRange, GetStreamBounds
 from market_data_service.application.import_window import ImportHistoricalWindow
 from market_data_service.application.ingest import IngestObservedCandle
 from market_data_service.application.lower_bound import ResolveHistoricalLowerBound
@@ -62,6 +66,22 @@ class RuntimeWiring:
     def consumer_read(self) -> GetCandleRange:
         return GetCandleRange(
             self.config,
+            SqliteConsumerCandleReader(self.database),
+        )
+
+    def historical_read(self) -> GetHistoricalCandleRange:
+        return GetHistoricalCandleRange(
+            self.config,
+            SqliteConsumerCandleReader(self.database),
+        )
+
+    def stream_bounds(self) -> GetStreamBounds:
+        return GetStreamBounds(self.unit_of_work)
+
+    def continuity_audit_read(self) -> AuditStreamRange:
+        return AuditStreamRange(
+            self.auditor(),
+            self.unit_of_work,
             SqliteConsumerCandleReader(self.database),
         )
 

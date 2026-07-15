@@ -29,3 +29,7 @@ class RangeOutOfBounds(ConsumerReadError):
 
 class ContinuityInvariantBroken(RuntimeError):
     code = "continuity_invariant_broken"
+
+
+class CoverageStale(ConsumerReadError):
+    code = "coverage_stale"

@@ -11,6 +11,7 @@ def serialize_result(result: CandleRangeResult) -> dict[str, object]:
         "timeframe": result.stream.timeframe,
         "from_ms": result.from_ms,
         "to_ms": result.to_ms,
+        "market_data_hash": result.market_data_hash,
         "candles": [
             {
                 "open_time_ms": candle.open_time_ms,

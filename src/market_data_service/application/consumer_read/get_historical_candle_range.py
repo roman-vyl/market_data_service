@@ -1,36 +1,32 @@
-"""Read a complete canonical candle range from one ready stream."""
+"""Read one audited historical range without runtime readiness admission."""
 
 from __future__ import annotations
 
 from market_data_service.application.consumer_read.errors import (
     ConfiguredStreamNotFound,
-    StreamNotReady,
+    CoverageStale,
 )
 from market_data_service.application.consumer_read.models import (
-    CandleRangeRequest,
     CandleRangeResult,
+    HistoricalCandleRangeRequest,
 )
-from market_data_service.application.consumer_read.provenance import (
-    canonical_market_data_hash,
-)
+from market_data_service.application.consumer_read.provenance import canonical_market_data_hash
 from market_data_service.application.consumer_read.validation import (
-    validate_available_range,
     validate_complete_grid,
     validate_requested_range,
 )
 from market_data_service.config import ValidatedMarketConfig
 from market_data_service.domain.identity import InstrumentKey, StreamKey
-from market_data_service.domain.stream_state import StreamLifecycleState
 from market_data_service.domain.timeframes import get_timeframe
 from market_data_service.ports.consumer_read import ConsumerCandleReader
 
 
-class GetCandleRange:
+class GetHistoricalCandleRange:
     def __init__(self, config: ValidatedMarketConfig, reader: ConsumerCandleReader) -> None:
         self._configured = frozenset(config.enabled_streams)
         self._reader = reader
 
-    def execute(self, request: CandleRangeRequest) -> CandleRangeResult:
+    def execute(self, request: HistoricalCandleRangeRequest) -> CandleRangeResult:
         try:
             stream = StreamKey(InstrumentKey(request.ticker), request.timeframe)
         except ValueError as exc:
@@ -45,20 +41,6 @@ class GetCandleRange:
             start_time_ms=request.from_ms,
             end_time_ms=request.to_ms,
         )
-        state = snapshot.state
-        if state.state is not StreamLifecycleState.READY:
-            raise StreamNotReady(f"{stream.canonical_id} is {state.state.value}")
-        earliest = state.earliest_available_open_time_ms
-        latest = state.latest_committed_open_time_ms
-        if earliest is None or latest is None:
-            raise StreamNotReady(f"{stream.canonical_id} has no proven available window")
-        available_to = latest + step_ms
-        validate_available_range(
-            request.from_ms,
-            request.to_ms,
-            available_from_ms=earliest,
-            available_to_ms=available_to,
-        )
         candles = snapshot.candles
         validate_complete_grid(
             candles,
@@ -66,15 +48,20 @@ class GetCandleRange:
             to_ms=request.to_ms,
             step_ms=step_ms,
         )
+        actual_hash = canonical_market_data_hash(
+            stream=stream,
+            from_ms=request.from_ms,
+            to_ms=request.to_ms,
+            candles=candles,
+        )
+        if actual_hash != request.expected_market_data_hash:
+            raise CoverageStale(
+                "historical candle range no longer matches the audited market_data_hash"
+            )
         return CandleRangeResult(
             stream=stream,
             from_ms=request.from_ms,
             to_ms=request.to_ms,
-            market_data_hash=canonical_market_data_hash(
-                stream=stream,
-                from_ms=request.from_ms,
-                to_ms=request.to_ms,
-                candles=candles,
-            ),
+            market_data_hash=actual_hash,
             candles=candles,
         )

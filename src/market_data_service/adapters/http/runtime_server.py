@@ -5,23 +5,14 @@ from __future__ import annotations
 import json
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from typing import Protocol
-from urllib.parse import urlsplit
 
 from market_data_service.adapters.http.consumer_read import ConsumerReadHttpHandler
-from market_data_service.adapters.http.consumer_read.openapi import openapi_document
-
-
-class RuntimeStatusView(Protocol):
-    @property
-    def healthy(self) -> bool: ...
-
-    @property
-    def ready(self) -> bool: ...
-
-    def health_document(self) -> dict[str, object]: ...
-
-    def readiness_document(self) -> dict[str, object]: ...
+from market_data_service.adapters.http.historical_read import HistoricalReadHttpHandler
+from market_data_service.adapters.http.history_planning import HistoryPlanningHttpHandler
+from market_data_service.adapters.http.request_router import (
+    RuntimeRequestRouter,
+    RuntimeStatusView,
+)
 
 
 class RuntimeHttpServer:
@@ -31,32 +22,19 @@ class RuntimeHttpServer:
         port: int,
         status: RuntimeStatusView,
         consumer_read: ConsumerReadHttpHandler | None = None,
+        history_planning: HistoryPlanningHttpHandler | None = None,
+        historical_read: HistoricalReadHttpHandler | None = None,
     ) -> None:
-        self._status = status
-        self._consumer_read = consumer_read
+        router = RuntimeRequestRouter(status, consumer_read, history_planning, historical_read)
         outer = self
 
         class Handler(BaseHTTPRequestHandler):
             def do_GET(self) -> None:
-                if self.path == "/health":
-                    document = outer._status.health_document()
-                    outer._write(self, 200 if outer._status.healthy else 503, document)
-                    return
-                if self.path == "/readiness":
-                    document = outer._status.readiness_document()
-                    outer._write(self, 200 if outer._status.ready else 503, document)
-                    return
-                if urlsplit(self.path).path == "/openapi.json":
-                    outer._write(self, 200, openapi_document())
-                    return
-                if (
-                    urlsplit(self.path).path == "/v1/candles"
-                    and outer._consumer_read is not None
-                ):
-                    status, document = outer._consumer_read.handle(self.path)
-                    outer._write(self, status, document)
-                    return
-                outer._write(self, 404, {"error": "not_found"})
+                outer._write(self, *router.get(self.path))
+
+            def do_POST(self) -> None:
+                length = int(self.headers.get("Content-Length", "0"))
+                outer._write(self, *router.post(self.path, self.rfile.read(length)))
 
             def log_message(self, format: str, *args: object) -> None:
                 return

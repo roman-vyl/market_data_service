@@ -17,8 +17,18 @@ class CandleRangeRequest:
 
 
 @dataclass(frozen=True, slots=True)
+class HistoricalCandleRangeRequest:
+    ticker: str
+    timeframe: str
+    from_ms: int
+    to_ms: int
+    expected_market_data_hash: str
+
+
+@dataclass(frozen=True, slots=True)
 class CandleRangeResult:
     stream: StreamKey
     from_ms: int
     to_ms: int
+    market_data_hash: str
     candles: tuple[CanonicalCandle, ...]

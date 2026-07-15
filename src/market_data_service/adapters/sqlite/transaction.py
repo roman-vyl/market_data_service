@@ -63,6 +63,12 @@ class SqliteUnitOfWork:
             end_time_ms=end_time_ms,
         )
 
+    def get_committed_candle_bounds(
+        self,
+        stream: StreamKey,
+    ) -> tuple[int | None, int | None]:
+        return self._candles.committed_bounds(stream)
+
     def insert_candle(self, candle: CanonicalCandle) -> None:
         self._candles.insert(candle)
 

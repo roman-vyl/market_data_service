@@ -12,6 +12,8 @@ from pathlib import Path
 
 from market_data_service.adapters.http import RuntimeHttpServer
 from market_data_service.adapters.http.consumer_read import ConsumerReadHttpHandler
+from market_data_service.adapters.http.historical_read import HistoricalReadHttpHandler
+from market_data_service.adapters.http.history_planning import HistoryPlanningHttpHandler
 from market_data_service.adapters.sqlite import initialize_database, register_stream
 from market_data_service.application.market_metadata import VerifyConfiguredInstrumentMetadata
 from market_data_service.config import load_market_config
@@ -45,8 +47,7 @@ async def _run(settings: RuntimeSettings) -> int:
         category=config.source.category,
     )
     coverage_by_ticker = {
-        coverage.instrument.ticker: coverage
-        for coverage in config.enabled_instruments
+        coverage.instrument.ticker: coverage for coverage in config.enabled_instruments
     }
     for coverage in config.enabled_instruments:
         verifier.execute(coverage)
@@ -65,6 +66,12 @@ async def _run(settings: RuntimeSettings) -> int:
         settings.http_port,
         status,
         ConsumerReadHttpHandler(wiring.consumer_read()),
+        HistoryPlanningHttpHandler(
+            config,
+            wiring.stream_bounds(),
+            wiring.continuity_audit_read(),
+        ),
+        HistoricalReadHttpHandler(wiring.historical_read()),
     )
     service = RuntimeService(
         settings=settings,
