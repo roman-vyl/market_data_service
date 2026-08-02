@@ -1,8 +1,8 @@
 from pathlib import Path
 
 
-def test_schema_v1_has_no_event_or_consumer_cursor_tables() -> None:
-    schema = Path("src/market_data_service/adapters/sqlite/schema_v1.sql").read_text()
+def test_current_schema_has_no_event_or_consumer_cursor_tables() -> None:
+    schema = Path("src/market_data_service/adapters/sqlite/schema_v2.sql").read_text()
     lowered = schema.lower()
     assert "market_events" not in lowered
     assert "consumer_offsets" not in lowered

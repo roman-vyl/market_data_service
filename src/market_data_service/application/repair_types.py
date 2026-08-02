@@ -47,6 +47,13 @@ class RepairWindowResult:
 
 
 @dataclass(frozen=True, slots=True)
+class RepairProgressMarker:
+    requested_window: TimeWindow
+    remaining_missing_candles: int
+    earliest_remaining_gap_start_ms: int | None
+
+
+@dataclass(frozen=True, slots=True)
 class RepairStreamGapsResult:
     stream: StreamKey
     requested_window: TimeWindow
@@ -63,3 +70,15 @@ class RepairStreamGapsResult:
     @property
     def complete(self) -> bool:
         return self.status is RepairStatus.COMPLETE
+
+    @property
+    def progress_marker(self) -> RepairProgressMarker:
+        report = self.post_repair_audit or self.pre_repair_audit
+        step_ms = get_timeframe(self.stream.timeframe).duration_ms
+        return RepairProgressMarker(
+            requested_window=self.requested_window,
+            remaining_missing_candles=sum(
+                (gap.end_ms - gap.start_ms) // step_ms for gap in report.gaps
+            ),
+            earliest_remaining_gap_start_ms=(report.gaps[0].start_ms if report.gaps else None),
+        )

@@ -63,6 +63,13 @@ The application must probe forward through bounded windows until the first
 actual valid candle is observed, then persist the resolved lower bound by full
 `StreamKey`.
 
+Intentional difference from the old BBB scan: the old implementation cached
+launch metadata and kept scan progress inside one invocation. The new service
+persists the next successfully classified empty probe by `StreamKey`, so a
+bounded pass or process restart continues beyond the previous prefix. Failed
+or unusable probes do not move that cursor, and resolving the earliest candle
+clears it atomically.
+
 ### Recovery workflow
 
 The old preflight/repair/postflight principle is preserved:

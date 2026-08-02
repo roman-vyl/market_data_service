@@ -6,13 +6,9 @@ from dataclasses import dataclass
 from enum import StrEnum
 from typing import Protocol
 
-from market_data_service.application.audit_continuity import AuditStreamContinuityRequest
-from market_data_service.application.backfill_types import (
-    BackfillStreamRequest,
-    BackfillStreamResult,
-)
 from market_data_service.application.realtime.events import RecoveryRequired
 from market_data_service.application.repair_types import (
+    RepairProgressMarker,
     RepairStreamGapsRequest,
     RepairStreamGapsResult,
 )
@@ -31,14 +27,12 @@ class RecoveryClassification(StrEnum):
 @dataclass(frozen=True, slots=True)
 class RealtimeRecoveryRequest:
     signal: RecoveryRequired
-    max_backfill_windows: int
-    max_repair_windows: int
+    max_windows: int
+    recovery_window: TimeWindow | None = None
 
     def __post_init__(self) -> None:
-        if self.max_backfill_windows <= 0:
-            raise ValueError("max_backfill_windows must be positive")
-        if self.max_repair_windows <= 0:
-            raise ValueError("max_repair_windows must be positive")
+        if self.max_windows <= 0:
+            raise ValueError("max_windows must be positive")
 
 
 @dataclass(frozen=True, slots=True)
@@ -46,10 +40,10 @@ class RealtimeRecoveryResult:
     stream: StreamKey
     classification: RecoveryClassification
     recovery_window: TimeWindow | None
-    backfill: BackfillStreamResult | None = None
     audit: ContinuityReport | None = None
     repair: RepairStreamGapsResult | None = None
     post_audit: ContinuityReport | None = None
+    next_recovery_window: TimeWindow | None = None
     restored_through_open_time_ms: int | None = None
     error_code: str | None = None
     error_detail: str | None = None
@@ -58,13 +52,19 @@ class RealtimeRecoveryResult:
     def restored(self) -> bool:
         return self.classification is RecoveryClassification.RESTORED
 
+    @property
+    def progress_marker(self) -> RepairProgressMarker | None:
+        return None if self.repair is None else self.repair.progress_marker
 
-class StreamBackfill(Protocol):
-    def execute(self, request: BackfillStreamRequest) -> BackfillStreamResult: ...
-
-
-class StreamAudit(Protocol):
-    def execute(self, request: AuditStreamContinuityRequest) -> ContinuityReport: ...
+    @property
+    def made_progress(self) -> bool:
+        if self.next_recovery_window is not None:
+            return True
+        if self.repair is None:
+            return False
+        return any(
+            item.committed > 0 or item.corrected > 0 for item in self.repair.window_results
+        )
 
 
 class StreamRepair(Protocol):

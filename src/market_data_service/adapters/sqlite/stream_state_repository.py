@@ -25,6 +25,9 @@ class SqliteStreamStateRepository:
             stream=stream,
             state=StreamLifecycleState(row["state"]),
             earliest_available_open_time_ms=row["earliest_available_open_time_ms"],
+            lower_bound_discovery_next_open_time_ms=(
+                row["lower_bound_discovery_next_open_time_ms"]
+            ),
             latest_committed_open_time_ms=row["latest_committed_open_time_ms"],
             last_audit_at_ms=row["last_audit_at_ms"],
             last_rest_success_at_ms=row["last_rest_success_at_ms"],
@@ -40,15 +43,17 @@ class SqliteStreamStateRepository:
             """
             UPDATE stream_state SET
                 state = ?, earliest_available_open_time_ms = ?,
+                lower_bound_discovery_next_open_time_ms = ?,
                 latest_committed_open_time_ms = ?, last_audit_at_ms = ?,
                 last_rest_success_at_ms = ?, last_ws_message_at_ms = ?,
-                last_error_code = ?, last_error_detail = ?,
-                state_changed_at_ms = ?, updated_at_ms = ?
+                last_error_code = ?, last_error_detail = ?, state_changed_at_ms = ?,
+                updated_at_ms = ?
             WHERE stream_id = ?
             """,
             (
                 snapshot.state.value,
                 snapshot.earliest_available_open_time_ms,
+                snapshot.lower_bound_discovery_next_open_time_ms,
                 snapshot.latest_committed_open_time_ms,
                 snapshot.last_audit_at_ms,
                 snapshot.last_rest_success_at_ms,

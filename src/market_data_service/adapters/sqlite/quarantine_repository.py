@@ -40,3 +40,22 @@ class SqliteQuarantineRepository:
                 created_at_ms,
             ),
         )
+
+    def contains(
+        self,
+        *,
+        stream: StreamKey,
+        start_ms: int,
+        end_ms: int,
+        reason_code: str,
+    ) -> bool:
+        row = self._connection.execute(
+            """
+            SELECT 1
+            FROM quarantine
+            WHERE stream_id = ? AND start_ms = ? AND end_ms = ? AND reason_code = ?
+            LIMIT 1
+            """,
+            (self._catalog.stream_id(stream), start_ms, end_ms, reason_code),
+        ).fetchone()
+        return row is not None

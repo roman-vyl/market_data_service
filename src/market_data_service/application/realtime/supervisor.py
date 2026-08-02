@@ -131,6 +131,9 @@ class RealtimeSupervisor:
     def facts(self, stream: StreamKey) -> RealtimeStreamFacts:
         return self._state.facts(stream)
 
+    def synchronize_successful_open_time(self, stream: StreamKey, open_time_ms: int) -> None:
+        self._state.synchronize_successful_open_time(stream, open_time_ms)
+
     def all_facts(self) -> tuple[RealtimeStreamFacts, ...]:
         return self._state.all_facts()
 

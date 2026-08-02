@@ -17,6 +17,7 @@ class RuntimeSettings:
     websocket_url: str = "wss://stream.bybit.com/v5/public/linear"
     startup_backfill_windows_per_stream: int = 2
     startup_repair_windows_per_stream: int = 2
+    realtime_recovery_windows_per_stream: int = 2
     historical_retry_base_seconds: float = 1.0
     historical_retry_max_seconds: float = 60.0
     realtime_recovery_base_seconds: float = 1.0
@@ -37,6 +38,7 @@ class RuntimeSettings:
         for name in (
             "startup_backfill_windows_per_stream",
             "startup_repair_windows_per_stream",
+            "realtime_recovery_windows_per_stream",
             "reconnect_max_attempts",
             "stale_intervals",
         ):
@@ -76,6 +78,9 @@ class RuntimeSettings:
             ),
             startup_repair_windows_per_stream=int(
                 env.get("MDS_STARTUP_REPAIR_WINDOWS_PER_STREAM", "2")
+            ),
+            realtime_recovery_windows_per_stream=int(
+                env.get("MDS_REALTIME_RECOVERY_WINDOWS_PER_STREAM", "2")
             ),
             historical_retry_base_seconds=float(
                 env.get("MDS_HISTORICAL_RETRY_BASE_SECONDS", "1.0")

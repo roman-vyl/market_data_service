@@ -150,7 +150,7 @@ Instrument and stream semantics are normative: `InstrumentKey = ticker`; `Stream
 
 ## Database baseline
 
-The approved SQLite v1 design is documented in `docs/database-schema-v1.md`. Its canonical tickers are `BTCUSDT.P` and `ETHUSDT.P`, mapped explicitly to Bybit API symbols `BTCUSDT` and `ETHUSDT`.
+The current SQLite v2 design is documented in `docs/database-schema-v2.md`. Its canonical tickers are `BTCUSDT.P` and `ETHUSDT.P`, mapped explicitly to Bybit API symbols `BTCUSDT` and `ETHUSDT`. Schema v2 adds a durable per-stream lower-bound discovery cursor and migrates v1 databases transactionally.
 
 ## Step 4 decision
 
@@ -158,7 +158,7 @@ OHLCV values use exact `Decimal` semantics in the domain and normalized non-expo
 
 ## Step 6 decision
 
-Consumer recovery is readiness-first. Bootstrap, catch-up, and repair do not require per-candle consumer events. A consumer owns its own per-stream `last_processed_open_time_ms`, pauses decisions while the stream is not `ready`, and catches up by ordered range read when readiness returns. Schema v1 has no event log or server-owned consumer cursor. See `docs/consumer-readiness-contract.md`.
+Consumer recovery is readiness-first. Bootstrap, catch-up, and repair do not require per-candle consumer events. A consumer owns its own per-stream `last_processed_open_time_ms`, pauses decisions while the stream is not `ready`, and catches up by ordered range read when readiness returns. The current schema has no event log or server-owned consumer cursor. See `docs/consumer-readiness-contract.md`.
 
 ## Sequential REST backfill
 
@@ -292,6 +292,7 @@ MDS_REST_BASE_URL
 MDS_WEBSOCKET_URL
 MDS_STARTUP_BACKFILL_WINDOWS_PER_STREAM
 MDS_STARTUP_REPAIR_WINDOWS_PER_STREAM
+MDS_REALTIME_RECOVERY_WINDOWS_PER_STREAM
 MDS_HISTORICAL_RETRY_BASE_SECONDS
 MDS_HISTORICAL_RETRY_MAX_SECONDS
 MDS_REALTIME_RECOVERY_BASE_SECONDS

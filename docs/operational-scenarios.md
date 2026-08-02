@@ -134,12 +134,15 @@ For each venue/category/symbol:
 1. Fetch and cache instrument `launchTime` with retrieval metadata.
 2. Align it upward to the requested timeframe grid to create a search floor.
 3. Query the earliest bounded REST window beginning at that floor.
-4. If no candle is returned, advance using bounded search windows until data appears or the latest closed boundary is reached.
-5. Treat the first valid returned candle open time as the observed earliest available candle for that stream.
-6. Persist both:
+4. If a window is successfully classified as empty, atomically persist its exclusive end as the next probe cursor for that stream.
+5. On a later bounded pass or process restart, resume at the durable cursor rather than the launch-time prefix.
+6. Do not advance the cursor on source, storage, or unusable-payload failure.
+7. Treat the first valid returned candle open time as the observed earliest available candle for that stream.
+8. Persist both:
    - instrument launch time;
    - observed earliest available candle open time per timeframe.
-7. Use the observed earliest candle as the normal continuity-audit lower bound.
+9. Persist the observed earliest candle and clear the discovery cursor atomically.
+10. Use the observed earliest candle as the normal continuity-audit lower bound.
 
 ### Why persist both values
 
@@ -158,6 +161,12 @@ The earliest-available result should be stable and cached. It may be explicitly 
 - a migration changes lower-bound semantics.
 
 Normal restart must not repeatedly scan from launch time once the lower bound is durably established.
+
+### Bounded realtime recovery
+
+When admission, staleness, reconnect, or a sequence discontinuity requires realtime recovery, the service freezes one aligned half-open recovery interval. Every non-terminal pass preflights that full interval, repairs only its bounded window budget, and post-audits the original interval. Durable candle state reconstructs unfinished work after restart; no recovery queue is persisted.
+
+A progressing incomplete pass is requeued fairly. An unchanged incomplete pass receives capped exponential per-stream backoff, so an empty or unusable source response cannot create a tight REST loop or block another due stream. If the latest-closed boundary moves while the fixed interval is completed, the service starts one new finite tail interval before readiness.
 
 ## 7. REST window splitting
 

@@ -147,6 +147,9 @@ class FailingSecondInsertUnitOfWork:
     def record_quarantine(self, **kwargs) -> None:
         self._inner.record_quarantine(**kwargs)
 
+    def record_quarantine_once(self, **kwargs) -> bool:
+        return self._inner.record_quarantine_once(**kwargs)
+
     def commit(self) -> None:
         self._inner.commit()
 
@@ -392,6 +395,10 @@ def test_empty_source_response_leaves_repair_incomplete(tmp_path: Path) -> None:
     assert result.post_repair_audit is not None
     assert result.post_repair_audit.gaps == (Gap(60_000, 120_000),)
     assert "repair_incomplete_gap" in _quarantine_reasons(path, stream)
+
+    _execute(_repair(path, source, FakeClock()), stream, end=180_000)
+
+    assert _quarantine_reasons(path, stream).count("repair_incomplete_gap") == 1
 
 
 def test_partial_source_response_is_ingested_but_remains_incomplete(tmp_path: Path) -> None:

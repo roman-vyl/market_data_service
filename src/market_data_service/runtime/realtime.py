@@ -37,8 +37,7 @@ class RuntimeRealtimeCoordinator:
         admission: RealtimeAdmissionGate,
         operation_gate: asyncio.Lock,
         now_ms: Callable[[], int],
-        max_backfill_windows: int,
-        max_repair_windows: int,
+        max_recovery_windows: int,
         stale_check_seconds: float = 1.0,
         recovery_base_backoff_seconds: float = 1.0,
         recovery_max_backoff_seconds: float = 60.0,
@@ -58,8 +57,7 @@ class RuntimeRealtimeCoordinator:
             status=status,
             operation_gate=operation_gate,
             sync_lifecycle=self._sync_lifecycle,
-            max_backfill_windows=max_backfill_windows,
-            max_repair_windows=max_repair_windows,
+            max_windows=max_recovery_windows,
             base_backoff_seconds=recovery_base_backoff_seconds,
             max_backoff_seconds=recovery_max_backoff_seconds,
             idle_seconds=recovery_idle_seconds,
@@ -82,6 +80,13 @@ class RuntimeRealtimeCoordinator:
             stop_event.set()
 
     async def admit(self, stream: StreamKey) -> None:
+        durable = self._lifecycle.snapshot(stream)
+        latest = durable.latest_committed_open_time_ms
+        if latest is None:
+            self._status.set_blocking_reason(stream, "realtime_admission_missing_anchor")
+            self._status.update_stream(durable, self._supervisor.facts(stream))
+            return
+        self._supervisor.synchronize_successful_open_time(stream, latest)
         self._admission.admit(stream)
         self._status.clear_blocking_reason(stream)
         facts = self._supervisor.facts(stream)

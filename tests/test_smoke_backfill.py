@@ -85,7 +85,7 @@ def test_smoke_backfill_workflow_persists_duplicates_and_continuity(tmp_path: Pa
     assert (result.first_observed, result.first_committed, result.first_duplicates) == (3, 3, 0)
     assert (result.duplicate_observed, result.duplicate_committed) == (3, 0)
     assert result.duplicate_duplicates == 3
-    assert persistence.schema_version == "1"
+    assert persistence.schema_version == "2"
     assert persistence.candles == 3
     assert persistence.stream_state_rows == 1
     assert persistence.latest_committed_open_time_ms == 120_000

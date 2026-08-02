@@ -58,6 +58,18 @@ class CanonicalStorageUnitOfWork(Protocol):
         created_at_ms: int,
     ) -> None: ...
 
+    def record_quarantine_once(
+        self,
+        *,
+        stream: StreamKey,
+        start_ms: int,
+        end_ms: int,
+        reason_code: str,
+        detail: str,
+        payload_json: str | None,
+        created_at_ms: int,
+    ) -> bool: ...
+
     def commit(self) -> None: ...
 
     def rollback(self) -> None: ...

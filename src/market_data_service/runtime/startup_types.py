@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import StrEnum
 
+from market_data_service.application.repair_types import RepairProgressMarker
 from market_data_service.domain.continuity import ContinuityReport
 from market_data_service.domain.identity import StreamKey
 
@@ -27,6 +28,25 @@ class ReconciliationWindow:
 
 
 @dataclass(frozen=True, slots=True)
+class LowerBoundProgressMarker:
+    next_search_start_time_ms: int
+
+
+HistoricalProgressMarker = LowerBoundProgressMarker | RepairProgressMarker
+
+
+@dataclass(frozen=True, slots=True)
+class BoundedWorkCounts:
+    attempted_windows: int = 0
+    completed_windows: int = 0
+    committed: int = 0
+    duplicates: int = 0
+    corrected: int = 0
+    rejected: int = 0
+    unexpected: int = 0
+
+
+@dataclass(frozen=True, slots=True)
 class StartupStreamOutcome:
     stream: StreamKey
     classification: StartupClassification
@@ -34,6 +54,8 @@ class StartupStreamOutcome:
     window: ReconciliationWindow | None = None
     error_code: str | None = None
     error_detail: str | None = None
+    progress_marker: HistoricalProgressMarker | None = None
+    counts: BoundedWorkCounts = field(default_factory=BoundedWorkCounts)
 
     @property
     def connecting(self) -> bool:

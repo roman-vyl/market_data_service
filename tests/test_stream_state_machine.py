@@ -121,3 +121,22 @@ def test_timestamp_cannot_move_backwards() -> None:
             StreamLifecycleState.DEGRADED,
             changed_at_ms=99,
         )
+
+
+def test_lower_bound_discovery_cursor_is_timeframe_aligned() -> None:
+    with pytest.raises(ValueError, match="timeframe-aligned"):
+        StreamStateSnapshot(
+            stream=StreamKey(InstrumentKey("BTCUSDT.P"), "5m"),
+            state=StreamLifecycleState.BOOTSTRAPPING,
+            lower_bound_discovery_next_open_time_ms=60_000,
+        )
+
+
+def test_resolved_lower_bound_cannot_retain_discovery_cursor() -> None:
+    with pytest.raises(ValueError, match="cannot retain"):
+        StreamStateSnapshot(
+            stream=StreamKey(InstrumentKey("BTCUSDT.P"), "1m"),
+            state=StreamLifecycleState.BOOTSTRAPPING,
+            earliest_available_open_time_ms=120_000,
+            lower_bound_discovery_next_open_time_ms=60_000,
+        )

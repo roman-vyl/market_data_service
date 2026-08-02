@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from market_data_service.domain import InstrumentKey, StreamKey
 from market_data_service.runtime.historical_worker import HistoricalReconciliationWorker
 from market_data_service.runtime.startup_types import (
+    LowerBoundProgressMarker,
     StartupClassification,
     StartupStreamOutcome,
 )
@@ -24,7 +25,16 @@ class FakeCoordinator:
         classification = (
             StartupClassification.CONNECTING if count >= 2 else StartupClassification.INCOMPLETE
         )
-        return StartupStreamOutcome(stream, classification, window=window)
+        return StartupStreamOutcome(
+            stream,
+            classification,
+            window=window,
+            progress_marker=(
+                LowerBoundProgressMarker(count)
+                if classification is StartupClassification.INCOMPLETE
+                else None
+            ),
+        )
 
 
 def test_worker_requeues_incomplete_streams_fairly() -> None:
@@ -48,7 +58,11 @@ async def _fairness_scenario() -> None:
         coordinator=coordinator,  # type: ignore[arg-type]
         initial_outcomes=(
             StartupStreamOutcome(btc, StartupClassification.INCOMPLETE),
-            StartupStreamOutcome(eth, StartupClassification.INCOMPLETE),
+            StartupStreamOutcome(
+                eth,
+                StartupClassification.INCOMPLETE,
+                progress_marker=LowerBoundProgressMarker(0),
+            ),
         ),
         status=status,
         operation_gate=asyncio.Lock(),
@@ -108,3 +122,58 @@ async def _failure_isolation_scenario() -> None:
     assert eth in calls[1:3]
     assert completed[0] == eth
     assert set(completed) == {btc, eth}
+
+
+def test_unchanged_incomplete_historical_pass_backs_off_without_tight_loop() -> None:
+    asyncio.run(_historical_no_progress_scenario())
+
+
+async def _historical_no_progress_scenario() -> None:
+    stream = StreamKey(InstrumentKey("BTCUSDT.P"), "5m")
+
+    class Coordinator:
+        calls = 0
+
+        def execute_stream(self, target: StreamKey, window=None):  # type: ignore[no-untyped-def]
+            assert target == stream
+            self.calls += 1
+            return StartupStreamOutcome(
+                target,
+                StartupClassification.INCOMPLETE,
+                window=window,
+                progress_marker=LowerBoundProgressMarker(300_000),
+            )
+
+    coordinator = Coordinator()
+    stop = asyncio.Event()
+
+    async def on_complete(target: StreamKey) -> None:
+        raise AssertionError(f"unexpected completion for {target.canonical_id}")
+
+    worker = HistoricalReconciliationWorker(
+        coordinator=coordinator,  # type: ignore[arg-type]
+        initial_outcomes=(
+            StartupStreamOutcome(
+                stream,
+                StartupClassification.INCOMPLETE,
+                progress_marker=LowerBoundProgressMarker(300_000),
+            ),
+        ),
+        status=RuntimeStatusStore((stream,)),
+        operation_gate=asyncio.Lock(),
+        on_complete=on_complete,
+        base_backoff_seconds=60,
+        max_backoff_seconds=60,
+        idle_seconds=0.001,
+    )
+    runner = asyncio.create_task(worker.run(stop))
+    for _ in range(200):
+        if coordinator.calls:
+            break
+        await asyncio.sleep(0.001)
+    await asyncio.sleep(0.01)
+    assert coordinator.calls == 1
+
+    stop.set()
+    await asyncio.wait_for(runner, timeout=0.5)
+    assert coordinator.calls == 1

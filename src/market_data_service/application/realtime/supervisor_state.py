@@ -69,6 +69,16 @@ class RealtimeSupervisorState:
         )
         return previous
 
+    def synchronize_successful_open_time(self, stream: StreamKey, open_time_ms: int) -> None:
+        facts = self._facts[stream]
+        self._facts[stream] = replace(
+            facts,
+            last_successful_open_time_ms=max(
+                facts.last_successful_open_time_ms or open_time_ms,
+                open_time_ms,
+            ),
+        )
+
     def record_rejected(self, outcome: RealtimeIngestionOutcome) -> None:
         facts = self._facts[outcome.stream]
         self._facts[outcome.stream] = replace(

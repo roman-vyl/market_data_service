@@ -163,9 +163,9 @@ quarantine
 
 `instruments` stores the canonical ticker, exact Bybit API symbol, and current launch-time metadata. `streams` registers ticker/timeframe rows. `candles` stores canonical OHLCV by `(stream_id, open_time_ms)`. `stream_state` stores current per-stream operational state. `quarantine` durably records rare ingestion and repair problems. The persisted lifecycle is deliberately small: `uninitialized`, `bootstrapping`, `auditing`, `repairing`, `connecting`, `ready`, `degraded`, and `failed`; see `docs/stream-state-machine.md`.
 
-The normative schema is documented in `docs/database-schema-v1.md` and defined by `src/market_data_service/adapters/sqlite/schema_v1.sql`.
+The current normative schema is documented in `docs/database-schema-v2.md` and defined by `src/market_data_service/adapters/sqlite/schema_v2.sql`. Schema v1 remains the supported migration origin.
 
-Schema v1 intentionally excludes event logs, consumer cursors, bootstrap-run/window history, persisted gap history, candle revision history, metadata revision history, and feature storage.
+The current schema intentionally excludes event logs, consumer cursors, bootstrap-run/window history, persisted gap history, candle revision history, metadata revision history, and feature storage.
 
 ## 8. Atomic commit invariant
 
@@ -228,7 +228,7 @@ Historical candles are durable long-lived data. Normal operation SHALL append an
 
 ## 10.2 Historical bootstrap and future consumer separation
 
-Full historical bootstrap writes canonical candles without assuming a future live-consumer notification design. Research will read historical ranges from candle storage/API. Realtime consumer delivery is deferred to a later approved integration change and does not require an event table in schema v1.
+Full historical bootstrap writes canonical candles without assuming a future live-consumer notification design. Research will read historical ranges from candle storage/API. Realtime consumer delivery is deferred to a later approved integration change and does not require an event table in the current schema.
 
 ## 11. Gap model
 
@@ -636,9 +636,9 @@ These do not block repository initialization:
 
 Each deferred decision must be resolved before its implementation phase, not guessed inside code.
 
-## Approved SQLite schema v1
+## Approved SQLite schema
 
-Step 3 approves the intentionally small schema documented in `docs/database-schema-v1.md` and defined by `src/market_data_service/adapters/sqlite/schema_v1.sql`:
+The intentionally small current schema is documented in `docs/database-schema-v2.md` and defined by `src/market_data_service/adapters/sqlite/schema_v2.sql`:
 
 ```text
 schema_meta
@@ -649,7 +649,7 @@ stream_state
 quarantine
 ```
 
-Schema v1 deliberately excludes event logs, consumer cursors, bootstrap-run history, persisted gap history, correction revisions, and feature storage. These can be added later without changing candle identity.
+Schema v2 adds only a per-stream lower-bound discovery cursor. It deliberately excludes event logs, consumer cursors, bootstrap-run history, persisted gap history, correction revisions, and feature storage. These can be added later without changing candle identity.
 
 ## Step 4 accepted precision policy
 

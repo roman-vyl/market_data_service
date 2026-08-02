@@ -135,7 +135,7 @@ class RepairStateRecorder:
         now_ms = self._clock.now_ms()
         with self._unit_of_work_factory() as unit_of_work:
             for gap in gaps:
-                unit_of_work.record_quarantine(
+                unit_of_work.record_quarantine_once(
                     stream=stream,
                     start_ms=gap.start_ms,
                     end_ms=gap.end_ms,

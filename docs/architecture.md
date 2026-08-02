@@ -105,7 +105,7 @@ status view protocol, not on the concrete runtime status store.
 
 The service guarantees canonical continuity only while a stream is `ready`. A consumer may remain connected for status and reads while a stream is not ready, but must pause trading or feature decisions. The consumer owns its own `last_processed_open_time_ms`; after startup or recovery it requests all candles after that cursor and then resumes.
 
-Schema v1 contains no market-event log, replay broker, or server-owned consumer cursor. Any future push transport is only a latency hint and never replaces canonical range reads.
+The current schema contains no market-event log, replay broker, or server-owned consumer cursor. Any future push transport is only a latency hint and never replaces canonical range reads.
 
 ## Sequential backfill boundary
 

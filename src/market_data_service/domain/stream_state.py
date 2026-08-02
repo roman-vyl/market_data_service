@@ -6,6 +6,7 @@ from dataclasses import dataclass, replace
 from enum import StrEnum
 
 from market_data_service.domain.identity import StreamKey
+from market_data_service.domain.timeframes import get_timeframe
 
 
 class StreamLifecycleState(StrEnum):
@@ -70,6 +71,7 @@ class StreamStateSnapshot:
     stream: StreamKey
     state: StreamLifecycleState
     earliest_available_open_time_ms: int | None = None
+    lower_bound_discovery_next_open_time_ms: int | None = None
     latest_committed_open_time_ms: int | None = None
     last_audit_at_ms: int | None = None
     last_rest_success_at_ms: int | None = None
@@ -82,6 +84,7 @@ class StreamStateSnapshot:
     def __post_init__(self) -> None:
         for field_name in (
             "earliest_available_open_time_ms",
+            "lower_bound_discovery_next_open_time_ms",
             "latest_committed_open_time_ms",
             "last_audit_at_ms",
             "last_rest_success_at_ms",
@@ -92,6 +95,17 @@ class StreamStateSnapshot:
             value = getattr(self, field_name)
             if value is not None and value < 0:
                 raise ValueError(f"{field_name} must be non-negative")
+        discovery_cursor = self.lower_bound_discovery_next_open_time_ms
+        if discovery_cursor is not None:
+            step_ms = get_timeframe(self.stream.timeframe).duration_ms
+            if discovery_cursor % step_ms:
+                raise ValueError(
+                    "lower_bound_discovery_next_open_time_ms must be timeframe-aligned"
+                )
+            if self.earliest_available_open_time_ms is not None:
+                raise ValueError(
+                    "resolved lower bound cannot retain a discovery cursor"
+                )
 
     @property
     def is_ready(self) -> bool:

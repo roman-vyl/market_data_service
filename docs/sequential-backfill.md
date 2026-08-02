@@ -72,7 +72,7 @@ The next command invocation repeats the same deterministic order and resumes eac
 
 ## Resume source of truth
 
-Schema v1 does not add a backfill-job table.
+The current schema does not add a backfill-job table.
 
 Resume planning uses:
 

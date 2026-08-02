@@ -98,6 +98,7 @@ ready
 
 - lifecycle state;
 - earliest actually available candle;
+- next timeframe-aligned lower-bound discovery probe while the earliest candle is unresolved;
 - latest committed candle;
 - last completed audit time;
 - latest successful REST time;
@@ -110,7 +111,8 @@ It is not a gap journal, retry queue, bootstrap-window history, or event log.
 
 ## Restart semantics
 
-- Crash in `bootstrapping`: resume from the actual maximum committed candle, then audit the full required range.
+- Crash during lower-bound discovery: resume from the durable per-stream next-probe cursor. A failed or unclassified probe never advances it.
+- Crash in `bootstrapping` after lower-bound resolution: resume from the actual maximum committed candle, then audit the full required range.
 - Temporary REST/source failure during bootstrap: enter `degraded`; a later administrative run may return to `bootstrapping`.
 - Crash in `auditing`: rerun the audit.
 - Crash in `repairing`: rerun audit, derive actual remaining gaps, then repair.

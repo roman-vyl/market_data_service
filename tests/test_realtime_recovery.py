@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import sqlite3
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -73,17 +74,27 @@ class SequencedHistoricalSource:
         return tuple(rows)
 
 
-def _wire(database: Path, source: SequencedHistoricalSource, clock: Clock):
+def _wire(
+    database: Path,
+    source: SequencedHistoricalSource,
+    clock: Clock,
+    *,
+    repair_window_candles: int = 10,
+):
     def uow_factory() -> SqliteUnitOfWork:
         return SqliteUnitOfWork(database)
 
     importer = ImportHistoricalWindow(source, uow_factory, clock)
     backfill = BackfillStreamHistory(importer, uow_factory, clock, max_candles_per_window=10)
     auditor = AuditStreamContinuity(uow_factory)
-    repair = RepairStreamGaps(auditor, importer, uow_factory, clock, max_candles_per_window=10)
+    repair = RepairStreamGaps(
+        auditor,
+        importer,
+        uow_factory,
+        clock,
+        max_candles_per_window=repair_window_candles,
+    )
     coordinator = RealtimeRecoveryCoordinator(
-        backfill=backfill,
-        auditor=auditor,
         repair=repair,
         unit_of_work_factory=uow_factory,
         now_ms=clock.now_ms,
@@ -138,8 +149,7 @@ def test_sequence_hint_recovers_internal_gap_and_requires_post_audit(tmp_path: P
                     detected_at_ms=300_000,
                     suspected_start_time_ms=180_000,
                 ),
-                max_backfill_windows=1,
-                max_repair_windows=1,
+                max_windows=1,
             )
         )
     )
@@ -150,7 +160,7 @@ def test_sequence_hint_recovers_internal_gap_and_requires_post_audit(tmp_path: P
         assert uow.get_candle(stream, 180_000) is not None
 
 
-def test_partial_backfill_uses_repair_then_post_audit(tmp_path: Path) -> None:
+def test_partial_repair_resumes_same_fixed_window_then_post_audits(tmp_path: Path) -> None:
     stream = StreamKey(InstrumentKey("ETHUSDT.P"), "1m")
     database = tmp_path / "market.sqlite3"
     initialize_database(database)
@@ -166,6 +176,21 @@ def test_partial_backfill_uses_repair_then_post_audit(tmp_path: Path) -> None:
     recovery_source = SequencedHistoricalSource(stream, omit_first={120_000})
     _, _, coordinator = _wire(database, recovery_source, clock)
 
+    first = asyncio.run(
+        coordinator.execute(
+            RealtimeRecoveryRequest(
+                RecoveryRequired(
+                    stream,
+                    RecoveryReason.DISCONNECT,
+                    detected_at_ms=240_000,
+                ),
+                max_windows=1,
+            )
+        )
+    )
+    assert first.classification is RecoveryClassification.INCOMPLETE
+    assert first.recovery_window == TimeWindow(120_000, 240_000)
+
     result = asyncio.run(
         coordinator.execute(
             RealtimeRecoveryRequest(
@@ -174,8 +199,8 @@ def test_partial_backfill_uses_repair_then_post_audit(tmp_path: Path) -> None:
                     RecoveryReason.DISCONNECT,
                     detected_at_ms=240_000,
                 ),
-                max_backfill_windows=1,
-                max_repair_windows=1,
+                max_windows=1,
+                recovery_window=first.recovery_window,
             )
         )
     )
@@ -197,10 +222,120 @@ def test_missing_durable_anchor_is_incomplete(tmp_path: Path) -> None:
         coordinator.execute(
             RealtimeRecoveryRequest(
                 RecoveryRequired(stream, RecoveryReason.STALE, detected_at_ms=120_000),
-                max_backfill_windows=1,
-                max_repair_windows=1,
+                max_windows=1,
             )
         )
     )
     assert result.classification is RecoveryClassification.INCOMPLETE
     assert result.error_code == "missing_durable_recovery_anchor"
+
+
+def test_old_hint_recovery_advances_across_bounded_full_window_passes(
+    tmp_path: Path,
+) -> None:
+    stream = StreamKey(InstrumentKey("ETHUSDT.P"), "1m")
+    database = tmp_path / "market.sqlite3"
+    initialize_database(database)
+    register_stream(database, stream, exchange_symbol="ETHUSDT", now_ms=1)
+    clock = Clock(720_000)
+    source = SequencedHistoricalSource(stream)
+    _, backfill, coordinator = _wire(
+        database,
+        source,
+        clock,
+        repair_window_candles=2,
+    )
+    assert backfill.execute(
+        __import__(
+            "market_data_service.application.backfill_types", fromlist=["BackfillStreamRequest"]
+        ).BackfillStreamRequest(stream, 0, 720_000, max_windows=2)
+    ).reached_end
+    connection = sqlite3.connect(database)
+    try:
+        connection.executemany(
+            "DELETE FROM candles WHERE open_time_ms = ?",
+            ((value,) for value in range(120_000, 480_000, 60_000)),
+        )
+        connection.commit()
+    finally:
+        connection.close()
+    source.calls = 0
+    signal = RecoveryRequired(
+        stream,
+        RecoveryReason.SEQUENCE_DISCONTINUITY,
+        detected_at_ms=720_000,
+        suspected_start_time_ms=120_000,
+    )
+
+    first = asyncio.run(coordinator.execute(RealtimeRecoveryRequest(signal, max_windows=1)))
+    second = asyncio.run(
+        coordinator.execute(
+            RealtimeRecoveryRequest(
+                signal,
+                max_windows=1,
+                recovery_window=first.recovery_window,
+            )
+        )
+    )
+    third = asyncio.run(
+        coordinator.execute(
+            RealtimeRecoveryRequest(
+                signal,
+                max_windows=1,
+                recovery_window=second.recovery_window,
+            )
+        )
+    )
+
+    assert [first.classification, second.classification, third.classification] == [
+        RecoveryClassification.INCOMPLETE,
+        RecoveryClassification.INCOMPLETE,
+        RecoveryClassification.RESTORED,
+    ]
+    assert first.recovery_window == second.recovery_window == third.recovery_window
+    assert third.recovery_window == TimeWindow(120_000, 720_000)
+    assert third.post_audit and third.post_audit.is_continuous
+
+
+def test_completed_cycle_starts_finite_moving_tail_cycle(tmp_path: Path) -> None:
+    stream = StreamKey(InstrumentKey("BTCUSDT.P"), "1m")
+    database = tmp_path / "market.sqlite3"
+    initialize_database(database)
+    register_stream(database, stream, exchange_symbol="BTCUSDT", now_ms=1)
+    clock = Clock(360_000)
+    source = SequencedHistoricalSource(stream)
+    _, backfill, coordinator = _wire(database, source, clock)
+    assert backfill.execute(
+        __import__(
+            "market_data_service.application.backfill_types", fromlist=["BackfillStreamRequest"]
+        ).BackfillStreamRequest(stream, 0, 300_000, max_windows=1)
+    ).reached_end
+    signal = RecoveryRequired(
+        stream,
+        RecoveryReason.STARTUP_RECONCILIATION,
+        detected_at_ms=300_000,
+    )
+
+    first = asyncio.run(
+        coordinator.execute(
+            RealtimeRecoveryRequest(
+                signal,
+                max_windows=1,
+                recovery_window=TimeWindow(240_000, 300_000),
+            )
+        )
+    )
+    assert first.classification is RecoveryClassification.INCOMPLETE
+    assert first.next_recovery_window == TimeWindow(300_000, 360_000)
+
+    second = asyncio.run(
+        coordinator.execute(
+            RealtimeRecoveryRequest(
+                signal,
+                max_windows=1,
+                recovery_window=first.next_recovery_window,
+            )
+        )
+    )
+    assert second.classification is RecoveryClassification.RESTORED
+    assert second.restored_through_open_time_ms == 300_000

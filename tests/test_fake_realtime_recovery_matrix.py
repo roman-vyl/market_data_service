@@ -139,8 +139,6 @@ async def _scenario(tmp_path: Path) -> None:
         auditor = AuditStreamContinuity(uow_factory)
         repair = RepairStreamGaps(auditor, importer, uow_factory, clock)
         coordinator = RealtimeRecoveryCoordinator(
-            backfill=backfill,
-            auditor=auditor,
             repair=repair,
             unit_of_work_factory=uow_factory,
             now_ms=clock.now_ms,
@@ -208,7 +206,7 @@ async def _scenario(tmp_path: Path) -> None:
 
         clock.value = 240_000
         btc_recovery = await coordinator.execute(
-            RealtimeRecoveryRequest(btc_signals[0], max_backfill_windows=1, max_repair_windows=1)
+            RealtimeRecoveryRequest(btc_signals[0], max_windows=1)
         )
         assert btc_recovery.classification is RecoveryClassification.RESTORED
         supervisor.record_recovery_result(
@@ -228,7 +226,7 @@ async def _scenario(tmp_path: Path) -> None:
         results = await asyncio.gather(
             *(
                 coordinator.execute(
-                    RealtimeRecoveryRequest(signal, max_backfill_windows=2, max_repair_windows=1)
+                    RealtimeRecoveryRequest(signal, max_windows=2)
                 )
                 for signal in resubscribe_signals
             )

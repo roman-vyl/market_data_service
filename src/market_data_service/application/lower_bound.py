@@ -6,6 +6,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, replace
 from typing import Protocol
 
+from market_data_service.application.lower_bound_state import HistoricalLowerBoundState
 from market_data_service.domain.candle_validation import validate_observed_candle
 from market_data_service.domain.gaps import Gap, iter_fetch_windows
 from market_data_service.domain.identity import InstrumentKey, StreamKey
@@ -37,6 +38,7 @@ class HistoricalLowerBoundResult:
     resolved: bool
     discovery_windows_used: int
     unresolved_reason: str | None = None
+    next_search_start_time_ms: int | None = None
 
 
 class ResolveHistoricalLowerBound:
@@ -60,6 +62,7 @@ class ResolveHistoricalLowerBound:
         self._unit_of_work_factory = unit_of_work_factory
         self._clock = clock
         self._max_candles_per_probe = max_candles_per_probe
+        self._state = HistoricalLowerBoundState(unit_of_work_factory, clock.now_ms)
 
     def execute(self, stream: StreamKey, *, max_windows: int) -> HistoricalLowerBoundResult:
         if max_windows <= 0:
@@ -72,7 +75,8 @@ class ResolveHistoricalLowerBound:
         metadata, metadata_cached = self._resolve_metadata(stream.instrument)
         if metadata.launch_time_ms is None:
             raise HistoricalLowerBoundUnavailable("instrument launch time is unresolved")
-        search_start = ceil_to_grid(metadata.launch_time_ms, step_ms)
+        launch_search_start = ceil_to_grid(metadata.launch_time_ms, step_ms)
+        search_start = self._state.discovery_start(stream, launch_search_start)
         search_end = last_closed_open_time_ms(self._clock.now_ms(), step_ms) + step_ms
         if search_start >= search_end:
             return HistoricalLowerBoundResult(
@@ -85,6 +89,7 @@ class ResolveHistoricalLowerBound:
                 resolved=False,
                 discovery_windows_used=0,
                 unresolved_reason="no closed candles are searchable yet",
+                next_search_start_time_ms=search_start,
             )
 
         discovery_windows_used = 0
@@ -104,6 +109,7 @@ class ResolveHistoricalLowerBound:
                     resolved=False,
                     discovery_windows_used=discovery_windows_used,
                     unresolved_reason="discovery window budget exhausted",
+                    next_search_start_time_ms=self._state.current_discovery_cursor(stream),
                 )
             candles = self._historical_source.fetch_closed_candles(
                 stream,
@@ -119,9 +125,14 @@ class ResolveHistoricalLowerBound:
                 and not validate_observed_candle(candle)
             ]
             if not candidates:
+                if candles:
+                    raise HistoricalLowerBoundUnavailable(
+                        "historical probe returned observations but no valid candle"
+                    )
+                self._state.advance_discovery(stream, window.end_ms)
                 continue
             earliest = min(candle.open_time_ms for candle in candidates)
-            self._persist_lower_bound(stream, earliest)
+            self._state.resolve(stream, earliest)
             return HistoricalLowerBoundResult(
                 stream=stream,
                 launch_time_ms=metadata.launch_time_ms,
@@ -143,6 +154,7 @@ class ResolveHistoricalLowerBound:
             resolved=False,
             discovery_windows_used=discovery_windows_used,
             unresolved_reason="historical source returned no valid candles",
+            next_search_start_time_ms=self._state.current_discovery_cursor(stream),
         )
 
     def _cached_result(self, stream: StreamKey, step_ms: int) -> HistoricalLowerBoundResult | None:
@@ -186,21 +198,6 @@ class ResolveHistoricalLowerBound:
             unit_of_work.save_instrument_metadata(metadata)
             unit_of_work.commit()
         return metadata, False
-
-    def _persist_lower_bound(self, stream: StreamKey, earliest_open_time_ms: int) -> None:
-        now_ms = self._clock.now_ms()
-        with self._unit_of_work_factory() as unit_of_work:
-            snapshot = unit_of_work.get_stream_state(stream)
-            snapshot = replace(
-                snapshot,
-                earliest_available_open_time_ms=earliest_open_time_ms,
-                last_error_code=None,
-                last_error_detail=None,
-                updated_at_ms=now_ms,
-            )
-            unit_of_work.save_stream_state(snapshot)
-            unit_of_work.commit()
-
 
 class Clock(Protocol):
     def now_ms(self) -> int: ...

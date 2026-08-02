@@ -151,6 +151,13 @@ def _state(path: Path, stream: StreamKey) -> tuple[str, int | None, int | None]:
     )
 
 
+def _discovery_cursor(path: Path, stream: StreamKey) -> int | None:
+    with SqliteUnitOfWork(path) as unit_of_work:
+        return unit_of_work.get_stream_state(
+            stream
+        ).lower_bound_discovery_next_open_time_ms
+
+
 def _count_candles(path: Path, stream: StreamKey) -> int:
     connection = sqlite3.connect(path)
     try:
@@ -372,6 +379,7 @@ def test_discovery_consumes_entire_budget_without_starting_backfill(tmp_path: Pa
     assert result.total_windows_used == 2
     assert source.calls == [TimeWindow(0, 120_000), TimeWindow(120_000, 240_000)]
     assert _state(path, stream) == (StreamLifecycleState.BOOTSTRAPPING.value, None, None)
+    assert _discovery_cursor(path, stream) == 240_000
 
 
 def test_discovery_leaves_remaining_budget_for_one_backfill_window(tmp_path: Path) -> None:
@@ -463,3 +471,64 @@ def test_full_bootstrap_never_exceeds_total_window_budget(tmp_path: Path) -> Non
         )
 
         assert result.total_windows_used <= result.max_windows
+
+
+def test_lower_bound_discovery_converges_across_passes_and_restart(tmp_path: Path) -> None:
+    path = tmp_path / "market.sqlite"
+    stream = _stream()
+    _prepare(path, stream)
+    source = FakeHistoricalSource(
+        rows_by_start={0: (), 120_000: (), 240_000: (240_000,)}
+    )
+    metadata = FakeMetadataSource(0)
+
+    first = _resolver(path, metadata, source, FakeClock()).execute(stream, max_windows=1)
+    second = _resolver(path, metadata, source, FakeClock()).execute(stream, max_windows=1)
+    third = _resolver(path, metadata, source, FakeClock()).execute(stream, max_windows=1)
+
+    assert not first.resolved
+    assert not second.resolved
+    assert third.resolved
+    assert third.earliest_available_open_time_ms == 240_000
+    assert source.calls == [
+        TimeWindow(0, 120_000),
+        TimeWindow(120_000, 240_000),
+        TimeWindow(240_000, 300_000),
+    ]
+    assert _discovery_cursor(path, stream) is None
+
+
+def test_failed_probe_does_not_advance_durable_discovery_cursor(tmp_path: Path) -> None:
+    path = tmp_path / "market.sqlite"
+    stream = _stream()
+    _prepare(path, stream)
+    source = FakeHistoricalSource(rows_by_start={0: ()}, fail_start_ms=120_000)
+    metadata = FakeMetadataSource(0)
+    resolver = _resolver(path, metadata, source, FakeClock())
+
+    first = resolver.execute(stream, max_windows=1)
+    assert not first.resolved
+    assert _discovery_cursor(path, stream) == 120_000
+
+    with pytest.raises(RuntimeError, match="planned source failure"):
+        resolver.execute(stream, max_windows=1)
+
+    assert _discovery_cursor(path, stream) == 120_000
+
+
+def test_discovery_cursors_are_isolated_by_symbol_and_timeframe(tmp_path: Path) -> None:
+    path = tmp_path / "market.sqlite"
+    btc_1m = _stream("BTCUSDT.P")
+    eth_1m = _stream("ETHUSDT.P")
+    btc_5m = StreamKey(btc_1m.instrument, "5m")
+    _prepare(path, btc_1m, eth_1m, btc_5m)
+    source = FakeHistoricalSource(rows_by_start={})
+    metadata = FakeMetadataSource(0)
+    clock = FakeClock(value=1_200_000)
+
+    _resolver(path, metadata, source, clock).execute(btc_1m, max_windows=1)
+    _resolver(path, metadata, source, clock).execute(btc_5m, max_windows=1)
+
+    assert _discovery_cursor(path, btc_1m) == 120_000
+    assert _discovery_cursor(path, btc_5m) == 600_000
+    assert _discovery_cursor(path, eth_1m) is None

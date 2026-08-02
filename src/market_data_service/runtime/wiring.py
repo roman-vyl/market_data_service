@@ -112,8 +112,6 @@ class RuntimeWiring:
 
     def recovery(self) -> RealtimeRecoveryCoordinator:
         return RealtimeRecoveryCoordinator(
-            backfill=self.backfill(),
-            auditor=self.auditor(),
             repair=self.repair(),
             unit_of_work_factory=self.unit_of_work,
             now_ms=self.clock.now_ms,

@@ -5,7 +5,6 @@ from __future__ import annotations
 from collections.abc import Callable
 
 from market_data_service.application.realtime.events import RecoveryRequired
-from market_data_service.domain.identity import StreamKey
 from market_data_service.domain.timeframes import align_to_grid, get_timeframe
 from market_data_service.domain.windows import TimeWindow
 from market_data_service.ports.storage import CanonicalStorageUnitOfWork
@@ -38,11 +37,3 @@ class RealtimeRecoveryPlanner:
             start_ms = latest
             end_ms = latest + step_ms
         return TimeWindow(start_ms, end_ms)
-
-    def needs_backfill(self, stream: StreamKey, window: TimeWindow) -> bool:
-        step_ms = get_timeframe(stream.timeframe).duration_ms
-        with self._unit_of_work_factory() as unit_of_work:
-            latest = unit_of_work.get_stream_state(stream).latest_committed_open_time_ms
-        return not (
-            latest is not None and window.start_ms == latest and window.end_ms == latest + step_ms
-        )

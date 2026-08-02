@@ -42,9 +42,11 @@ It is intentionally defined before SQLite, Bybit REST, WebSocket, and HTTP adapt
 
 | ID | Scenario | Level | Required result |
 |---|---|---|---|
-| DB-01 | Database file absent | SQLite integration | Schema v1 is created exactly once. |
-| DB-02 | Existing empty schema v1 | SQLite integration | Opens successfully without destructive recreation. |
-| DB-03 | Existing populated schema v1 | SQLite integration | Data remains intact after reopen. |
+| DB-01 | Database file absent | SQLite integration | Schema v2 is created exactly once. |
+| DB-02 | Existing empty schema v2 | SQLite integration | Opens successfully without destructive recreation. |
+| DB-03 | Existing populated schema v2 | SQLite integration | Data remains intact after reopen. |
+| DB-11 | Existing populated schema v1 | SQLite integration | Transactional migration creates the discovery cursor, preserves canonical data, and advances to v2. |
+| DB-12 | Failed or unknown migration | SQLite integration | Startup fails closed and preserves the existing schema version and data. |
 | DB-04 | Unknown schema version | SQLite integration | Fail closed; database is preserved. |
 | DB-05 | Missing required table | SQLite integration | Fail schema validation; do not recreate silently. |
 | DB-06 | Foreign key violation | SQLite integration | Transaction fails. |
@@ -168,6 +170,10 @@ It is intentionally defined before SQLite, Bybit REST, WebSocket, and HTTP adapt
 | WSS-07 | Timeframe-aware stale stream | Application integration | Only the stale stream emits recovery-required and independent streams remain unchanged. |
 | WSS-08 | Sequence discontinuity after durable tail | WebSocket/REST/SQLite integration | The suspected internal range is backfilled, audited, repaired if necessary, and post-audit is continuous. |
 | WSS-09 | Recovery data-readiness gate | Application integration | Transport reconnect alone is insufficient; active subscription plus successful REST recovery makes the stream data-ready, while a later fresh confirmed close only advances realtime-live diagnostics. |
+| WSS-11 | Old hint exceeds one pass | Application integration | The original interval remains fixed across bounded repair passes and internal gaps are post-audited before readiness. |
+| WSS-12 | Late admission durable synchronization | Application integration | Supervisor progress advances to the durable handoff anchor before admission; a missing anchor keeps the gate closed. |
+| WSS-13 | Moving recovery tail | Application integration | Completing a fixed interval starts one finite tail cycle when the latest-closed boundary advanced. |
+| WSS-14 | Unchanged incomplete recovery | Runtime integration | Per-stream capped backoff prevents a tight REST loop while another due stream continues. |
 | WSS-10 | Recovery classification | Application integration | Incomplete, recoverable, and fatal results remain distinct and typed. |
 
 ## L. API and runtime
@@ -294,3 +300,4 @@ timeframes.
 | RUN-10 | Recovery dispatch isolation | Integration | Recovery signals are serialized/coalesced per stream and independent streams continue. |
 | RUN-11 | Graceful shutdown | Integration | HTTP, connector, stale checker, and recovery worker stop without losing committed SQLite work. |
 | RUN-12 | Docker restart persistence | Docker smoke | Restart preserves SQLite and repeats historical/realtime reconciliation before readiness. |
+| RUN-13 | Durable lower-bound convergence | SQLite/runtime integration | Bounded passes and process restart resume from the per-stream probe cursor independently by symbol and timeframe. |

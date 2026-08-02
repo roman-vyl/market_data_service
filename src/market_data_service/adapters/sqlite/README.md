@@ -9,7 +9,7 @@ Version 1 deliberately uses a small six-table schema:
 - `stream_state`
 - `quarantine`
 
-The normative DDL is `schema_v1.sql`.
+The normative fresh-database DDL is `schema_v2.sql`. `schema_v1.sql` is retained only as the supported migration input.
 
 The adapter must preserve these invariants:
 
@@ -24,4 +24,4 @@ The adapter must preserve these invariants:
 9. candle write and `stream_state` update share one transaction;
 10. one REST response window is the historical transaction boundary.
 
-No event log, bootstrap-run table, correction-history table, or metadata-revision table exists in schema v1.
+No event log, bootstrap-run table, correction-history table, or metadata-revision table exists in schema v2.

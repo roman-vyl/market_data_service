@@ -1,4 +1,4 @@
-"""Small helpers for creating and seeding a schema-v1 database."""
+"""Small helpers for creating, migrating, and seeding the canonical database."""
 
 from __future__ import annotations
 
@@ -7,7 +7,11 @@ from pathlib import Path
 
 from market_data_service.adapters.sqlite.catalog_repository import SqliteCatalogRepository
 from market_data_service.adapters.sqlite.connection import open_connection
-from market_data_service.adapters.sqlite.schema import create_schema, validate_schema
+from market_data_service.adapters.sqlite.schema import (
+    create_schema,
+    migrate_schema,
+    validate_schema,
+)
 from market_data_service.domain.identity import StreamKey
 
 
@@ -16,6 +20,8 @@ def initialize_database(path: Path | str) -> None:
     try:
         if not _schema_exists(connection):
             create_schema(connection)
+        else:
+            migrate_schema(connection)
         validate_schema(connection)
     finally:
         connection.close()

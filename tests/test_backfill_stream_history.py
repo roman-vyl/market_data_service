@@ -188,6 +188,9 @@ class FailingSecondInsertUnitOfWork:
     def record_quarantine(self, **kwargs) -> None:
         self._inner.record_quarantine(**kwargs)
 
+    def record_quarantine_once(self, **kwargs) -> bool:
+        return self._inner.record_quarantine_once(**kwargs)
+
     def commit(self) -> None:
         self._inner.commit()
 

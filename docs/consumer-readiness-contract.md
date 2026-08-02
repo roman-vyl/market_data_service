@@ -16,7 +16,7 @@ When readiness is lost, the consumer pauses that stream. Other ready streams rem
 
 ## Consumer-owned cursor
 
-Each consumer owns and persists its own `last_processed_open_time_ms` per stream. Market Data Service schema v1 does not store consumer cursors.
+Each consumer owns and persists its own `last_processed_open_time_ms` per stream. The current Market Data Service schema does not store consumer cursors.
 
 On initial startup or after readiness recovery, the consumer requests candles strictly after its cursor, processes them in ascending order, advances its cursor, and resumes normal operation.
 

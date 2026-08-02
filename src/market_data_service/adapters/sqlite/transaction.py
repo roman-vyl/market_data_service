@@ -102,6 +102,35 @@ class SqliteUnitOfWork:
             created_at_ms=created_at_ms,
         )
 
+    def record_quarantine_once(
+        self,
+        *,
+        stream: StreamKey,
+        start_ms: int,
+        end_ms: int,
+        reason_code: str,
+        detail: str,
+        payload_json: str | None,
+        created_at_ms: int,
+    ) -> bool:
+        if self._quarantine.contains(
+            stream=stream,
+            start_ms=start_ms,
+            end_ms=end_ms,
+            reason_code=reason_code,
+        ):
+            return False
+        self.record_quarantine(
+            stream=stream,
+            start_ms=start_ms,
+            end_ms=end_ms,
+            reason_code=reason_code,
+            detail=detail,
+            payload_json=payload_json,
+            created_at_ms=created_at_ms,
+        )
+        return True
+
     def commit(self) -> None:
         self._connection_or_raise().commit()
 

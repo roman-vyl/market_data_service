@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from collections import deque
 from dataclasses import replace
 from pathlib import Path
@@ -17,6 +18,10 @@ from market_data_service.adapters.sqlite.consumer_candle_reader import (
 )
 from market_data_service.application.consumer_read import CandleRangeRequest, GetCandleRange
 from market_data_service.application.realtime.events import SubscriptionConfirmed
+from market_data_service.application.realtime.outcomes import (
+    RealtimeIngestionClassification,
+    RealtimeIngestionOutcome,
+)
 from market_data_service.application.realtime.recovery_types import (
     RealtimeRecoveryRequest,
     RealtimeRecoveryResult,
@@ -151,8 +156,7 @@ def _runtime(
         admission=RealtimeAdmissionGate(streams),
         operation_gate=asyncio.Lock(),
         now_ms=clock.now_ms,
-        max_backfill_windows=1,
-        max_repair_windows=1,
+        max_recovery_windows=1,
         stale_check_seconds=0.01,
         recovery_base_backoff_seconds=backoff_seconds,
         recovery_max_backoff_seconds=backoff_seconds,
@@ -379,3 +383,129 @@ async def _stop_during_realtime_backoff_scenario(tmp_path: Path) -> None:
     stop.set()
     await asyncio.wait_for(runner, timeout=0.5)
     assert recovery.calls == [stream]
+
+
+def test_unchanged_incomplete_recovery_backs_off_without_tight_loop(
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    caplog.set_level(logging.INFO, logger="market_data_service.runtime.realtime")
+    asyncio.run(_stop_during_incomplete_backoff_scenario(tmp_path))
+    assert "no_progress_attempts=1" in caplog.text
+    assert "delay_seconds=60" in caplog.text
+
+
+async def _stop_during_incomplete_backoff_scenario(tmp_path: Path) -> None:
+    path = tmp_path / "market.sqlite3"
+    initialize_database(path)
+    stream = _stream("BTCUSDT.P")
+    _register_connecting(path, stream)
+    recovery = FakeRecovery(
+        {
+            stream: (
+                RecoveryClassification.INCOMPLETE,
+                RecoveryClassification.RESTORED,
+            )
+        }
+    )
+    runtime, status = _runtime(path, (stream,), recovery, backoff_seconds=60)
+    stop = asyncio.Event()
+    runner = asyncio.create_task(runtime.run(stop))
+    await runtime.on_event(SubscriptionConfirmed(("kline.1.BTCUSDT",), observed_at_ms=10))
+    for _ in range(200):
+        if recovery.calls:
+            break
+        await asyncio.sleep(0.001)
+    await asyncio.sleep(0.01)
+
+    assert recovery.calls == [stream]
+    assert status.readiness_document()["streams"][0]["reason"] == (
+        "realtime_recovery_no_progress_backoff"
+    )
+    stop.set()
+    await asyncio.wait_for(runner, timeout=0.5)
+    assert recovery.calls == [stream]
+
+
+def test_late_admission_synchronizes_supervisor_before_first_outcome(tmp_path: Path) -> None:
+    asyncio.run(_late_admission_scenario(tmp_path))
+
+
+async def _late_admission_scenario(tmp_path: Path) -> None:
+    path = tmp_path / "market.sqlite3"
+    initialize_database(path)
+    stream = _stream("ETHUSDT.P")
+    _register_connecting(path, stream)
+    with SqliteUnitOfWork(path) as unit_of_work:
+        state = unit_of_work.get_stream_state(stream)
+        unit_of_work.save_stream_state(
+            replace(state, latest_committed_open_time_ms=240_000)
+        )
+        unit_of_work.commit()
+    clock = Clock()
+    topics = {"kline.1.ETHUSDT": stream}
+    supervisor = RealtimeSupervisor(
+        (stream,),
+        topics,
+        clock.now_ms,
+        initial_latest_open_time_ms={stream: 0},
+    )
+    gate = RealtimeAdmissionGate()
+    runtime = RuntimeRealtimeCoordinator(
+        streams=(stream,),
+        connector=IdleConnector(),  # type: ignore[arg-type]
+        supervisor=supervisor,
+        recovery=FakeRecovery({stream: (RecoveryClassification.RESTORED,)}),  # type: ignore[arg-type]
+        lifecycle=RuntimeLifecycleRecorder(_factory(path), clock.now_ms),
+        status=RuntimeStatusStore((stream,)),
+        admission=gate,
+        operation_gate=asyncio.Lock(),
+        now_ms=clock.now_ms,
+        max_recovery_windows=1,
+    )
+
+    await runtime.admit(stream)
+    signals = await runtime.on_outcome(
+        RealtimeIngestionOutcome(
+            stream,
+            300_000,
+            RealtimeIngestionClassification.COMMITTED,
+        )
+    )
+
+    assert signals is None
+    assert gate.allows(stream)
+    assert supervisor.facts(stream).last_successful_open_time_ms == 300_000
+
+
+def test_late_admission_without_durable_anchor_keeps_gate_closed(tmp_path: Path) -> None:
+    asyncio.run(_missing_admission_anchor_scenario(tmp_path))
+
+
+async def _missing_admission_anchor_scenario(tmp_path: Path) -> None:
+    path = tmp_path / "market.sqlite3"
+    initialize_database(path)
+    stream = _stream("BTCUSDT.P")
+    register_stream(path, stream, exchange_symbol="BTCUSDT", now_ms=1)
+    clock = Clock()
+    gate = RealtimeAdmissionGate()
+    runtime = RuntimeRealtimeCoordinator(
+        streams=(stream,),
+        connector=IdleConnector(),  # type: ignore[arg-type]
+        supervisor=RealtimeSupervisor(
+            (stream,),
+            {"kline.1.BTCUSDT": stream},
+            clock.now_ms,
+        ),
+        recovery=FakeRecovery({stream: (RecoveryClassification.RESTORED,)}),  # type: ignore[arg-type]
+        lifecycle=RuntimeLifecycleRecorder(_factory(path), clock.now_ms),
+        status=RuntimeStatusStore((stream,)),
+        admission=gate,
+        operation_gate=asyncio.Lock(),
+        now_ms=clock.now_ms,
+        max_recovery_windows=1,
+    )
+
+    await runtime.admit(stream)
+
+    assert not gate.allows(stream)

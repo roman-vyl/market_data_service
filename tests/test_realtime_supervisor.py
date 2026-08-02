@@ -108,3 +108,18 @@ def test_disconnect_emits_recovery_only_after_resubscribe_and_failed_is_fatal() 
     facts = supervisor.facts(btc)
     assert facts.status is RealtimeStreamStatus.FAILED
     assert facts.fatal_error_code == "SqliteError"
+
+
+def test_durable_progress_synchronization_moves_forward_only() -> None:
+    stream = _stream()
+    supervisor = RealtimeSupervisor(
+        (stream,),
+        {"kline.1.BTCUSDT": stream},
+        lambda: 1_000,
+        initial_latest_open_time_ms={stream: 60_000},
+    )
+
+    supervisor.synchronize_successful_open_time(stream, 240_000)
+    supervisor.synchronize_successful_open_time(stream, 120_000)
+
+    assert supervisor.facts(stream).last_successful_open_time_ms == 240_000
