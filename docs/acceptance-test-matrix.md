@@ -301,3 +301,4 @@ timeframes.
 | RUN-11 | Graceful shutdown | Integration | HTTP, connector, stale checker, and recovery worker stop without losing committed SQLite work. |
 | RUN-12 | Docker restart persistence | Docker smoke | Restart preserves SQLite and repeats historical/realtime reconciliation before readiness. |
 | RUN-13 | Durable lower-bound convergence | SQLite/runtime integration | Bounded passes and process restart resume from the per-stream probe cursor independently by symbol and timeframe. |
+| RUN-14 | Console status transitions | Unit/integration | Process health, changed per-stream status, aggregate readiness, and startup reconciliation counts are logged without repeating unchanged status on periodic checks. |

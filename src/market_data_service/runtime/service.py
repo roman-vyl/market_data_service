@@ -28,6 +28,7 @@ from market_data_service.runtime.realtime import RuntimeRealtimeCoordinator
 from market_data_service.runtime.reconciliation import HistoricalStreamReconciler
 from market_data_service.runtime.settings import RuntimeSettings
 from market_data_service.runtime.startup import StartupCoordinator
+from market_data_service.runtime.startup_diagnostics import StartupDiagnostics
 from market_data_service.runtime.startup_types import (
     StartupClassification,
     StartupStreamOutcome,
@@ -52,6 +53,7 @@ class RuntimeService:
         self._status = status
         self._http_server = http_server
         self._logger = logging.getLogger("market_data_service.runtime")
+        self._startup_diagnostics = StartupDiagnostics(self._logger)
 
     async def run(self, stop_event: asyncio.Event) -> None:
         self._http_server.start()
@@ -114,11 +116,7 @@ class RuntimeService:
             elif outcome.classification is StartupClassification.FATAL_FAILURE:
                 self._status.set_blocking_reason(outcome.stream, "historical_fatal_failure")
             self._status.update_stream(lifecycle.snapshot(outcome.stream), None)
-            self._logger.info(
-                "startup stream=%s classification=%s",
-                outcome.stream.canonical_id,
-                outcome.classification.value,
-            )
+            self._startup_diagnostics.record(outcome)
         return coordinator, outcomes
 
     def _build_realtime(

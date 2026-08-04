@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from pathlib import Path
+
+import pytest
 
 from market_data_service.adapters.sqlite import (
     SqliteUnitOfWork,
@@ -18,7 +21,13 @@ from market_data_service.domain.stream_state import StreamLifecycleState
 from market_data_service.runtime.lifecycle import RuntimeLifecycleRecorder
 from market_data_service.runtime.reconciliation import HistoricalStreamReconciler
 from market_data_service.runtime.startup import StartupCoordinator
-from market_data_service.runtime.startup_types import StartupClassification
+from market_data_service.runtime.startup_diagnostics import StartupDiagnostics
+from market_data_service.runtime.startup_types import (
+    BoundedWorkCounts,
+    ReconciliationWindow,
+    StartupClassification,
+    StartupStreamOutcome,
+)
 
 
 @dataclass
@@ -106,3 +115,39 @@ def test_startup_routes_full_fixed_window_through_existing_repair(tmp_path: Path
     assert repair.requests[0].end_time_ms == 180_000
     assert repair.requests[0].max_windows == 2
     assert lifecycle.snapshot(stream).state is StreamLifecycleState.CONNECTING
+
+
+def test_startup_diagnostics_include_window_gaps_and_counts(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    stream = StreamKey(InstrumentKey("BTCUSDT.P"), "5m")
+    audit = ContinuityReport(
+        stream=stream,
+        checked_start_ms=0,
+        checked_end_ms=600_000,
+        candle_count=2,
+        is_continuous=True,
+        gaps=(),
+    )
+    outcome = StartupStreamOutcome(
+        stream=stream,
+        classification=StartupClassification.CONNECTING,
+        audit=audit,
+        window=ReconciliationWindow(0, 600_000),
+        counts=BoundedWorkCounts(
+            attempted_windows=1,
+            completed_windows=1,
+            committed=2,
+            duplicates=3,
+        ),
+    )
+    logger = logging.getLogger("test.runtime.startup")
+    caplog.set_level(logging.INFO, logger=logger.name)
+
+    StartupDiagnostics(logger).record(outcome)
+
+    assert [record.getMessage() for record in caplog.records] == [
+        "startup stream=BTCUSDT.P:5m classification=connecting start_ms=0 end_ms=600000 "
+        "remaining_gaps=0 attempted=1 completed=1 committed=2 duplicates=3 corrected=0 "
+        "rejected=0 unexpected=0 error=None detail=None"
+    ]

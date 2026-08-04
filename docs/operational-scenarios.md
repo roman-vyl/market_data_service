@@ -269,6 +269,17 @@ A stream is not ready when any required condition is true:
 - WebSocket state is stale after realtime mode begins;
 - clock state prevents a trustworthy closed-boundary calculation.
 
+### Console status diagnostics
+
+Runtime logs each process-health, per-stream status, and aggregate-readiness transition once. An
+unchanged status is not repeated on periodic stale checks. The per-stream line includes durable
+state, realtime status, data readiness, realtime liveness, aggregate-gate readiness, and the
+current blocking reason.
+
+The startup reconciliation result includes its fixed window, remaining gap count, REST window and
+ingestion counts, and any error details. These logs are operator diagnostics only; persisted stream
+state and canonical candles remain authoritative.
+
 
 ## 15. Full minute-history bootstrap
 
