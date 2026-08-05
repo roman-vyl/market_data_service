@@ -34,6 +34,15 @@
       when `settings.runtime_webhook_enabled` is `True`, raise `ValueError`
       before constructing the notifier if
       `settings.runtime_webhook_queue_capacity < len(config.enabled_streams)`.
+- [ ] Confirm (via the settings tests in section 8) that the distinction
+      between "absent" and "present but invalid" is preserved for the two
+      numeric fields: an absent `MDS_RUNTIME_WEBHOOK_TIMEOUT_SECONDS` or
+      `MDS_RUNTIME_WEBHOOK_QUEUE_CAPACITY` SHALL resolve to its documented
+      default (`2.0`, `256`) via `from_environment()`'s `env.get(key,
+      default)` and SHALL NOT raise; only a *present* value that fails its
+      own check (non-finite/non-positive timeout, non-positive capacity)
+      SHALL raise. `MDS_STRATEGY_RUNTIME_BASE_URL` is the only field whose
+      mere absence raises, because it has no usable default.
 
 ## 3. HTTP adapter
 

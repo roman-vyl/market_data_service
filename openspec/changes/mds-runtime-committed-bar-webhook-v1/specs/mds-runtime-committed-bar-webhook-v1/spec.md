@@ -166,48 +166,90 @@ explicitly enabled, validated component of `RuntimeSettings`.
 
 #### Scenario: Enabled with valid configuration
 
-- **WHEN** `MDS_RUNTIME_WEBHOOK_ENABLED=true` and
-  `MDS_STRATEGY_RUNTIME_BASE_URL`, `MDS_RUNTIME_WEBHOOK_TIMEOUT_SECONDS`, and
-  `MDS_RUNTIME_WEBHOOK_QUEUE_CAPACITY` are all present and valid, and
-  `MDS_RUNTIME_WEBHOOK_QUEUE_CAPACITY` is at least the number of enabled
-  configured streams
+- **WHEN** `MDS_RUNTIME_WEBHOOK_ENABLED=true`, `MDS_STRATEGY_RUNTIME_BASE_URL`
+  is present and a valid absolute `http`/`https` URL,
+  `MDS_RUNTIME_WEBHOOK_TIMEOUT_SECONDS` is either absent (the `2.0` default
+  applies) or present with a finite positive value, and
+  `MDS_RUNTIME_WEBHOOK_QUEUE_CAPACITY` is either absent (the `256` default
+  applies) or present with a positive integer value that is, in either case,
+  at least the number of enabled configured streams
 - **THEN** MDS constructs the queue, worker, and HTTP adapter as part of the
   same production composition as every other runtime component
+
+#### Scenario: An absent numeric field uses its documented default, not a startup failure
+
+- **WHEN** `MDS_RUNTIME_WEBHOOK_ENABLED=true`, `MDS_STRATEGY_RUNTIME_BASE_URL`
+  is present and valid, and `MDS_RUNTIME_WEBHOOK_TIMEOUT_SECONDS` and/or
+  `MDS_RUNTIME_WEBHOOK_QUEUE_CAPACITY` are absent from the environment
+- **THEN** `RuntimeSettings` construction does **not** fail on account of
+  either absent field
+- **AND** the absent field takes its documented default (`2.0` seconds for
+  timeout, `256` for queue capacity) exactly as if it had been supplied with
+  that value
+- **AND** this is distinct from a *present but invalid* value for the same
+  field, which does fail construction (see below)
 
 #### Scenario: Enabled with a queue capacity smaller than the enabled-stream count fails startup
 
 - **WHEN** `MDS_RUNTIME_WEBHOOK_ENABLED=true`, every field otherwise passes
-  its own individual validation, and `MDS_RUNTIME_WEBHOOK_QUEUE_CAPACITY` is
+  its own individual validation, and the queue capacity in effect (whether
+  the `256` default or an explicit `MDS_RUNTIME_WEBHOOK_QUEUE_CAPACITY`) is
   smaller than the number of currently enabled configured streams
 - **THEN** composition raises `ValueError` before the notifier worker is
   constructed
 - **AND** no partially constructed composition is returned
 
-#### Scenario: Enabled with invalid configuration fails startup
+#### Scenario: A missing or invalid base URL fails startup
 
-- **WHEN** `MDS_RUNTIME_WEBHOOK_ENABLED=true` and any of
-  `MDS_STRATEGY_RUNTIME_BASE_URL`, `MDS_RUNTIME_WEBHOOK_TIMEOUT_SECONDS`, or
-  `MDS_RUNTIME_WEBHOOK_QUEUE_CAPACITY` is missing, empty, non-positive
-  (for the numeric fields), or not a valid absolute `http`/`https` URL
-  (for the base URL)
+- **WHEN** `MDS_RUNTIME_WEBHOOK_ENABLED=true` and
+  `MDS_STRATEGY_RUNTIME_BASE_URL` is missing, empty, or not a valid absolute
+  `http`/`https` URL
 - **THEN** `RuntimeSettings` construction raises `ValueError` before any
   component is built
 - **AND** no partially constructed composition (queue without worker, worker
   without HTTP adapter, or any other partial state) is ever returned
+- **AND** this is the only field whose *absence* fails construction — the
+  timeout and queue-capacity fields never fail construction merely by being
+  absent
 
-### Requirement: Worker and HTTP client have single-owner lifecycle
+#### Scenario: An explicit invalid numeric override fails startup
 
-The notification worker and its HTTP client SHALL be constructed and started
-exactly once per process and stopped exactly once per process, by the
-production runtime composition.
+- **WHEN** `MDS_RUNTIME_WEBHOOK_ENABLED=true` and
+  `MDS_RUNTIME_WEBHOOK_TIMEOUT_SECONDS` is present but not finite and
+  positive, or `MDS_RUNTIME_WEBHOOK_QUEUE_CAPACITY` is present but not a
+  positive integer
+- **THEN** `RuntimeSettings` construction raises `ValueError` before any
+  component is built
+- **AND** no partially constructed composition is ever returned
+
+### Requirement: Worker has single-owner start/stop lifecycle; the adapter has none of its own
+
+The notification worker SHALL be constructed, started, and stopped exactly
+once per process, by the production runtime composition. The
+`HttpCommittedBarNotifier` adapter SHALL be constructed exactly once per
+process; it has no independent start, stop, or close operation of its own —
+it is a plain object holding its configured `base_url`/`timeout_seconds`,
+not a component with its own lifecycle.
 
 #### Scenario: Start once
 
 - **WHEN** the notifier is enabled and the runtime process starts
-- **THEN** exactly one `CommittedBarNotificationWorker` and exactly one HTTP
-  adapter instance are constructed
+- **THEN** exactly one `CommittedBarNotificationWorker` and exactly one
+  `HttpCommittedBarNotifier` instance are constructed
 - **AND** the worker's run loop starts exactly once, as one task inside the
   existing realtime `TaskGroup`
+- **AND** the adapter itself is never separately "started" — it has no
+  start operation to call
+
+#### Scenario: The adapter has no close operation
+
+- **WHEN** the runtime process shuts down and the worker stops
+- **THEN** no `close()` or equivalent shutdown call is made on the adapter
+- **AND** the adapter becomes unreachable together with the worker that
+  owned it, simply by going out of scope — this is sufficient, since the
+  adapter holds no socket, file handle, or other resource that requires an
+  explicit release beyond what `urllib.request.urlopen(...)` already
+  releases per call
 
 #### Scenario: Stop while idle exits within the idle-poll bound
 

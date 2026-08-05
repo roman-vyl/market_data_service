@@ -100,9 +100,14 @@ long as the wire contract between them (documented in this proposal's
 ## What changes
 
 - Add a `CommittedBarNotifier` application port (a plain synchronous
-  `send(notification) -> None`) and a lifecycle-owned HTTP adapter,
+  `send(notification) -> None`) and an `HttpCommittedBarNotifier` adapter,
   following the existing port/adapter split (`ports/market_data_source.py`
-  + `adapters/bybit/rest_client.py`).
+  + `adapters/bybit/rest_client.py`). The adapter is constructed exactly
+  once per process, alongside the worker; it has no independent
+  start/stop/close lifecycle of its own — it is a plain object holding
+  `base_url`/`timeout_seconds` and becomes unreachable together with the
+  worker that owns it once the worker stops, with no explicit close call
+  required or performed.
 - Add a bounded in-memory FIFO notification queue with exactly one consumer
   (`CommittedBarNotificationWorker`), modeled on the existing
   `RealtimeRecoveryWorker` (`runtime/realtime_recovery_worker.py`) shape:
