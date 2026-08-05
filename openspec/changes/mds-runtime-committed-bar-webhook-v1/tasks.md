@@ -15,7 +15,7 @@
       (`runtime_webhook_enabled: bool = False`,
       `strategy_runtime_base_url: str = ""`,
       `runtime_webhook_timeout_seconds: float = 2.0`,
-      `runtime_webhook_queue_capacity: int = 64`) with defaults matching the
+      `runtime_webhook_queue_capacity: int = 256`) with defaults matching the
       documented disabled-by-default posture.
 - [ ] Extend `RuntimeSettings.__post_init__` to validate, only when
       `runtime_webhook_enabled` is `True`: `strategy_runtime_base_url` is a
@@ -29,6 +29,11 @@
       `MDS_RUNTIME_WEBHOOK_TIMEOUT_SECONDS`, and
       `MDS_RUNTIME_WEBHOOK_QUEUE_CAPACITY`, matching the exact
       `env.get(...)`/coercion style already used for every other field.
+- [ ] Add a composition-time check in `RuntimeService` (not in
+      `RuntimeSettings`, which has no access to `ValidatedMarketConfig`):
+      when `settings.runtime_webhook_enabled` is `True`, raise `ValueError`
+      before constructing the notifier if
+      `settings.runtime_webhook_queue_capacity < len(config.enabled_streams)`.
 
 ## 3. HTTP adapter
 
@@ -59,38 +64,61 @@
       message containing `instrument`, `timeframe`, `open_time_ms`, and the
       configured capacity, then returning without raising.
 - [ ] `run(stop_event)` SHALL process exactly one queued notification at a
-      time: dequeue, call the adapter's `send(...)` synchronously with
-      respect to the loop (no `asyncio.gather`, no task pool), log on
-      failure, then dequeue the next item. It SHALL poll `stop_event` with a
-      bounded timeout (matching `RealtimeRecoveryWorker`'s `timeout=0.2`
-      idiom) so shutdown does not hang, and SHALL NOT attempt to drain
-      remaining queued items before exiting.
+      time: dequeue, `await asyncio.to_thread(self._notifier.send, item)`
+      (never call `send(...)` directly on the event-loop thread — it is a
+      blocking synchronous call), log on failure, then dequeue the next
+      item. No `asyncio.gather`, no task pool. It SHALL poll `stop_event`
+      with a bounded timeout while idle (matching `RealtimeRecoveryWorker`'s
+      `timeout=0.2` idiom), and SHALL NOT attempt to drain remaining queued
+      items before exiting.
+- [ ] Shutdown SHALL NOT be claimed to always complete within the 0.2s idle
+      -poll bound: when `stop_event` is set while one item's
+      `asyncio.to_thread(self._notifier.send, item)` call is already in
+      flight, `run(...)` SHALL wait for that specific call to return or
+      raise (bounded by that notification's own configured
+      `runtime_webhook_timeout_seconds`) before exiting, and SHALL NOT begin
+      sending any further queued item once `stop_event` is observed.
 - [ ] `send(...)` failures (adapter exception of any kind) SHALL be caught
       inside the worker's loop, logged at `WARNING` with
       `instrument`/`timeframe`/`open_time_ms`/error detail, and SHALL NOT
       propagate out of `run(...)` or stop the loop from processing the next
       item.
+- [ ] Add a deterministic (non-sleep-based) test proving the event loop is
+      not blocked while a send is offloaded: use a fake notifier whose
+      `send(...)` blocks on a controllable thread-safe gate; while that gate
+      is held, assert a concurrently scheduled event-loop task (e.g. a
+      second `on_outcome` call, or a trivial `asyncio.sleep(0)`-based probe
+      task) still runs and completes; then release the gate and assert the
+      offloaded send completes.
 
 ## 5. Wiring and hook point
 
-- [ ] Add `RuntimeWiring.notifier() -> CommittedBarNotificationWorker | None`
-      that returns `None` when `settings.runtime_webhook_enabled` is
-      `False`, and otherwise constructs exactly one
-      `HttpCommittedBarNotifier` and exactly one
-      `CommittedBarNotificationWorker` (queue capacity taken from settings).
-- [ ] Modify `RuntimeRealtimeCoordinator.__init__` to accept an optional
-      notifier worker reference (`None` when disabled).
+- [ ] `RuntimeWiring` is NOT extended for this component — it does not
+      currently own `RuntimeSettings` and this change does not add that
+      dependency. Do not add a `RuntimeWiring.notifier()` factory.
+- [ ] Modify `RuntimeService._build_realtime` (`runtime/service.py`) to, when
+      `self._settings.runtime_webhook_enabled` is `True` (after the
+      composition-time capacity check from Task 2), construct exactly one
+      `HttpCommittedBarNotifier` (from `self._settings.strategy_runtime_base_url`
+      / `self._settings.runtime_webhook_timeout_seconds`) and exactly one
+      `CommittedBarNotificationWorker` (queue capacity from
+      `self._settings.runtime_webhook_queue_capacity`); when `False`,
+      construct neither and pass `None`.
+- [ ] Modify `RuntimeRealtimeCoordinator.__init__` to accept an optional,
+      already-constructed notifier worker reference (`None` when disabled)
+      as a plain constructor parameter — it does not read `RuntimeSettings`
+      or construct the worker itself.
 - [ ] Modify `RuntimeRealtimeCoordinator.on_outcome`
       (`runtime/realtime.py:128`) to, immediately after the existing
-      admission check and before the existing `observe_outcome` call: if a
-      notifier worker is present and
+      admission check (the existing early `return` when
+      `not self._admission.allows(outcome.stream)`) and before the existing
+      `observe_outcome` call: if a notifier worker is present and
       `outcome.classification is RealtimeIngestionClassification.COMMITTED`,
       build a `CommittedBarNotification` from `outcome.stream` and
       `outcome.open_time_ms` and call
-      `await self._notifier_worker.enqueue(notification)`.
-- [ ] Modify `RuntimeService._build_realtime` (`runtime/service.py`) to
-      construct the notifier worker via `self._wiring.notifier()` and pass
-      it into `RuntimeRealtimeCoordinator`.
+      `await self._notifier_worker.enqueue(notification)`. Both the
+      admission check and the classification check gate the notification —
+      neither alone is sufficient.
 - [ ] Modify `RuntimeRealtimeCoordinator.run` (`runtime/realtime.py:66`) to
       add the notifier worker's `run(stop_event)` as a fourth task inside
       the existing `asyncio.TaskGroup`, only when a notifier worker is
@@ -105,6 +133,11 @@
       enqueue zero notifications.
 - [ ] Test: an unconfirmed candle (handler returns `None`) never reaches
       `on_outcome` and therefore enqueues zero notifications.
+- [ ] Test: a `COMMITTED` outcome for a stream that `RealtimeAdmissionGate
+      .allows(...)` currently returns `False` for (not yet admitted, or no
+      longer admitted) enqueues zero notifications — the admission check's
+      existing early return in `on_outcome` is reached before the
+      classification check, regardless of classification.
 - [ ] Test: historical bootstrap (`full_bootstrap`), backfill
       (`backfill_stream`/`multi_stream_backfill`), gap repair
       (`repair_gaps`), REST import (`import_window`), and realtime recovery
@@ -119,8 +152,12 @@
 
 ## 7. Verification — queue and delivery behavior
 
-- [ ] Test: multiple rapid stream commits (fake multi-stream fixture)
-      enqueue and deliver notifications in FIFO order matching commit order.
+- [ ] Test: multiple rapid stream commits (fake multi-stream fixture) are
+      delivered in the same order they were successfully enqueued — i.e.
+      successful enqueue order equals delivery order. This test does not
+      assert anything about SQLite commit-completion ordering across
+      streams; the queue only owns and guarantees FIFO between its own
+      enqueue and dequeue.
 - [ ] Deterministic (non-sleep-based) test proving at most one outbound
       call is in flight at any instant: use a fake notifier whose `send(...)`
       blocks on a controllable gate, enqueue two notifications concurrently,
@@ -137,7 +174,8 @@
 ## 8. Verification — configuration and lifecycle
 
 - [ ] Test: `MDS_RUNTIME_WEBHOOK_ENABLED` unset or `false` results in
-      `RuntimeWiring.notifier()` returning `None`, no queue constructed, no
+      `RuntimeService._build_realtime` constructing no notifier worker (`None`
+      passed into `RuntimeRealtimeCoordinator`), no queue constructed, no
       HTTP adapter constructed, and `RuntimeRealtimeCoordinator.run`'s
       `TaskGroup` containing exactly its pre-existing three tasks.
 - [ ] Test: `MDS_RUNTIME_WEBHOOK_ENABLED=true` with a missing or malformed
@@ -145,12 +183,24 @@
       `MDS_RUNTIME_WEBHOOK_TIMEOUT_SECONDS`, or a non-positive
       `MDS_RUNTIME_WEBHOOK_QUEUE_CAPACITY` raises `ValueError` from
       `RuntimeSettings` construction, before any component is built.
+- [ ] Test: `MDS_RUNTIME_WEBHOOK_ENABLED=true` with
+      `MDS_RUNTIME_WEBHOOK_QUEUE_CAPACITY` set to a positive integer smaller
+      than `len(config.enabled_streams)` raises `ValueError` from the
+      `RuntimeService`-level composition-time check, before the notifier
+      worker is constructed; an equal or larger value passes.
 - [ ] Test: with the notifier enabled, the worker task and its HTTP adapter
       are each constructed exactly once per process start and the worker's
       `run(...)` starts exactly once.
-- [ ] Test: on `stop_event.set()`, the notifier worker's `run(...)` returns
-      within the same bounded time budget as the existing recovery worker's
-      shutdown test, without waiting for the queue to drain.
+- [ ] Test: on `stop_event.set()` while the worker is idle (no send in
+      flight), the notifier worker's `run(...)` returns within the same
+      bounded idle-poll budget as the existing recovery worker's shutdown
+      test, without waiting for the queue to drain.
+- [ ] Test: on `stop_event.set()` while one notification's
+      `asyncio.to_thread(self._notifier.send, item)` call is in flight
+      (use a fake notifier whose `send(...)` blocks until released), `run(...)`
+      does not return until that call completes or its own configured
+      timeout elapses, does not start sending any further queued item, and
+      any notification still queued at that point is discarded.
 
 ## 9. Documentation
 

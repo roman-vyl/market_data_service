@@ -1,24 +1,35 @@
 ## ADDED Requirements
 
-### Requirement: Only a genuine new normal realtime commit enqueues a notification
+### Requirement: Only an admitted stream's genuine new normal realtime commit enqueues a notification
 
 Market Data Service SHALL enqueue exactly one `CommittedBarNotification` for
-a `RealtimeIngestionOutcome` if and only if that outcome's classification is
-`COMMITTED` and the outcome was produced by the live WebSocket realtime path
-delivered to `RuntimeRealtimeCoordinator.on_outcome`.
+a `RealtimeIngestionOutcome` if and only if **both**: the outcome's stream is
+currently admitted (`RealtimeAdmissionGate.allows(outcome.stream)` is
+`True`), and the outcome's classification is `COMMITTED` and was produced by
+the live WebSocket realtime path delivered to
+`RuntimeRealtimeCoordinator.on_outcome`. Neither condition alone is
+sufficient.
 
-#### Scenario: Normal confirmed candle commit enqueues once
+#### Scenario: Normal confirmed candle commit on an admitted stream enqueues once
 
-- **WHEN** a confirmed realtime candle close is ingested and classified
-  `COMMITTED`
+- **WHEN** a confirmed realtime candle close on a currently admitted stream
+  is ingested and classified `COMMITTED`
 - **THEN** exactly one `CommittedBarNotification` is enqueued
 - **AND** it carries the exact `instrument`, `timeframe`, and `open_time_ms`
   of the committed candle
 
+#### Scenario: A not-yet-admitted stream's outcome enqueues nothing
+
+- **WHEN** `RealtimeAdmissionGate.allows(outcome.stream)` is `False` for the
+  outcome's stream (for example, before that stream has completed startup
+  admission)
+- **THEN** zero notifications are enqueued for that outcome, regardless of
+  its classification
+
 #### Scenario: Non-committed realtime classifications enqueue nothing
 
-- **WHEN** a realtime outcome is classified `DUPLICATE`, `CORRECTED`,
-  `REJECTED`, or `FAILED`
+- **WHEN** a realtime outcome for an admitted stream is classified
+  `DUPLICATE`, `CORRECTED`, `REJECTED`, or `FAILED`
 - **THEN** zero notifications are enqueued for that outcome
 
 #### Scenario: Unconfirmed candle updates never reach the notification boundary
@@ -70,6 +81,16 @@ realtime candle ingestion.
 - **THEN** it does not perform network I/O directly
 - **AND** it returns without waiting for the notification to be delivered
 
+#### Scenario: A blocking HTTP send does not stall the event loop
+
+- **WHEN** the worker sends a queued notification
+- **THEN** it offloads the notifier's synchronous `send(...)` call to a
+  separate thread (`asyncio.to_thread(...)` or equivalent) rather than
+  calling it directly on the event-loop thread
+- **AND** while that offloaded call is in progress, other event-loop work
+  (the WebSocket receive loop, other scheduled tasks) continues to run
+  without waiting for it
+
 #### Scenario: A full queue does not block or fail ingestion
 
 - **WHEN** the notification queue is at its configured capacity when a new
@@ -96,9 +117,12 @@ consumer SHALL send notifications one at a time.
 #### Scenario: FIFO order under rapid multi-stream commits
 
 - **WHEN** multiple independently configured streams commit candles in rapid
-  succession
-- **THEN** notifications are enqueued and delivered in the same order their
-  underlying commits completed
+  succession, each successfully enqueuing a notification
+- **THEN** notifications are delivered in the exact order they were
+  successfully enqueued
+- **AND** this requirement covers only the queue's own enqueue-to-delivery
+  ordering — it makes no claim about, and does not require, any particular
+  ordering of the underlying SQLite commits across independent streams
 
 ### Requirement: Delivery is best-effort with no retry
 
@@ -144,9 +168,20 @@ explicitly enabled, validated component of `RuntimeSettings`.
 
 - **WHEN** `MDS_RUNTIME_WEBHOOK_ENABLED=true` and
   `MDS_STRATEGY_RUNTIME_BASE_URL`, `MDS_RUNTIME_WEBHOOK_TIMEOUT_SECONDS`, and
-  `MDS_RUNTIME_WEBHOOK_QUEUE_CAPACITY` are all present and valid
+  `MDS_RUNTIME_WEBHOOK_QUEUE_CAPACITY` are all present and valid, and
+  `MDS_RUNTIME_WEBHOOK_QUEUE_CAPACITY` is at least the number of enabled
+  configured streams
 - **THEN** MDS constructs the queue, worker, and HTTP adapter as part of the
   same production composition as every other runtime component
+
+#### Scenario: Enabled with a queue capacity smaller than the enabled-stream count fails startup
+
+- **WHEN** `MDS_RUNTIME_WEBHOOK_ENABLED=true`, every field otherwise passes
+  its own individual validation, and `MDS_RUNTIME_WEBHOOK_QUEUE_CAPACITY` is
+  smaller than the number of currently enabled configured streams
+- **THEN** composition raises `ValueError` before the notifier worker is
+  constructed
+- **AND** no partially constructed composition is returned
 
 #### Scenario: Enabled with invalid configuration fails startup
 
@@ -174,14 +209,29 @@ production runtime composition.
 - **AND** the worker's run loop starts exactly once, as one task inside the
   existing realtime `TaskGroup`
 
-#### Scenario: Stop once, without hanging
+#### Scenario: Stop while idle exits within the idle-poll bound
 
-- **WHEN** the runtime process shuts down (`stop_event` is set)
-- **THEN** the worker's run loop exits within a bounded time budget
+- **WHEN** the runtime process shuts down (`stop_event` is set) while no
+  notification send is currently in flight
+- **THEN** the worker's run loop exits within its idle-poll bound (matching
+  the existing recovery worker's polling interval)
 - **AND** it does not attempt to drain or flush any notification still
   sitting in the queue
-- **AND** shutdown of the worker does not delay or block shutdown of any
-  other runtime component
+
+#### Scenario: Stop while a send is in flight waits for that send, not a fixed timeout
+
+- **WHEN** the runtime process shuts down while one notification's HTTP send
+  is already in flight (offloaded to a thread)
+- **THEN** shutdown waits for that specific send to complete or reach its
+  own configured `runtime_webhook_timeout_seconds` — not the worker's
+  idle-poll interval, which does not bound an in-flight blocking call
+- **AND** the worker does not begin sending any further queued notification
+  once `stop_event` has been observed
+- **AND** every notification still sitting in the queue at that point is
+  discarded, not drained
+- **AND** this bounded wait is a real, bounded contributor to overall
+  process shutdown time when a send happens to be in flight — it is not
+  claimed to be instantaneous
 
 #### Scenario: No orphaned background worker
 

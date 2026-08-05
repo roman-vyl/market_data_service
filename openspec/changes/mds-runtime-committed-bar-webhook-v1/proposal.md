@@ -21,21 +21,44 @@ no notifier, no Strategy Runtime URL, no webhook timeout, and no outbound
 queue anywhere in `market_data_service` (confirmed by exhaustive grep — zero
 matches for `webhook`, `notifier`, `strategy_runtime`, `closed-bar`).
 
-Boundary timestamps — the top of an hour, four hours, or midnight UTC — are
-exactly when many configured `ticker × timeframe` streams confirm a candle
-close within the same wall-clock second. Each of those closes independently
-produces a `COMMITTED` outcome on its own asyncio task inside the same
-process. Without an explicit bound between "candle committed" and "Runtime
-notified," a burst of near-simultaneous commits would turn into a burst of
-near-simultaneous outbound HTTP calls to Runtime, all competing for the same
-network path and the same downstream Runtime intake, with no backpressure on
-the MDS side to slow that fan-out down.
+MDS's realtime path is not concurrent today. `RealtimeConnector` runs one
+WebSocket session receive loop that processes each inbound message
+strictly sequentially: receive message → `on_event` → `candle_handler
+.handle` → `on_outcome` → receive next message. There is no per-stream or
+per-candle asyncio task, and no existing `on_outcome` side effect (supervisor
+bookkeeping, recovery-signal enqueue) runs concurrently with another —
+everything already happens one after another on that single loop.
+
+That sequential shape is exactly why an outbound Runtime notification
+cannot be a direct, synchronous call made from inside `on_outcome`: doing so
+would make the WebSocket receive loop wait for Runtime's network round-trip
+before it could process the next inbound message, for every single commit.
+At a shared boundary — the top of an hour, four hours, or midnight UTC —
+many independently configured streams can each produce a `COMMITTED`
+outcome within a short window; if each one blocked the receive loop on its
+own Runtime call, ingestion of every other stream would stall behind
+Runtime's latency, one call at a time, for as long as that latency lasts.
+
+The queue this change adds exists to prevent that coupling — not to tame an
+already-existing burst of concurrent outbound calls (none exist today; there
+is no notifier of any kind in MDS yet). Its purpose is:
+
+- decouple Runtime network latency from the WebSocket receive/ingestion
+  loop, so a slow or unresponsive Runtime never delays the next candle's
+  ingestion;
+- provide bounded, volatile buffering between "commit observed" and
+  "notification sent";
+- keep exactly one HTTP attempt in flight at a time, so the notifier itself
+  never becomes a second source of concurrent outbound calls;
+- guarantee that a stalled or failed Runtime call never stops or slows
+  candle ingestion, even transiently.
 
 MDS ingestion correctness does not depend on Runtime notification succeeding
 — committing the canonical candle is already complete and durable by the
 time an outcome is available. The problem this change solves is exclusively
-about *not blocking or bursting* the outbound edge: MDS must not wait on
-Runtime, and MDS must not send Runtime more than one HTTP request at a time.
+about *not letting outbound delivery block ingestion*: MDS must not wait on
+Runtime while processing the next inbound WebSocket message, and MDS must
+not send Runtime more than one HTTP request at a time regardless.
 
 ### Why best-effort, not durable delivery
 
@@ -76,26 +99,40 @@ long as the wire contract between them (documented in this proposal's
 
 ## What changes
 
-- Add a `CommittedBarNotifier` application port and a lifecycle-owned HTTP
-  adapter, following the existing port/adapter split
-  (`ports/market_data_source.py` + `adapters/bybit/rest_client.py`).
+- Add a `CommittedBarNotifier` application port (a plain synchronous
+  `send(notification) -> None`) and a lifecycle-owned HTTP adapter,
+  following the existing port/adapter split (`ports/market_data_source.py`
+  + `adapters/bybit/rest_client.py`).
 - Add a bounded in-memory FIFO notification queue with exactly one consumer
   (`CommittedBarNotificationWorker`), modeled on the existing
   `RealtimeRecoveryWorker` (`runtime/realtime_recovery_worker.py`) shape:
   `enqueue(...)`, `run(stop_event)`, status-store integration, no unbounded
-  retry.
+  retry. Because the adapter's `send(...)` is a blocking synchronous call,
+  the worker offloads each send via `asyncio.to_thread(...)` rather than
+  calling it directly on the event-loop thread, and awaits its completion
+  before dequeuing the next item.
 - Hook the worker into `RuntimeRealtimeCoordinator.on_outcome`
-  (`runtime/realtime.py:128`), gated on
-  `classification is RealtimeIngestionClassification.COMMITTED`, so only a
-  genuine new normal realtime commit ever enqueues a notification.
+  (`runtime/realtime.py:128`), gated on the outcome's stream being admitted
+  (`RealtimeAdmissionGate.allows(...)`, the existing early-return check)
+  **and** `classification is RealtimeIngestionClassification.COMMITTED`, so
+  only a genuine new normal realtime commit for a currently admitted stream
+  ever enqueues a notification.
 - Add four validated `RuntimeSettings` fields (`MDS_RUNTIME_WEBHOOK_ENABLED`,
   `MDS_STRATEGY_RUNTIME_BASE_URL`, `MDS_RUNTIME_WEBHOOK_TIMEOUT_SECONDS`,
   `MDS_RUNTIME_WEBHOOK_QUEUE_CAPACITY`) following the exact
   `RuntimeSettings.__post_init__`/`from_environment()` pattern already used
-  for every other setting.
-- Wire the worker into `RuntimeWiring`/`RuntimeService.run`'s existing
-  `TaskGroup` so it starts and stops exactly once, alongside the historical
-  and realtime workers.
+  for every other setting, plus one composition-time check (queue capacity
+  no smaller than the configured enabled-stream count) that `RuntimeSettings`
+  cannot perform on its own because it has no visibility into
+  `ValidatedMarketConfig`.
+- Wire the worker into `RuntimeService`'s existing composition:
+  `RuntimeService` already owns `RuntimeSettings` and `ValidatedMarketConfig`,
+  so `RuntimeService._build_realtime` constructs the optional notifier
+  adapter and worker directly from those values and passes the
+  already-constructed worker into `RuntimeRealtimeCoordinator`, which only
+  starts/stops/enqueues it — it does not parse configuration itself.
+  `RuntimeWiring` is not extended for this component; it does not currently
+  own `RuntimeSettings`, and this change does not change that.
 
 ## What does not change
 
@@ -113,7 +150,14 @@ long as the wire contract between them (documented in this proposal's
 ## Accepted losses (Live V1)
 
 - A notification queued but not yet sent is lost on process crash or restart
-  (in-memory queue, no persistence).
+  (in-memory queue, no persistence). On a graceful shutdown, any notification
+  still queued (not yet dequeued) is discarded the same way; the queue is
+  never drained before the worker exits.
+- If one notification's HTTP send is already in flight (offloaded to a
+  thread) when shutdown begins, shutdown waits for that specific send to
+  finish or time out — bounded by its own configured
+  `MDS_RUNTIME_WEBHOOK_TIMEOUT_SECONDS`, not by the worker's idle-poll
+  interval. This is a bounded wait, not a hang, but it is not instantaneous.
 - A notification is lost outright when the queue is full (bounded capacity,
   no blocking, no rollback of ingestion).
 - A notification is lost when the HTTP attempt times out, fails transport,
