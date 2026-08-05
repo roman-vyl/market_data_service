@@ -169,18 +169,32 @@ async def _send(self, notification: CommittedBarNotification) -> None:
         asyncio.to_thread(self._notifier.send, notification)
     )
     try:
+        cancelled = await self._wait_for_send(send_task)
+        try:
+            send_task.result()
+        except Exception as exc:
+            self._log_delivery_failure(notification, exc)
+        if cancelled:
+            raise asyncio.CancelledError
+    finally:
+        self._queue.task_done()
+
+@staticmethod
+async def _wait_for_send(send_task: asyncio.Task[None]) -> bool:
+    # Re-shields on every iteration, not just once: no matter how many
+    # times the caller is cancelled while this runs (one cancel(), two,
+    # or more — e.g. a sibling TaskGroup failure followed by a shutdown
+    # cancel), send_task itself is never cancelled and the underlying
+    # asyncio.to_thread(...) call always runs to completion.
+    cancelled = False
+    while not send_task.done():
         try:
             await asyncio.shield(send_task)
         except asyncio.CancelledError:
-            # This coroutine was cancelled, not send_task: shield() kept
-            # send_task running. Wait for the in-flight thread rather than
-            # abandoning it, then re-raise so the worker still stops.
-            await self._await_send_completion(notification, send_task)
-            raise
-        except Exception as exc:
-            self._log_delivery_failure(notification, exc)
-    finally:
-        self._queue.task_done()
+            cancelled = True
+        except Exception:
+            pass  # retrieved and logged by the caller via .result()
+    return cancelled
 ```
 
 `await asyncio.to_thread(...)` yields control of the event loop back to the
@@ -206,13 +220,25 @@ double-counted depending on exactly where the cancellation landed, and the
 TaskGroup could proceed to close resources (in the companion Runtime
 change's shutdown ordering) while this orphaned thread was still mid-flight.
 `asyncio.shield(send_task)` prevents the *external* cancellation from
-touching `send_task` itself: only the `await` in `_send` raises
-`CancelledError`, `send_task` keeps running, and `_send` explicitly awaits
-it to completion (logging any error, exactly like the non-cancelled failure
-path) before re-raising — so the worker still stops promptly, but never
-abandons an in-flight HTTP thread. `finally: self._queue.task_done()`
-guarantees exactly one `task_done()` call per dequeued item regardless of
-which of the three outcomes (success, logged failure, cancellation) occurs.
+touching `send_task` itself: only the `await` in `_wait_for_send` raises
+`CancelledError`, `send_task` keeps running. Critically, `_wait_for_send`
+re-shields on *every* loop iteration rather than shielding once and then
+falling back to a bare `await send_task` — a single shielded `await`
+followed by an unshielded one would still leave `send_task` cancellable by
+a *second* `cancel()` arriving while that second, unshielded wait is in
+flight (e.g. a sibling `TaskGroup` failure immediately followed by an
+application-wide shutdown cancel), silently orphaning the OS thread running
+`self._notifier.send(...)`. Looping `while not send_task.done(): await
+asyncio.shield(send_task)` means no number of external cancellations —
+one, two, or more — can ever cancel `send_task` itself; each one is caught,
+recorded, and the loop keeps waiting on the *same* shielded task until it
+is genuinely done. Only then does `_send` retrieve the real outcome via
+`send_task.result()` (logging any error, exactly like the non-cancelled
+failure path) and, if any cancellation was observed, re-raise
+`CancelledError` — so the worker still stops promptly, but never abandons
+an in-flight HTTP thread. `finally: self._queue.task_done()` guarantees
+exactly one `task_done()` call per dequeued item regardless of which of the
+three outcomes (success, logged failure, cancellation) occurs.
 
 ## Concurrency limits
 

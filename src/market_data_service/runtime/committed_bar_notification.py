@@ -60,31 +60,41 @@ class CommittedBarNotificationWorker:
             asyncio.to_thread(self._notifier.send, notification)
         )
         try:
+            cancelled = await self._wait_for_send(send_task)
             try:
-                await asyncio.shield(send_task)
-            except asyncio.CancelledError:
-                # The caller (this coroutine) was cancelled, not send_task
-                # itself: shield() kept send_task running. Do not abandon
-                # the in-flight HTTP thread — wait for it, then re-raise the
-                # original cancellation so the worker still stops.
-                await self._await_send_completion(notification, send_task)
-                raise
+                send_task.result()
             except Exception as exc:
                 self._log_delivery_failure(notification, exc)
+            if cancelled:
+                # Re-raise only after send_task has actually finished, so
+                # the caller (run()) still stops, but never before the
+                # in-flight HTTP thread's outcome has been observed.
+                raise asyncio.CancelledError
         finally:
             self._queue.task_done()
 
-    async def _await_send_completion(
-        self,
-        notification: CommittedBarNotification,
-        send_task: asyncio.Task[None],
-    ) -> None:
-        try:
-            await send_task
-        except asyncio.CancelledError:
-            raise
-        except Exception as exc:
-            self._log_delivery_failure(notification, exc)
+    @staticmethod
+    async def _wait_for_send(send_task: asyncio.Task[None]) -> bool:
+        """Wait for send_task, re-shielding across any number of cancellations.
+
+        Every await here goes through `asyncio.shield(send_task)`, never a
+        bare `await send_task` — so no matter how many times the calling
+        coroutine is cancelled while this is running (one cancel(), two,
+        or more, e.g. from an application-wide shutdown following a sibling
+        TaskGroup failure), send_task itself is never cancelled and the
+        underlying `asyncio.to_thread(...)` call always runs to completion.
+        Returns True if at least one cancellation was observed while
+        waiting, so the caller can re-raise it after send_task is done.
+        """
+        cancelled = False
+        while not send_task.done():
+            try:
+                await asyncio.shield(send_task)
+            except asyncio.CancelledError:
+                cancelled = True
+            except Exception:
+                pass  # retrieved and logged by the caller via .result()
+        return cancelled
 
     def _log_delivery_failure(
         self,

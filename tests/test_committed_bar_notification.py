@@ -281,6 +281,49 @@ async def _cancellation_safe_send_scenario() -> None:
     assert [call.open_time_ms for call in notifier.calls] == [0]
 
 
+def test_repeated_cancellation_still_waits_for_the_in_flight_send() -> None:
+    """A second cancel() while already waiting must not orphan the HTTP thread.
+
+    The first CancelledError is caught by _send()'s shielded wait; if the
+    subsequent wait for send_task's actual completion were itself an
+    unshielded `await send_task`, a second cancel() arriving during that
+    wait would cancel send_task directly, leaving the underlying
+    asyncio.to_thread(...) OS thread running unobserved. This exercises
+    exactly that timing: two cancel() calls before the gate is released.
+    """
+    asyncio.run(_repeated_cancellation_scenario())
+
+
+async def _repeated_cancellation_scenario() -> None:
+    notifier = ScriptedNotifier(2, gated_indices=frozenset({0}))
+    worker = CommittedBarNotificationWorker(notifier, capacity=4)
+    stop = asyncio.Event()
+    runner = asyncio.create_task(worker.run(stop))
+    await worker.enqueue(_notification(open_time_ms=0))
+    await worker.enqueue(_notification(open_time_ms=60_000))
+    await asyncio.to_thread(notifier.wait_started, 0)
+
+    runner.cancel()
+    with pytest.raises(TimeoutError):
+        # Bounded wait, not a fixed yield count: give the first cancellation's
+        # propagation through the shielded await as much real scheduler time
+        # as it needs, and prove the worker is still genuinely blocked on the
+        # in-flight send rather than merely "not yet scheduled".
+        await asyncio.wait_for(asyncio.shield(runner), timeout=0.2)
+
+    runner.cancel()
+    with pytest.raises(TimeoutError):
+        # Same bounded proof for the second cancel(): a second cancel() must
+        # not abandon the in-flight send by cancelling send_task itself.
+        await asyncio.wait_for(asyncio.shield(runner), timeout=0.2)
+
+    notifier.release(0)
+    with pytest.raises(asyncio.CancelledError):
+        await asyncio.wait_for(asyncio.shield(runner), timeout=1)
+
+    assert [call.open_time_ms for call in notifier.calls] == [0]
+
+
 def test_worker_calls_task_done_exactly_once_per_dequeued_item() -> None:
     asyncio.run(_task_done_bookkeeping_scenario())
 
