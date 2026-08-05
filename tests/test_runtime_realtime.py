@@ -33,6 +33,7 @@ from market_data_service.domain.candles import CanonicalCandle, ObservationSourc
 from market_data_service.domain.identity import InstrumentKey, StreamKey
 from market_data_service.domain.instruments import HistoryPolicy, InstrumentCoverage
 from market_data_service.domain.stream_state import StreamLifecycleState
+from market_data_service.ports.committed_bar_notifier import CommittedBarNotification
 from market_data_service.runtime.admission import RealtimeAdmissionGate
 from market_data_service.runtime.lifecycle import RuntimeLifecycleRecorder
 from market_data_service.runtime.realtime import RuntimeRealtimeCoordinator
@@ -82,6 +83,14 @@ class FakeRecovery:
 class ExplodingRecovery:
     async def execute(self, request: RealtimeRecoveryRequest) -> RealtimeRecoveryResult:
         raise RuntimeError(f"recovery exploded for {request.signal.stream.canonical_id}")
+
+
+class RecordingNotifierWorker:
+    def __init__(self) -> None:
+        self.notifications: list[CommittedBarNotification] = []
+
+    async def enqueue(self, notification: CommittedBarNotification) -> None:
+        self.notifications.append(notification)
 
 
 def _factory(path: Path):
@@ -509,3 +518,122 @@ async def _missing_admission_anchor_scenario(tmp_path: Path) -> None:
     await runtime.admit(stream)
 
     assert not gate.allows(stream)
+
+
+def _coordinator_with_notifier(
+    tmp_path: Path,
+    stream: StreamKey,
+    notifier_worker: RecordingNotifierWorker,
+    *,
+    admitted: bool = True,
+) -> RuntimeRealtimeCoordinator:
+    path = tmp_path / "market.sqlite3"
+    initialize_database(path)
+    register_stream(
+        path,
+        stream,
+        exchange_symbol=stream.instrument.ticker.removesuffix(".P"),
+        now_ms=1,
+    )
+    clock = Clock()
+    return RuntimeRealtimeCoordinator(
+        streams=(stream,),
+        connector=IdleConnector(),  # type: ignore[arg-type]
+        supervisor=RealtimeSupervisor(
+            (stream,),
+            {"kline.1.BTCUSDT": stream},
+            clock.now_ms,
+        ),
+        recovery=FakeRecovery({stream: (RecoveryClassification.RESTORED,)}),  # type: ignore[arg-type]
+        lifecycle=RuntimeLifecycleRecorder(_factory(path), clock.now_ms),
+        status=RuntimeStatusStore((stream,)),
+        admission=RealtimeAdmissionGate((stream,) if admitted else ()),
+        operation_gate=asyncio.Lock(),
+        now_ms=clock.now_ms,
+        max_recovery_windows=1,
+        notifier_worker=notifier_worker,  # type: ignore[arg-type]
+    )
+
+
+def test_committed_outcome_on_admitted_stream_enqueues_one_notification(
+    tmp_path: Path,
+) -> None:
+    asyncio.run(_committed_enqueues_scenario(tmp_path))
+
+
+async def _committed_enqueues_scenario(tmp_path: Path) -> None:
+    stream = _stream("BTCUSDT.P")
+    notifier_worker = RecordingNotifierWorker()
+    runtime = _coordinator_with_notifier(tmp_path, stream, notifier_worker)
+
+    await runtime.on_outcome(
+        RealtimeIngestionOutcome(stream, 300_000, RealtimeIngestionClassification.COMMITTED)
+    )
+
+    assert notifier_worker.notifications == [
+        CommittedBarNotification(instrument="BTCUSDT.P", timeframe="1m", open_time_ms=300_000)
+    ]
+
+
+def test_non_committed_classifications_enqueue_nothing(tmp_path: Path) -> None:
+    asyncio.run(_non_committed_scenario(tmp_path))
+
+
+async def _non_committed_scenario(tmp_path: Path) -> None:
+    stream = _stream("BTCUSDT.P")
+    notifier_worker = RecordingNotifierWorker()
+    runtime = _coordinator_with_notifier(tmp_path, stream, notifier_worker)
+
+    for classification in (
+        RealtimeIngestionClassification.DUPLICATE,
+        RealtimeIngestionClassification.CORRECTED,
+        RealtimeIngestionClassification.REJECTED,
+        RealtimeIngestionClassification.FAILED,
+    ):
+        await runtime.on_outcome(RealtimeIngestionOutcome(stream, 0, classification))
+
+    assert notifier_worker.notifications == []
+
+
+def test_committed_outcome_on_non_admitted_stream_enqueues_nothing(tmp_path: Path) -> None:
+    asyncio.run(_not_admitted_scenario(tmp_path))
+
+
+async def _not_admitted_scenario(tmp_path: Path) -> None:
+    stream = _stream("BTCUSDT.P")
+    notifier_worker = RecordingNotifierWorker()
+    runtime = _coordinator_with_notifier(tmp_path, stream, notifier_worker, admitted=False)
+
+    await runtime.on_outcome(
+        RealtimeIngestionOutcome(stream, 0, RealtimeIngestionClassification.COMMITTED)
+    )
+
+    assert notifier_worker.notifications == []
+
+
+def test_on_outcome_without_notifier_worker_does_not_raise(tmp_path: Path) -> None:
+    asyncio.run(_no_notifier_worker_scenario(tmp_path))
+
+
+async def _no_notifier_worker_scenario(tmp_path: Path) -> None:
+    path = tmp_path / "market.sqlite3"
+    initialize_database(path)
+    stream = _stream("BTCUSDT.P")
+    register_stream(path, stream, exchange_symbol="BTCUSDT", now_ms=1)
+    clock = Clock()
+    runtime = RuntimeRealtimeCoordinator(
+        streams=(stream,),
+        connector=IdleConnector(),  # type: ignore[arg-type]
+        supervisor=RealtimeSupervisor((stream,), {"kline.1.BTCUSDT": stream}, clock.now_ms),
+        recovery=FakeRecovery({stream: (RecoveryClassification.RESTORED,)}),  # type: ignore[arg-type]
+        lifecycle=RuntimeLifecycleRecorder(_factory(path), clock.now_ms),
+        status=RuntimeStatusStore((stream,)),
+        admission=RealtimeAdmissionGate((stream,)),
+        operation_gate=asyncio.Lock(),
+        now_ms=clock.now_ms,
+        max_recovery_windows=1,
+    )
+
+    await runtime.on_outcome(
+        RealtimeIngestionOutcome(stream, 0, RealtimeIngestionClassification.COMMITTED)
+    )

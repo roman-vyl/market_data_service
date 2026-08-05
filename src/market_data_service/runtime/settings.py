@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import math
 import os
 from dataclasses import dataclass
 from pathlib import Path
+from urllib.parse import urlsplit
 
 
 @dataclass(frozen=True, slots=True)
@@ -29,6 +31,10 @@ class RuntimeSettings:
     stale_intervals: int = 2
     stale_grace_ms: int = 5_000
     log_level: str = "INFO"
+    runtime_webhook_enabled: bool = False
+    strategy_runtime_base_url: str = ""
+    runtime_webhook_timeout_seconds: float = 2.0
+    runtime_webhook_queue_capacity: int = 256
 
     def __post_init__(self) -> None:
         if not self.http_host.strip():
@@ -62,6 +68,20 @@ class RuntimeSettings:
             raise ValueError("stale_grace_ms must be non-negative")
         if self.log_level.upper() not in {"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"}:
             raise ValueError("unsupported log_level")
+        if self.runtime_webhook_enabled:
+            parsed_base_url = urlsplit(self.strategy_runtime_base_url)
+            if parsed_base_url.scheme not in {"http", "https"} or not parsed_base_url.netloc:
+                raise ValueError(
+                    "strategy_runtime_base_url must be an absolute http(s) URL when "
+                    "runtime_webhook_enabled is true"
+                )
+            if (
+                not math.isfinite(self.runtime_webhook_timeout_seconds)
+                or self.runtime_webhook_timeout_seconds <= 0
+            ):
+                raise ValueError("runtime_webhook_timeout_seconds must be finite and positive")
+            if self.runtime_webhook_queue_capacity <= 0:
+                raise ValueError("runtime_webhook_queue_capacity must be positive")
 
     @classmethod
     def from_environment(cls) -> RuntimeSettings:
@@ -101,4 +121,16 @@ class RuntimeSettings:
             stale_intervals=int(env.get("MDS_STALE_INTERVALS", "2")),
             stale_grace_ms=int(env.get("MDS_STALE_GRACE_MS", "5000")),
             log_level=env.get("MDS_LOG_LEVEL", "INFO").upper(),
+            runtime_webhook_enabled=_parse_bool(env.get("MDS_RUNTIME_WEBHOOK_ENABLED", "false")),
+            strategy_runtime_base_url=env.get("MDS_STRATEGY_RUNTIME_BASE_URL", ""),
+            runtime_webhook_timeout_seconds=float(
+                env.get("MDS_RUNTIME_WEBHOOK_TIMEOUT_SECONDS", "2.0")
+            ),
+            runtime_webhook_queue_capacity=int(
+                env.get("MDS_RUNTIME_WEBHOOK_QUEUE_CAPACITY", "256")
+            ),
         )
+
+
+def _parse_bool(value: str) -> bool:
+    return value.strip().lower() in {"1", "true", "yes", "on"}

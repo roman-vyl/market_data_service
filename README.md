@@ -304,6 +304,10 @@ MDS_RECONNECT_DELAY_SECONDS
 MDS_STALE_INTERVALS
 MDS_STALE_GRACE_MS
 MDS_LOG_LEVEL
+MDS_RUNTIME_WEBHOOK_ENABLED
+MDS_STRATEGY_RUNTIME_BASE_URL
+MDS_RUNTIME_WEBHOOK_TIMEOUT_SECONDS
+MDS_RUNTIME_WEBHOOK_QUEUE_CAPACITY
 ```
 
 Startup processes every enabled `ticker × timeframe` stream in deterministic
@@ -330,6 +334,30 @@ GET /readiness
 `/health` reports process operation independently from market-data readiness.
 `/readiness` returns success only when every required stream has durable
 `ready` state and realtime supervisor data-ready facts after recovery.
+
+### Strategy Runtime committed-bar webhook (optional)
+
+`MDS_RUNTIME_WEBHOOK_ENABLED` (default `false`) turns on a best-effort
+notification sent to Strategy Runtime immediately after a genuine new
+realtime candle commit on an admitted stream. When disabled, no queue,
+worker, or outbound HTTP client is constructed and every other subsystem
+behaves exactly as before. When enabled, `MDS_STRATEGY_RUNTIME_BASE_URL` is
+required (no default); `MDS_RUNTIME_WEBHOOK_TIMEOUT_SECONDS` defaults to
+`2.0` and `MDS_RUNTIME_WEBHOOK_QUEUE_CAPACITY` defaults to `256` if absent,
+but an explicitly supplied value that fails its own check (non-finite/
+non-positive timeout, non-positive capacity) still fails startup. Capacity
+must also be at least the number of enabled configured streams, since a
+shared boundary (midnight UTC, worst case) can produce one commit per
+stream within a short window.
+
+Delivery is best-effort and non-durable, matching Live V1 elsewhere in this
+service: a notification enqueued but not yet sent is lost on crash or
+graceful shutdown; a notification dropped because the queue is full is
+lost; a notification whose HTTP attempt times out, fails transport, or
+receives a non-success response is logged and dropped, with no retry.
+None of these losses affect canonical MDS candle history, which stays
+fully recoverable through existing backfill/repair regardless of
+notification outcome.
 
 ## Consumer candle read API
 

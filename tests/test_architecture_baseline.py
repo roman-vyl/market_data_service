@@ -85,3 +85,44 @@ def test_realtime_modules_preserve_responsibility_boundaries() -> None:
 
     for imported in _internal_imports(handler):
         assert not imported.startswith("market_data_service.adapters")
+
+
+def test_committed_bar_notifier_stays_out_of_storage_and_domain() -> None:
+    forbidden = (
+        "market_data_service.ports.committed_bar_notifier",
+        "market_data_service.adapters.http.committed_bar_notifier",
+        "market_data_service.runtime.committed_bar_notification",
+    )
+    for path in (PACKAGE_ROOT / "adapters" / "sqlite").rglob("*.py"):
+        for imported in _internal_imports(path):
+            assert not imported.startswith(forbidden), f"{path} imports forbidden {imported}"
+    for path in (PACKAGE_ROOT / "domain").rglob("*.py"):
+        for imported in _internal_imports(path):
+            assert not imported.startswith(forbidden), f"{path} imports forbidden {imported}"
+
+
+def test_non_live_write_paths_never_reference_the_committed_bar_notifier() -> None:
+    """Historical/backfill/repair/import/recovery paths never enqueue notifications.
+
+    They cannot: they have no reference to the notifier worker or its port,
+    only `RuntimeRealtimeCoordinator.on_outcome` (the live realtime path) does.
+    """
+
+    forbidden = (
+        "market_data_service.ports.committed_bar_notifier",
+        "market_data_service.adapters.http.committed_bar_notifier",
+        "market_data_service.runtime.committed_bar_notification",
+    )
+    non_live_write_paths = (
+        PACKAGE_ROOT / "application" / "full_bootstrap.py",
+        PACKAGE_ROOT / "application" / "backfill_stream.py",
+        PACKAGE_ROOT / "application" / "multi_stream_backfill.py",
+        PACKAGE_ROOT / "application" / "repair_gaps.py",
+        PACKAGE_ROOT / "application" / "import_window.py",
+        PACKAGE_ROOT / "application" / "realtime" / "recovery.py",
+        PACKAGE_ROOT / "application" / "realtime" / "handler.py",
+        PACKAGE_ROOT / "application" / "ingest.py",
+    )
+    for path in non_live_write_paths:
+        for imported in _internal_imports(path):
+            assert not imported.startswith(forbidden), f"{path} imports forbidden {imported}"

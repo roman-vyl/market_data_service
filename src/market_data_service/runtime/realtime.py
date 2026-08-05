@@ -13,12 +13,19 @@ from market_data_service.application.realtime.events import (
     RecoveryRequired,
     SubscriptionConfirmed,
 )
-from market_data_service.application.realtime.outcomes import RealtimeIngestionOutcome
+from market_data_service.application.realtime.outcomes import (
+    RealtimeIngestionClassification,
+    RealtimeIngestionOutcome,
+)
 from market_data_service.application.realtime.recovery import RealtimeRecoveryCoordinator
 from market_data_service.application.realtime.supervisor import RealtimeSupervisor
 from market_data_service.domain.identity import StreamKey
 from market_data_service.domain.stream_state import StreamLifecycleState
+from market_data_service.ports.committed_bar_notifier import CommittedBarNotification
 from market_data_service.runtime.admission import RealtimeAdmissionGate
+from market_data_service.runtime.committed_bar_notification import (
+    CommittedBarNotificationWorker,
+)
 from market_data_service.runtime.lifecycle import RuntimeLifecycleRecorder
 from market_data_service.runtime.realtime_recovery_worker import RealtimeRecoveryWorker
 from market_data_service.runtime.status import RuntimeStatusStore
@@ -42,6 +49,7 @@ class RuntimeRealtimeCoordinator:
         recovery_base_backoff_seconds: float = 1.0,
         recovery_max_backoff_seconds: float = 60.0,
         recovery_idle_seconds: float = 0.1,
+        notifier_worker: CommittedBarNotificationWorker | None = None,
     ) -> None:
         self._streams = tuple(streams)
         self._connector = connector
@@ -51,6 +59,7 @@ class RuntimeRealtimeCoordinator:
         self._admission = admission
         self._now_ms = now_ms
         self._stale_check_seconds = stale_check_seconds
+        self._notifier_worker = notifier_worker
         self._recovery_worker = RealtimeRecoveryWorker(
             recovery=recovery,
             supervisor=supervisor,
@@ -69,6 +78,8 @@ class RuntimeRealtimeCoordinator:
                 task_group.create_task(self._run_connector(stop_event))
                 task_group.create_task(self._recovery_worker.run(stop_event))
                 task_group.create_task(self._stale_worker(stop_event))
+                if self._notifier_worker is not None:
+                    task_group.create_task(self._notifier_worker.run(stop_event))
         finally:
             stop_event.set()
             self._refresh_status()
@@ -128,6 +139,17 @@ class RuntimeRealtimeCoordinator:
     async def on_outcome(self, outcome: RealtimeIngestionOutcome) -> None:
         if not self._admission.allows(outcome.stream):
             return
+        if (
+            self._notifier_worker is not None
+            and outcome.classification is RealtimeIngestionClassification.COMMITTED
+        ):
+            await self._notifier_worker.enqueue(
+                CommittedBarNotification(
+                    instrument=outcome.stream.instrument.canonical_id,
+                    timeframe=outcome.stream.timeframe,
+                    open_time_ms=outcome.open_time_ms,
+                )
+            )
         for signal in self._supervisor.observe_outcome(outcome):
             await self._enqueue(signal)
         self._sync_lifecycle()
