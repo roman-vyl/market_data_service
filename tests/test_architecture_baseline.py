@@ -88,6 +88,8 @@ def test_realtime_modules_preserve_responsibility_boundaries() -> None:
 
 
 def test_committed_bar_notifier_stays_out_of_storage_and_domain() -> None:
+    """Import-level guard: SQLite adapters and domain never import the notifier."""
+
     forbidden = (
         "market_data_service.ports.committed_bar_notifier",
         "market_data_service.adapters.http.committed_bar_notifier",
@@ -101,11 +103,20 @@ def test_committed_bar_notifier_stays_out_of_storage_and_domain() -> None:
             assert not imported.startswith(forbidden), f"{path} imports forbidden {imported}"
 
 
-def test_non_live_write_paths_never_reference_the_committed_bar_notifier() -> None:
-    """Historical/backfill/repair/import/recovery paths never enqueue notifications.
+def test_non_live_write_paths_have_no_direct_import_of_the_committed_bar_notifier() -> None:
+    """Historical/backfill/repair/import/recovery modules do not import the notifier.
 
-    They cannot: they have no reference to the notifier worker or its port,
-    only `RuntimeRealtimeCoordinator.on_outcome` (the live realtime path) does.
+    This is an import-level guard, not a call-graph reachability proof: it
+    only shows these modules hold no direct reference to the notifier port,
+    HTTP adapter, or worker. It does not by itself prove no notification can
+    ever be triggered through some indirect path. The actual behavioral
+    guarantee — that only a genuine live `COMMITTED` outcome on an admitted
+    stream reaches the notifier, and that the canonical commit always
+    precedes delivery — is established separately by the gating tests in
+    `tests/test_runtime_realtime.py` and the real end-to-end ordering test
+    in `tests/test_committed_bar_notification_ordering.py`. This test's
+    only job is to keep these modules from *acquiring* a direct dependency
+    on the notifier in the first place.
     """
 
     forbidden = (

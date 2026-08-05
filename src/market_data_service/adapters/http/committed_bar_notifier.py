@@ -46,9 +46,7 @@ class HttpCommittedBarNotifier:
         except (URLError, TimeoutError) as exc:
             raise CommittedBarDeliveryError(f"POST {self._url} failed: {exc}") from exc
         except (UnicodeDecodeError, json.JSONDecodeError) as exc:
-            raise CommittedBarDeliveryError(
-                f"POST {self._url} returned a non-JSON body"
-            ) from exc
+            raise CommittedBarDeliveryError(f"POST {self._url} returned a non-JSON body") from exc
         if status != 200 or payload != _EXPECTED_BODY:
             raise CommittedBarDeliveryError(
                 f"POST {self._url} returned unexpected status={status} body={payload!r}"

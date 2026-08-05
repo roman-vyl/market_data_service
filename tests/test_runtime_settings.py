@@ -117,3 +117,25 @@ def test_runtime_settings_committed_bar_webhook_defaults_from_environment(
     assert settings.runtime_webhook_enabled is False
     assert settings.runtime_webhook_timeout_seconds == 2.0
     assert settings.runtime_webhook_queue_capacity == 256
+
+
+def test_disabled_webhook_ignores_malformed_environment_for_its_own_fields(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A malformed value for a disabled feature's fields must not fail startup.
+
+    MDS_RUNTIME_WEBHOOK_ENABLED is read first; when it is false, the other
+    three variables are never parsed or validated, even if left malformed
+    in the environment (e.g. a stale/unused leftover value).
+    """
+    monkeypatch.setenv("MDS_RUNTIME_WEBHOOK_ENABLED", "false")
+    monkeypatch.setenv("MDS_RUNTIME_WEBHOOK_TIMEOUT_SECONDS", "not-a-number")
+    monkeypatch.setenv("MDS_RUNTIME_WEBHOOK_QUEUE_CAPACITY", "not-an-int")
+    monkeypatch.setenv("MDS_STRATEGY_RUNTIME_BASE_URL", "malformed")
+
+    settings = RuntimeSettings.from_environment()
+
+    assert settings.runtime_webhook_enabled is False
+    assert settings.strategy_runtime_base_url == ""
+    assert settings.runtime_webhook_timeout_seconds == 2.0
+    assert settings.runtime_webhook_queue_capacity == 256

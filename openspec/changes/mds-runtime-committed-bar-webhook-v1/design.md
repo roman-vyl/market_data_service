@@ -2,46 +2,88 @@
 
 ## Module decomposition
 
+This is the module layout as actually implemented, not the earlier sketch —
+see "Deviations from the original sketch" immediately below for what changed
+and why.
+
 ```text
 ports/
-  committed_bar_notifier.py      CommittedBarNotifier Protocol (port)
+  committed_bar_notifier.py           CommittedBarNotification value object
+                                       AND CommittedBarNotifier Protocol
+                                       (both co-located here — see below)
 
 adapters/http/
-  committed_bar_notifier.py      HttpCommittedBarNotifier adapter
-                                  (implements CommittedBarNotifier)
+  committed_bar_notifier.py           HttpCommittedBarNotifier adapter
+                                       (implements CommittedBarNotifier)
 
 runtime/
-  committed_bar_notification.py  CommittedBarNotification value object,
-                                  CommittedBarNotificationWorker
-  settings.py                    + 4 new validated fields (existing file)
-  service.py                     + notifier adapter/worker construction
-                                  inside _build_realtime, using the
-                                  RuntimeSettings and ValidatedMarketConfig
-                                  it already owns; TaskGroup wiring
-                                  (existing file)
-  realtime.py                    on_outcome gains the enqueue call;
-                                  RuntimeRealtimeCoordinator receives an
-                                  already-constructed optional worker
-                                  reference — it does not construct one
-                                  itself (existing file)
+  committed_bar_notification.py       CommittedBarNotificationWorker only —
+                                       no value object lives here
+  committed_bar_notification_factory.py
+                                       build_committed_bar_notifier_worker(
+                                       settings, config) -> Worker | None;
+                                       owns the composition-time
+                                       capacity-vs-enabled-streams check
+  settings.py                         + 4 new validated fields, enabled
+                                       -first environment parsing (existing
+                                       file)
+  service.py                          _build_realtime calls the factory
+                                       function; no notifier construction
+                                       logic lives in RuntimeService itself
+                                       (existing file)
+  realtime.py                         on_outcome gains the enqueue call;
+                                       RuntimeRealtimeCoordinator receives
+                                       an already-constructed optional
+                                       worker reference — it does not
+                                       construct one itself (existing file)
 ```
 
-`wiring.py` is **not** modified by this change. `RuntimeWiring` does not
-currently own `RuntimeSettings` (it owns `database`, `config`, `rest_source`,
-`clock` — see `wiring.py:38-42`), and extending its constructor to also
-accept `RuntimeSettings` (or the four notifier fields individually) purely
-to support one optional component was considered and rejected: `RuntimeWiring`
-composes already-validated pieces from data it already has, and every one of
-its existing factory methods (`candle_handler()`, `recovery()`, etc.) needs
-no configuration beyond what it already holds. `RuntimeService` already
-loads and holds both `RuntimeSettings` and `ValidatedMarketConfig`
-(`service.py:44-45`), so it is the one component with everything the
-notifier needs to be constructed without a signature change anywhere else.
+### Deviations from the original sketch, and why
+
+**The `CommittedBarNotification` dataclass is co-located with
+`CommittedBarNotifier` in `ports/committed_bar_notifier.py`**, not split
+into `runtime/committed_bar_notification.py` as first sketched. That split
+would have created a two-module import cycle: the port needs the dataclass
+type for `send(self, notification: CommittedBarNotification) -> None`, and
+the worker needs the Protocol type for its own `notifier: CommittedBarNotifier`
+constructor parameter — whichever module the dataclass lived in, the other
+module would need to import back from it. Co-locating both in `ports/`
+(the lower layer `runtime/` already depends on one-directionally, exactly
+like every other port in this codebase) resolves the cycle without weakening
+either contract: `ports/committed_bar_notifier.py` has no dependency on
+`runtime/` at all, and `runtime/committed_bar_notification.py` depends only
+on `ports/`, never the reverse. This is the same one-directional dependency
+shape `ports/market_data_source.py` → `domain/` already establishes
+elsewhere in this codebase; it is not a new architectural pattern.
+
+**Composition-time construction (the enabled check, the capacity-vs
+-enabled-streams fail-fast check, and building the adapter + worker) lives
+in a new `runtime/committed_bar_notification_factory.py` module** — a
+`build_committed_bar_notifier_worker(settings, config) -> CommittedBarNotificationWorker | None`
+function — rather than as a private method on `RuntimeService` as first
+sketched. Reason: inlining this logic into `RuntimeService._build_realtime`
+pushed `service.py` to 218 of the 220-line limit `tests/
+test_architecture_baseline.py::test_python_modules_remain_laconic` enforces
+across every module in this package; extracting one cohesive, independently
+testable function (already this codebase's established response to a module
+approaching that limit — see the realtime subsystem's own multi-module
+split) was preferred over raising the limit or cramming the check into an
+already-large composition method. `RuntimeService._build_realtime` now
+contains exactly one line calling this function — it holds no composition
+logic of its own, only the call site.
 
 `ports/committed_bar_notifier.py` mirrors `ports/market_data_source.py`: a
-plain `typing.Protocol`, no framework dependency, domain types only:
+plain `typing.Protocol` plus its value type, no framework dependency,
+self-contained:
 
 ```python
+@dataclass(frozen=True, slots=True)
+class CommittedBarNotification:
+    instrument: str
+    timeframe: str
+    open_time_ms: int
+
+
 class CommittedBarNotifier(Protocol):
     def send(self, notification: CommittedBarNotification) -> None: ...
 ```
@@ -62,11 +104,20 @@ runtime dependency (`pyproject.toml` currently declares neither `httpx` nor
   `CommittedBarNotificationWorker`. No other component holds a reference to
   it.
 - **Worker**: `CommittedBarNotificationWorker` is constructed once per
-  process, inside `RuntimeService._build_realtime`, directly from the
-  `RuntimeSettings` and `ValidatedMarketConfig` that `RuntimeService` already
-  holds (not via a `RuntimeWiring` factory — see "Module decomposition"
-  above for why). It is the single consumer of the queue and owns exactly
-  one `HttpCommittedBarNotifier` instance for its process lifetime.
+  process by `build_committed_bar_notifier_worker(settings, config)`
+  (`runtime/committed_bar_notification_factory.py`), called from
+  `RuntimeService._build_realtime` with the `RuntimeSettings` and
+  `ValidatedMarketConfig` that `RuntimeService` already holds. This is not a
+  `RuntimeWiring` factory method: `RuntimeWiring` does not currently own
+  `RuntimeSettings` (it owns `database`, `config`, `rest_source`, `clock` —
+  see `wiring.py:38-42`), and extending its constructor to also accept
+  `RuntimeSettings` purely to support one optional component was considered
+  and rejected — `RuntimeWiring` composes already-validated pieces from data
+  it already has, and every one of its existing factory methods
+  (`candle_handler()`, `recovery()`, etc.) needs no configuration beyond
+  what it already holds. The worker is the single consumer of the queue and
+  owns exactly one `HttpCommittedBarNotifier` instance for its process
+  lifetime.
 - **Producer**: `RuntimeRealtimeCoordinator.on_outcome` calls
   `await self._notifier_worker.enqueue(outcome)` — a non-blocking
   `queue.put_nowait(...)` wrapped with `QueueFull` handling, never
@@ -93,18 +144,43 @@ the adapter's `urllib`-based POST call blocks the calling thread for up to
 `send(...)` directly on the event-loop thread, because that would stall
 every other coroutine scheduled on the same loop (including, transitively,
 the WebSocket receive loop this design exists to protect) for the duration
-of the call. Instead, the worker offloads each send to a thread:
+of the call. Instead, the worker offloads each send to a dedicated
+`asyncio.Task`, shielded so that cancelling the *awaiting* coroutine cannot
+abandon the underlying OS thread:
 
 ```python
-while not stop_event.is_set():
+async def run(self, stop_event: asyncio.Event) -> None:
+    while not stop_event.is_set():
+        try:
+            notification = await asyncio.wait_for(self._queue.get(), timeout=0.2)
+        except TimeoutError:
+            continue
+        # Atomic re-check: no await between this line and creating
+        # send_task below, so a stop_event set concurrently on this same
+        # loop is either seen here (item discarded, unstarted) or not yet
+        # visible at all (item proceeds) — never half-observed.
+        if stop_event.is_set():
+            self._queue.task_done()
+            return
+        await self._send(notification)
+
+async def _send(self, notification: CommittedBarNotification) -> None:
+    send_task = asyncio.ensure_future(
+        asyncio.to_thread(self._notifier.send, notification)
+    )
     try:
-        item = await asyncio.wait_for(queue.get(), timeout=0.2)
-    except TimeoutError:
-        continue
-    try:
-        await asyncio.to_thread(self._notifier.send, item)
-    except Exception:
-        self._logger.warning(..., instrument=item.instrument, ...)
+        try:
+            await asyncio.shield(send_task)
+        except asyncio.CancelledError:
+            # This coroutine was cancelled, not send_task: shield() kept
+            # send_task running. Wait for the in-flight thread rather than
+            # abandoning it, then re-raise so the worker still stops.
+            await self._await_send_completion(notification, send_task)
+            raise
+        except Exception as exc:
+            self._log_delivery_failure(notification, exc)
+    finally:
+        self._queue.task_done()
 ```
 
 `await asyncio.to_thread(...)` yields control of the event loop back to the
@@ -115,6 +191,29 @@ thread. The worker still awaits that call's completion before dequeuing the
 next item — offloading to a thread changes *where* the blocking happens, not
 *whether* sends remain strictly sequential (see "Concurrency limits" below).
 
+### Why the send is shielded, not awaited directly
+
+If `_send` awaited `send_task` directly (no `shield`), cancelling the
+worker's `run(stop_event)` task — which happens whenever a sibling task
+inside `RuntimeRealtimeCoordinator.run`'s `asyncio.TaskGroup` raises, not
+only on ordinary shutdown — would propagate that cancellation straight into
+`send_task` too, and asyncio would consider the underlying `to_thread` call
+"done" from the coroutine's perspective the moment the `CancelledError` is
+raised, even though the OS thread executing `self._notifier.send(...)`
+keeps running to completion in the background, unobserved. Any exception
+that call raises would be lost, `task_done()` could be skipped or
+double-counted depending on exactly where the cancellation landed, and the
+TaskGroup could proceed to close resources (in the companion Runtime
+change's shutdown ordering) while this orphaned thread was still mid-flight.
+`asyncio.shield(send_task)` prevents the *external* cancellation from
+touching `send_task` itself: only the `await` in `_send` raises
+`CancelledError`, `send_task` keeps running, and `_send` explicitly awaits
+it to completion (logging any error, exactly like the non-cancelled failure
+path) before re-raising — so the worker still stops promptly, but never
+abandons an in-flight HTTP thread. `finally: self._queue.task_done()`
+guarantees exactly one `task_done()` call per dequeued item regardless of
+which of the three outcomes (success, logged failure, cancellation) occurs.
+
 ## Concurrency limits
 
 ```text
@@ -123,16 +222,17 @@ max concurrent outbound committed-bar HTTP calls from MDS = 1
 
 This is a direct consequence of there being exactly one
 `CommittedBarNotificationWorker.run(stop_event)` task, which processes its
-queue with a plain sequential loop (`while not stop_event.is_set(): item =
-await queue.get(); await asyncio.to_thread(self._notifier.send, item)`),
-never `asyncio.gather` or a task pool. The next queued item is not dequeued
-until the previous `asyncio.to_thread(...)` call has returned (success or
-failure) — this is what makes "one MDS HTTP sender" true even though enqueue
-can be called concurrently from multiple in-flight `on_outcome` invocations,
-and even though the send itself runs on a worker thread rather than the
-event-loop thread (offloading to a thread bounds *where* the blocking I/O
-happens, not *how many* sends can be in flight — the worker awaits each
-`to_thread` call before starting the next).
+queue with the sequential loop shown above (dequeue, atomic stop-check,
+`await self._send(notification)`), never `asyncio.gather` or a task pool.
+The next queued item is not dequeued until `_send` has returned — which,
+per the shielded design above, only happens after the offloaded
+`asyncio.to_thread(...)` call has itself fully completed, whether that
+completion arrives via ordinary return, a logged failure, or the
+cancellation-safe wait — this is what makes "one MDS HTTP sender" true even
+though enqueue can be called concurrently from multiple in-flight
+`on_outcome` invocations, and even though the send itself runs on a worker
+thread rather than the event-loop thread (offloading to a thread bounds
+*where* the blocking I/O happens, not *how many* sends can be in flight).
 
 ## Enqueue is gated, not the write path
 
@@ -261,59 +361,77 @@ and `RealtimeRecoveryWorker`:
 
 ```text
 RuntimeService.run(stop_event)
-  → _build_realtime(...) constructs CommittedBarNotificationWorker
-    directly from RuntimeSettings/ValidatedMarketConfig already
-    held by RuntimeService
+  → _build_realtime(...) calls
+    build_committed_bar_notifier_worker(settings, config)
+    (runtime/committed_bar_notification_factory.py) to construct the
+    optional CommittedBarNotificationWorker
   → added as a fourth task inside RuntimeRealtimeCoordinator.run's
     asyncio.TaskGroup (runtime/realtime.py:68), alongside
     _run_connector, _recovery_worker.run, _stale_worker
-  → any task's exception or the group's own stop_event.set() unwinds
-    every sibling task through the same TaskGroup/finally mechanics
-    already in place today
+  → any task's exception (including this worker's own, and including any
+    sibling task's) or the group's own stop_event.set() unwinds every
+    sibling task through the same TaskGroup/finally mechanics already in
+    place today
 ```
 
-Shutdown has two distinct cases, and only one of them is bounded by the
-worker's idle-poll interval:
+The worker's task can stop for two different reasons, and they are handled
+by two different mechanisms:
 
-- **No send in flight**: the worker's `run(stop_event)` loop is blocked on
+- **Ordinary shutdown** (`stop_event.set()`, no exception): the worker's own
+  loop notices this cooperatively — see the three cases below.
+- **A sibling task in the same `TaskGroup` raises** (e.g. the recovery
+  worker's `ExplodingRecovery`-style failure): `asyncio.TaskGroup` cancels
+  every other task in the group directly, including the notifier worker's
+  task, regardless of `stop_event`. This is why the cancellation-safety
+  described under "Non-blocking event loop" exists as a distinct mechanism
+  from the `stop_event` check — a `Task.cancel()` can arrive at any `await`
+  point, not only at the top of the loop.
+
+Within the worker's own loop, there are three distinct shutdown-adjacent
+cases:
+
+- **Idle, no item dequeued**: the loop is blocked on
   `asyncio.wait_for(queue.get(), timeout=0.2)` (matching
   `RealtimeRecoveryWorker`'s polling idiom). It notices `stop_event` within
-  that ~0.2s bound and exits without dequeuing anything further.
-- **A send is currently in flight**: the worker is awaiting
-  `asyncio.to_thread(self._notifier.send, item)` for the item it already
-  dequeued. `stop_event` being set does **not** interrupt that call — a
-  `threading.Event` (or `asyncio.Event`) cannot cancel a blocking
-  `urllib`-based HTTP call already running on its own OS thread. Shutdown
-  therefore waits for that offloaded call to return or raise, bounded by
-  that notification's own configured `runtime_webhook_timeout_seconds`
-  (the adapter's own timeout), not by the 0.2s polling interval. Once that
-  call completes (success or failure, logged as normal), the worker does
-  **not** start sending any further queued item — it proceeds directly to
-  exiting the loop.
+  that ~0.2s bound on the next loop iteration and exits without dequeuing
+  anything further.
+- **An item was just dequeued but its send has not started**: the atomic
+  `if stop_event.is_set(): self._queue.task_done(); return` check (see
+  "Non-blocking event loop") fires before `_send` is ever called. The item
+  is discarded — `notifier.send(...)` is never invoked for it — and the
+  worker exits immediately, without waiting on anything.
+- **A send is already in flight** (`_send` already past that check,
+  awaiting the shielded `send_task`): whether triggered by `stop_event`
+  being observed on the *next* loop iteration after this send completes, or
+  by a direct `Task.cancel()` from a failing sibling, the in-flight
+  `asyncio.to_thread(self._notifier.send, item)` call is never abandoned.
+  For the `stop_event` case, the worker simply finishes this send normally
+  (success or logged failure) and then exits on the next iteration without
+  starting another. For the `Task.cancel()` case, `_send`'s shielded
+  `await` raises `CancelledError`, the worker awaits `send_task`'s actual
+  completion (logging any error), and only then re-raises — so the group's
+  unwind is delayed exactly as long as this one HTTP thread takes, never
+  longer, and never abandoned mid-flight.
 
-In both cases, every notification still sitting in the queue — never
-dequeued, or dequeued-but-not-yet-started — is discarded at shutdown; the
+In every case, any notification still sitting in the queue — never
+dequeued, or dequeued-but-discarded-before-send — is lost at shutdown; the
 worker never attempts to drain or flush the queue. This is a documented,
 accepted Live V1 limitation, not a defect: it matches the "queue contents
-are lost on crash/shutdown" property stated as fixed for this change, with
-the added precision that a graceful shutdown's total bound is
-`max(idle-poll interval, time for one in-flight send to finish or time out)`
-— not a fixed small constant. Because `RuntimeRealtimeCoordinator.run`'s
-`asyncio.TaskGroup` waits for every child task to finish before the group
-itself completes, this bounded wait is a real (if bounded) contributor to
-overall process shutdown time whenever a send happens to be in flight when
-`stop_event` is set — it is bounded, not hanging, but it is not always
-instantaneous either.
+are lost on crash/shutdown" property stated as fixed for this change. The
+graceful-shutdown wait is bounded by whichever one send happened to be
+in-flight (its own configured `runtime_webhook_timeout_seconds` bounds the
+network portion) — not by a fixed small constant, and not indefinitely,
+since exactly one item is ever waited on, never a queue's worth.
 
 When `MDS_RUNTIME_WEBHOOK_ENABLED=false` (or unset, matching the documented
-default), `RuntimeService._build_realtime` never constructs the notifier
-adapter or worker, no queue is constructed, and no fourth task is added to
-the `TaskGroup`. `on_outcome` still runs its admission/`COMMITTED` check but
-the enqueue call is conditioned on the notifier worker reference being
-non-`None` (the same `None`-gates-the-code-path pattern already used for
-`process_committed_bar`/`process_first_fill` on the Runtime side). Production
-MDS behavior for every other subsystem is byte-for-byte identical to before
-this change.
+default), `build_committed_bar_notifier_worker` returns `None` without
+constructing the notifier adapter or worker, no queue is constructed, and
+no fourth task is added to the `TaskGroup`. `on_outcome` still runs its
+admission/`COMMITTED` check but the enqueue call is conditioned on the
+notifier worker reference being non-`None` (the same `None`-gates-the-code
+-path pattern already used for `process_committed_bar`/`process_first_fill`
+on the Runtime side). Production MDS behavior for every other subsystem is
+byte-for-byte identical to before this change.
 
 ## Fail-fast configuration
 
@@ -341,6 +459,34 @@ These four checks all live in `RuntimeSettings.__post_init__` and raise
 `ValueError` before any component is constructed, the same startup path an
 invalid `http_port` or `log_level` already fails today.
 
+### `from_environment()` reads `enabled` first and skips the rest when disabled
+
+`__post_init__`'s checks above only run against whatever values
+`RuntimeSettings` was actually constructed with — they say nothing about
+*how* `from_environment()` gets those values out of `os.environ`. The
+naive approach — parse all four `MDS_RUNTIME_WEBHOOK_*`/`MDS_STRATEGY_
+RUNTIME_*` variables unconditionally, then let `__post_init__` decide
+whether to validate them — has a real bug: `float(env.get(
+"MDS_RUNTIME_WEBHOOK_TIMEOUT_SECONDS", "2.0"))` raises immediately if that
+variable holds a non-numeric string, *even when the feature is disabled and
+the field is irrelevant*. A stale or malformed leftover value for a
+disabled feature must not fail startup.
+
+`from_environment()` therefore determines `MDS_RUNTIME_WEBHOOK_ENABLED`
+first, via a small `_parse_committed_bar_webhook_environment(env)` helper.
+When it resolves to `False`, the other three variables
+(`MDS_STRATEGY_RUNTIME_BASE_URL`, `MDS_RUNTIME_WEBHOOK_TIMEOUT_SECONDS`,
+`MDS_RUNTIME_WEBHOOK_QUEUE_CAPACITY`) are **never read or parsed** — the
+helper returns the fixed internal defaults (`""`, `2.0`, `256`) directly,
+regardless of what (if anything) those variables hold. Only when `enabled`
+resolves to `True` are the other three actually read from the environment
+and parsed (`float(...)`/`int(...)`, which can still raise `ValueError` for
+a malformed *enabled* configuration — that failure mode is unchanged and
+still correct: a present, enabled, invalid value must fail startup). This
+mirrors, at the environment-parsing layer, the same "absent uses default,
+present-and-invalid fails" distinction `__post_init__` already enforces at
+the validation layer.
+
 ### A fifth check that cannot live in `RuntimeSettings`
 
 `RuntimeSettings` has no visibility into `ValidatedMarketConfig` — it is a
@@ -355,24 +501,31 @@ chance to drain it — silently degrading the notifier to "usually drops most
 of every boundary burst" rather than "handles the realistic worst case with
 headroom."
 
-This check is therefore performed once, at composition time, in
-`RuntimeService` — the one place that already holds both `RuntimeSettings`
-and `ValidatedMarketConfig` (`service.py:44-45`) — immediately before the
-notifier worker is constructed in `_build_realtime`:
+This check is therefore performed once, at composition time, inside
+`build_committed_bar_notifier_worker(settings, config)`
+(`runtime/committed_bar_notification_factory.py`) — the one function that
+receives both `RuntimeSettings` and `ValidatedMarketConfig` — immediately
+before constructing the adapter and worker, and before
+`RuntimeService._build_realtime` (which calls this function) ever sees a
+return value:
 
 ```text
-if settings.runtime_webhook_enabled:
-    if settings.runtime_webhook_queue_capacity < len(config.enabled_streams):
-        raise ValueError(
-            "MDS_RUNTIME_WEBHOOK_QUEUE_CAPACITY must be at least the "
-            "number of enabled streams"
-        )
+if not settings.runtime_webhook_enabled:
+    return None
+if settings.runtime_webhook_queue_capacity < len(config.enabled_streams):
+    raise ValueError(
+        "MDS_RUNTIME_WEBHOOK_QUEUE_CAPACITY must be at least the "
+        "number of enabled streams"
+    )
 ```
 
 A `ValueError` from this check fails startup exactly like any
 `RuntimeSettings.__post_init__` violation — there is no "partially ready"
 composition where the notifier is half-built and every other subsystem
-starts anyway.
+starts anyway. This function is unit-tested directly (constructing
+`RuntimeSettings`/`ValidatedMarketConfig` pairs and asserting `None`,
+a constructed worker, or a raised `ValueError`), independent of the full
+`RuntimeService` composition.
 
 ## Single-process limitation
 

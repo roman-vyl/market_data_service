@@ -18,8 +18,7 @@ def build_committed_bar_notifier_worker(
         return None
     if settings.runtime_webhook_queue_capacity < len(config.enabled_streams):
         raise ValueError(
-            "MDS_RUNTIME_WEBHOOK_QUEUE_CAPACITY must be at least the number of "
-            "enabled streams"
+            "MDS_RUNTIME_WEBHOOK_QUEUE_CAPACITY must be at least the number of enabled streams"
         )
     notifier = HttpCommittedBarNotifier(
         settings.strategy_runtime_base_url,
