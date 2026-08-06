@@ -23,6 +23,9 @@ from market_data_service.runtime.admission import (
     AdmissionGatedCandleHandler,
     RealtimeAdmissionGate,
 )
+from market_data_service.runtime.committed_bar_notification_factory import (
+    build_committed_bar_notifier_worker,
+)
 from market_data_service.runtime.historical_worker import HistoricalReconciliationWorker
 from market_data_service.runtime.realtime import RuntimeRealtimeCoordinator
 from market_data_service.runtime.reconciliation import HistoricalStreamReconciler
@@ -141,6 +144,7 @@ class RuntimeService:
             initial_latest_open_time_ms=initial,
         )
         admission = RealtimeAdmissionGate(admitted_streams)
+        notifier_worker = build_committed_bar_notifier_worker(self._settings, self._config)
         holder: dict[str, RuntimeRealtimeCoordinator] = {}
 
         async def on_event(event: object) -> None:
@@ -180,6 +184,7 @@ class RuntimeService:
             recovery_base_backoff_seconds=(self._settings.realtime_recovery_base_seconds),
             recovery_max_backoff_seconds=(self._settings.realtime_recovery_max_seconds),
             recovery_idle_seconds=self._settings.realtime_recovery_idle_seconds,
+            notifier_worker=notifier_worker,
         )
         holder["runtime"] = runtime
         return runtime

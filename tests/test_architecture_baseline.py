@@ -85,3 +85,55 @@ def test_realtime_modules_preserve_responsibility_boundaries() -> None:
 
     for imported in _internal_imports(handler):
         assert not imported.startswith("market_data_service.adapters")
+
+
+def test_committed_bar_notifier_stays_out_of_storage_and_domain() -> None:
+    """Import-level guard: SQLite adapters and domain never import the notifier."""
+
+    forbidden = (
+        "market_data_service.ports.committed_bar_notifier",
+        "market_data_service.adapters.http.committed_bar_notifier",
+        "market_data_service.runtime.committed_bar_notification",
+    )
+    for path in (PACKAGE_ROOT / "adapters" / "sqlite").rglob("*.py"):
+        for imported in _internal_imports(path):
+            assert not imported.startswith(forbidden), f"{path} imports forbidden {imported}"
+    for path in (PACKAGE_ROOT / "domain").rglob("*.py"):
+        for imported in _internal_imports(path):
+            assert not imported.startswith(forbidden), f"{path} imports forbidden {imported}"
+
+
+def test_non_live_write_paths_have_no_direct_import_of_the_committed_bar_notifier() -> None:
+    """Historical/backfill/repair/import/recovery modules do not import the notifier.
+
+    This is an import-level guard, not a call-graph reachability proof: it
+    only shows these modules hold no direct reference to the notifier port,
+    HTTP adapter, or worker. It does not by itself prove no notification can
+    ever be triggered through some indirect path. The actual behavioral
+    guarantee — that only a genuine live `COMMITTED` outcome on an admitted
+    stream reaches the notifier, and that the canonical commit always
+    precedes delivery — is established separately by the gating tests in
+    `tests/test_runtime_realtime.py` and the real end-to-end ordering test
+    in `tests/test_committed_bar_notification_ordering.py`. This test's
+    only job is to keep these modules from *acquiring* a direct dependency
+    on the notifier in the first place.
+    """
+
+    forbidden = (
+        "market_data_service.ports.committed_bar_notifier",
+        "market_data_service.adapters.http.committed_bar_notifier",
+        "market_data_service.runtime.committed_bar_notification",
+    )
+    non_live_write_paths = (
+        PACKAGE_ROOT / "application" / "full_bootstrap.py",
+        PACKAGE_ROOT / "application" / "backfill_stream.py",
+        PACKAGE_ROOT / "application" / "multi_stream_backfill.py",
+        PACKAGE_ROOT / "application" / "repair_gaps.py",
+        PACKAGE_ROOT / "application" / "import_window.py",
+        PACKAGE_ROOT / "application" / "realtime" / "recovery.py",
+        PACKAGE_ROOT / "application" / "realtime" / "handler.py",
+        PACKAGE_ROOT / "application" / "ingest.py",
+    )
+    for path in non_live_write_paths:
+        for imported in _internal_imports(path):
+            assert not imported.startswith(forbidden), f"{path} imports forbidden {imported}"
