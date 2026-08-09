@@ -3,23 +3,6 @@
 ## Purpose
 TBD - created by archiving change consumer-read-api-v1. Update Purpose after archive.
 ## Requirements
-### Requirement: Pre-implementation architecture gate
-
-Before adding production API code, the change SHALL document the exact existing range-read, stream-state, HTTP registration, and runtime-wiring paths that will be reused. Implementation SHALL proceed only after confirming that the dependency direction remains HTTP adapter → application use case → focused port → SQLite/state adapter.
-
-The gate SHALL reject a design that duplicates canonical range SQL, introduces cyclic dependencies, adds BBB/Workbench presentation models to this service, or makes an existing broad file own validation, serialization, persistence, readiness policy, and routing together.
-
-#### Scenario: Architecture audit is recorded before production code is added
-
-- **WHEN** implementation of the consumer read API begins
-- **THEN** the exact existing range-read, stream-state, HTTP-registration, and runtime-wiring paths to be reused are documented first
-- **AND** the dependency direction is confirmed as HTTP adapter → application use case → focused port → SQLite/state adapter before production code is added
-
-#### Scenario: Gate rejects a design with duplicated SQL, cycles, or mixed responsibilities
-
-- **WHEN** the architecture audit finds a design that duplicates canonical range SQL, introduces a cyclic dependency, adds BBB/Workbench presentation models to this service, or makes an existing broad file own validation, serialization, persistence, readiness policy, and routing together
-- **THEN** the gate rejects that design and implementation does not proceed on it
-
 ### Requirement: Cohesive module ownership
 
 Consumer-read orchestration, pure range validation, result invariants, read ports, SQLite adaptation, HTTP routing, transport schemas, Decimal serialization, exception mapping, and concrete wiring SHALL be represented by focused modules or by existing modules already dedicated to the exact same responsibility.
@@ -40,8 +23,6 @@ Consumer-read orchestration, pure range validation, result invariants, read port
 ### Requirement: Dependency and growth guards
 
 Application consumer-read code SHALL NOT import HTTP framework modules or SQLite adapters. SQLite consumer-read code SHALL NOT import HTTP schemas. HTTP modules SHALL NOT execute SQL or import `sqlite3`. BBB-specific and Workbench-specific DTOs SHALL remain outside `market_data_service`.
-
-Implementation acceptance SHALL include structural/dependency checks and a file-growth review for existing central modules, with extracted focused modules whenever the change would add a second independent responsibility.
 
 #### Scenario: Architecture guard rejects a wrong-direction import
 
@@ -230,51 +211,4 @@ The process SHALL remain healthy and able to expose diagnostics while candle req
 
 - **WHEN** one or more configured streams are not ready and candle requests for them are rejected
 - **THEN** the process remains healthy and continues to expose `/health` and `/readiness` diagnostics
-
-### Requirement: BBB reference-consumer contract
-
-The OpenSpec SHALL document the required subsequent BBB integration while excluding BBB repository changes from this implementation.
-
-The subsequent BBB change SHALL preserve `research_api` as Workbench BFF, preserve Workbench's existing `/api/market/candles-window` contract, replace direct legacy SQLite reads behind the BBB market-reader boundary with an HTTP client, migrate market-data-facing identity to canonical `.P` tickers, parse Decimal text into Python `Decimal`, and retain explicit conversion to existing float-based research or chart representations only where required.
-
-The subsequent BBB change SHALL include parity tests between the legacy SQLite reader and HTTP reader and SHALL NOT connect Workbench directly to `market_data_service`.
-
-#### Scenario: BBB integration is documented, not implemented, by this change
-
-- **WHEN** this change is delivered
-- **THEN** the required subsequent BBB integration contract is documented in the OpenSpec
-- **AND** no BBB repository changes are made as part of this implementation
-
-#### Scenario: Documented BBB contract preserves Workbench boundaries and adds parity tests
-
-- **WHEN** the documented subsequent BBB change is later implemented
-- **THEN** it preserves `research_api` as the Workbench BFF and Workbench's existing `/api/market/candles-window` contract, replaces direct legacy SQLite reads behind the BBB market-reader boundary with an HTTP client, migrates market-data-facing identity to canonical `.P` tickers, parses Decimal text into Python `Decimal`, includes parity tests between the legacy SQLite reader and the HTTP reader, and does not connect Workbench directly to `market_data_service`
-
-### Requirement: Unpaginated v1 performance evidence
-
-Version 1 SHALL support one-response reads for normal Workbench windows and large research ranges without pagination or chunking.
-
-Implementation acceptance SHALL record SQLite read, JSON serialization, and local HTTP round-trip measurements for representative Workbench-size, approximately 10,000-candle, approximately 100,000-candle, and large multi-year `5m` scenarios.
-
-These measurements SHALL inform future changes. Pagination, chunking, streaming, compact formats, compression, Arrow/Parquet, and consumer caching SHALL remain future options and SHALL NOT block v1 acceptance unless the implementation is operationally unsafe.
-
-#### Scenario: Normal and large ranges are served as one unpaginated response
-
-- **WHEN** a normal Workbench-size window or a large research range is requested
-- **THEN** it is served as one complete JSON response without pagination or chunking
-
-#### Scenario: Benchmark measurements are recorded for representative range sizes
-
-- **WHEN** implementation acceptance evidence is recorded
-- **THEN** SQLite read, JSON serialization, and local HTTP round-trip measurements exist for representative Workbench-size, approximately 10,000-candle, approximately 100,000-candle, and large multi-year `5m` scenarios
-- **AND** pagination, chunking, streaming, compact formats, compression, Arrow/Parquet, and consumer caching remain documented future options rather than v1 blockers
-
-### Requirement: Cumulative patch completeness
-
-The cumulative installable patch SHALL include this OpenSpec, all previous runtime reconciliation changes included in its baseline, `docs/integrations/bbb-consumer-api-current-state.docx`, and every new or modified source, test, API documentation, benchmark, README, and planning file produced by implementation.
-
-#### Scenario: Cumulative patch includes the OpenSpec, baseline, docs, and all produced files
-
-- **WHEN** the consumer read API change is delivered
-- **THEN** the cumulative installable patch includes this OpenSpec, the previous runtime reconciliation baseline, `docs/integrations/bbb-consumer-api-current-state.docx`, and every new or modified source, test, API documentation, benchmark, README, and planning file produced by the implementation
 

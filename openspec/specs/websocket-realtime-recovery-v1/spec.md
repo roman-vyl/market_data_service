@@ -271,26 +271,6 @@ Canonical candles, existing lifecycle state, and quarantine SHALL continue to us
 - **THEN** connection, subscription, stale, and reconnecting status are rebuilt from existing durable facts
 - **AND** no persisted WebSocket-event, subscription-event, recovery-job table, or server-owned consumer cursor is required to do so
 
-### Requirement: Fake end-to-end realtime matrix
-
-The project SHALL include a deterministic fake WebSocket transport, fake REST source, and temporary SQLite integration matrix.
-
-The matrix SHALL cover multiple symbols and multiple timeframes, confirmed and unconfirmed updates, canonical ingestion outcomes, disconnect/reconnect, stale detection, sequence discontinuity, bounded REST recovery, gap repair, post-recovery audit, and stream isolation.
-
-#### Scenario: Fake matrix exercises the full realtime path deterministically
-
-- **WHEN** the fake WebSocket transport, fake REST source, and temporary SQLite matrix runs
-- **THEN** it covers multiple symbols and timeframes, confirmed and unconfirmed updates, canonical ingestion outcomes, disconnect/reconnect, stale detection, sequence discontinuity, bounded REST recovery, gap repair, post-recovery audit, and stream isolation
-
-### Requirement: Real bounded WebSocket smoke
-
-The project SHALL provide a bounded real Bybit public WebSocket smoke that subscribes to configured streams, observes transport/subscription events, processes at least one confirmed candle close when available within the configured bound, and exits cleanly without consumer dependencies.
-
-#### Scenario: Bounded real WebSocket smoke subscribes, observes, and exits cleanly
-
-- **WHEN** the bounded real Bybit public WebSocket smoke runs against configured streams
-- **THEN** it subscribes to those streams, observes transport/subscription events, processes at least one confirmed candle close when one becomes available within the configured bound, and exits cleanly without consumer dependencies
-
 ### Requirement: Physical module cohesion and dependency direction
 
 The realtime implementation SHALL preserve separate modules for exchange transport/protocol,
@@ -312,9 +292,6 @@ coordinator SHALL NOT parse WebSocket frames or manage socket lifecycle.
 Connection/subscription/stale/reconnect facts SHALL remain in-memory in v1 and SHALL be rebuilt
 after restart. No WebSocket-event, connection-state, or recovery-job persistence table SHALL be
 introduced.
-
-Architecture tests SHALL enforce these dependency boundaries. Implementations SHALL split
-cohesive modules before increasing file-size limits or introducing a broad manager/service object.
 
 #### Scenario: Realtime modules stay separated by primary responsibility
 
