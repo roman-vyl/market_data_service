@@ -1,7 +1,7 @@
 # validated-market-config-and-multi-stream-backfill-v1 Specification
 
 ## Purpose
-TBD - created by archiving change validated-market-config-and-multi-stream-backfill-v1. Update Purpose after archive.
+Defines validated multi-market/timeframe configuration and deterministic bounded historical backfill across configured streams.
 ## Requirements
 ### Requirement: Fully validated market configuration
 

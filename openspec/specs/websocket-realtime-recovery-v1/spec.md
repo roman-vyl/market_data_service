@@ -1,7 +1,7 @@
 # websocket-realtime-recovery-v1 Specification
 
 ## Purpose
-TBD - created by archiving change websocket-realtime-recovery-v1. Update Purpose after archive.
+Defines realtime confirmed-candle ingestion, per-stream supervision, and bounded REST-authoritative recovery behavior.
 ## Requirements
 ### Requirement: Separated realtime responsibilities
 

@@ -1,7 +1,7 @@
 # consumer-read-api-v1 Specification
 
 ## Purpose
-TBD - created by archiving change consumer-read-api-v1. Update Purpose after archive.
+Defines the canonical ready-state candle range read contract exposed by MDS to external consumers.
 ## Requirements
 ### Requirement: Cohesive module ownership
 

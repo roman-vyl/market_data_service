@@ -1,7 +1,7 @@
 # historical-backtest-read-contract-v1 Specification
 
 ## Purpose
-TBD - created by archiving change historical-backtest-read-contract-v1. Update Purpose after archive.
+Defines side-effect-free hash-bound historical candle reads that are independent of runtime readiness.
 ## Requirements
 ### Requirement: Separate historical admission
 
