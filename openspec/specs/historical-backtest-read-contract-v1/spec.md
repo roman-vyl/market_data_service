@@ -21,10 +21,10 @@ MDS SHALL expose `POST /v1/historical-candles` for an explicit configured stream
 
 The request SHALL include `expected_market_data_hash`. MDS SHALL recompute its canonical hash over the exact returned range and SHALL return candles only when the value matches.
 
-#### Scenario: Matching hash returns candles carrying the same hash
+#### Scenario: Matching expected hash admits the historical read
 
 - **WHEN** a `POST /v1/historical-candles` request's `expected_market_data_hash` matches the recomputed canonical hash over the exact requested range
-- **THEN** the response returns the requested candles together with that matching `market_data_hash`
+- **THEN** candles may be returned
 
 #### Scenario: Stale or mismatched hash is rejected as coverage_stale
 
@@ -50,9 +50,15 @@ Historical read and continuity audit SHALL NOT invoke repair, backfill, upstream
 - **THEN** the audit reports continuity/gaps for that range
 - **AND** it does not invoke repair, backfill, upstream REST calls, or lifecycle transitions
 
-#### Scenario: Historical read of a gapped range reports the gap without repairing it
+#### Scenario: Continuity audit over a gapped range reports the exact gap without side effects
 
-- **WHEN** a continuity audit or historical read is requested over a range containing a gap
-- **THEN** the exact gap is reported
+- **WHEN** a continuity audit is requested over a range containing a gap
+- **THEN** the audit reports the exact gap
+- **AND** no repair, backfill, or upstream REST call is triggered as a side effect
+
+#### Scenario: Historical read over an incomplete or gapped range fails complete-grid validation without side effects
+
+- **WHEN** a historical read is requested over a range that is incomplete or contains a gap
+- **THEN** the read fails complete-grid validation instead of returning candles
 - **AND** no repair, backfill, or upstream REST call is triggered as a side effect
 

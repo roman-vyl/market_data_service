@@ -11,10 +11,11 @@ Duplicate canonical instrument identities, duplicate exact exchange-symbol mappi
 
 A configuration MAY declare any non-empty subset of the supported canonical timeframe registry for an enabled instrument. `1m` support remains available, but `1m` SHALL NOT be required in every market configuration.
 
-#### Scenario: Fully validated configuration loads in declared order
+#### Scenario: Fully validated configuration loads successfully before mutation
 
 - **WHEN** a versioned market configuration passes schema version, venue, category, ticker, exchange-symbol, timeframe, enabled-state, and history-policy validation
-- **THEN** the loader returns validated instrument coverage in the configuration's declared order
+- **THEN** the loader returns validated instrument coverage
+- **AND** no network or storage mutation occurs before validation completes
 
 #### Scenario: Invalid normative field is rejected before mutation
 
