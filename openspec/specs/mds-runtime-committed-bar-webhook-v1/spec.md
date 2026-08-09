@@ -1,7 +1,7 @@
 # mds-runtime-committed-bar-webhook-v1 Specification
 
 ## Purpose
-TBD - created by archiving change mds-runtime-committed-bar-webhook-v1. Update Purpose after archive.
+Defines optional best-effort delivery of notifications for newly committed admitted realtime candles from MDS to Strategy Runtime, without coupling notification delivery to canonical ingestion or readiness.
 ## Requirements
 ### Requirement: Only an admitted stream's genuine new normal realtime commit enqueues a notification
 
