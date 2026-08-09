@@ -16,4 +16,4 @@ services:
       - "8080:8080"
     volumes:
       - ./config/markets.toml:/app/config/markets.toml:ro
-      - ./data:/data
+      - ${BBB_DATA_ROOT}/market-data:/data
