@@ -1,7 +1,10 @@
 # container-production-runtime Specification
 
 ## Purpose
-TBD - created by archiving change mds-container-production-readiness-v1. Update Purpose after archive.
+Defines the durable production-container and standalone deployment contract for
+MDS, including non-root execution, filesystem and persistence boundaries,
+Docker health, signal delivery, localhost exposure, restart/recreate
+persistence, and image hygiene.
 ## Requirements
 ### Requirement: Production container runs as non-root
 
