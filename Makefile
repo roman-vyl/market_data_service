@@ -1,4 +1,4 @@
-.PHONY: install test lint typecheck verify run docker-build docker-run check-python
+.PHONY: install test lint typecheck verify run docker-build docker-run container-smoke check-python
 
 PYTHON ?= $(if $(wildcard .venv/bin/python),.venv/bin/python,python3)
 
@@ -27,3 +27,6 @@ docker-build:
 
 docker-run:
 	docker compose up
+
+container-smoke: check-python
+	$(PYTHON) scripts/container_production_runtime_smoke.py

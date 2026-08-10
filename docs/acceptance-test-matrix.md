@@ -186,7 +186,7 @@ It is intentionally defined before SQLite, Bybit REST, WebSocket, and HTTP adapt
 | WSR-01 | Real bounded WebSocket confirmed close | Bybit/SQLite smoke | Configured topics subscribe, at least one confirmed close enters canonical ingestion within the timeout, and the connector exits cleanly. |
 | RUN-01 | SIGTERM during idle | Runtime smoke | Graceful shutdown with no corruption. |
 | RUN-02 | SIGTERM during REST window transaction | Runtime smoke | Current transaction commits completely or rolls back completely. |
-| RUN-03 | Container restart with persistent volume | Runtime smoke | Schema and progress survive. |
+| RUN-03 | Container restart with external persistence | Runtime smoke | Schema and progress survive through the existing host-mounted `/data`. |
 
 ## First executable integration milestone
 
@@ -299,6 +299,7 @@ timeframes.
 | RUN-09 | Health/readiness HTTP | HTTP integration | Health is independent; readiness returns 503 until all streams are ready. |
 | RUN-10 | Recovery dispatch isolation | Integration | Recovery signals are serialized/coalesced per stream and independent streams continue. |
 | RUN-11 | Graceful shutdown | Integration | HTTP, connector, stale checker, and recovery worker stop without losing committed SQLite work. |
-| RUN-12 | Docker restart persistence | Docker smoke | Restart preserves SQLite and repeats historical/realtime reconciliation before readiness. |
+| RUN-12 | Docker restart/recreate persistence | Docker smoke | Restart and forced recreation preserve host-visible SQLite schema/stream evidence, health returns through `/health`, and existing reconciliation still governs readiness. |
+| RUN-15 | Production container boundary | Docker smoke | PID1 runs as non-root, app/config remain read-only, only `/data` is writable persistence, SIGINT/SIGTERM reach the runtime path, HTTP is loopback-published, and the built image excludes development artifacts. |
 | RUN-13 | Durable lower-bound convergence | SQLite/runtime integration | Bounded passes and process restart resume from the per-stream probe cursor independently by symbol and timeframe. |
 | RUN-14 | Console status transitions | Unit/integration | Process health, changed per-stream status, aggregate readiness, and startup reconciliation counts are logged without repeating unchanged status on periodic checks. |

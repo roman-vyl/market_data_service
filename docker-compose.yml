@@ -4,6 +4,7 @@ services:
       context: .
     container_name: market-data-service
     restart: unless-stopped
+    read_only: true
     environment:
       MDS_DATABASE_PATH: /data/market.sqlite3
       MDS_MARKETS_CONFIG_PATH: /app/config/markets.toml
@@ -13,7 +14,7 @@ services:
       MDS_STARTUP_REPAIR_WINDOWS_PER_STREAM: 2
       MDS_REALTIME_RECOVERY_WINDOWS_PER_STREAM: 2
     ports:
-      - "8080:8080"
+      - "127.0.0.1:8080:8080"
     volumes:
       - ./config/markets.toml:/app/config/markets.toml:ro
       - ${BBB_DATA_ROOT}/market-data:/data
