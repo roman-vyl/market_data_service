@@ -16,8 +16,34 @@ The backend is explicitly multi-instrument. The checked-in deployment example en
 
 ## Docker config behavior
 
-The Docker image still contains a default checked-in `config/markets.toml`, but
-the local `docker-compose.yml` mounts the host file over that path at runtime:
+The production image runs `market-data-service serve` directly as PID 1 under
+the stable non-root UID/GID `10001:10001`. Its application filesystem is
+read-only at runtime; `/data` is the only writable persistent mount. On Linux,
+create the host directory with matching ownership before startup:
+
+```bash
+export BBB_DATA_ROOT=/srv/bbb/data
+sudo install -d -m 0750 -o 10001 -g 10001 "${BBB_DATA_ROOT}/market-data"
+docker compose up -d --build
+```
+
+For an existing external database, perform the ownership migration once while
+MDS is stopped. This preserves private production permissions; do not make the
+data directory world-writable:
+
+```bash
+sudo chown -R 10001:10001 "${BBB_DATA_ROOT}/market-data"
+sudo find "${BBB_DATA_ROOT}/market-data" -type d -exec chmod 0750 {} +
+sudo find "${BBB_DATA_ROOT}/market-data" -type f -exec chmod 0640 {} +
+```
+
+Compose publishes HTTP only on `127.0.0.1:8080`, allows 20 seconds for graceful
+stop, and uses the existing `GET /health` endpoint on the configured
+`MDS_HTTP_PORT` for Docker health status. `GET /readiness` remains the separate
+data-consumption gate.
+
+The image contains a default checked-in `config/markets.toml`, while
+`docker-compose.yml` mounts the host file over that path at runtime:
 
 ```text
 ./config/markets.toml -> /app/config/markets.toml (read-only)
@@ -30,18 +56,18 @@ cheap:
 - restart the container with `docker compose restart` or `docker compose up -d`;
 - do not rebuild the image unless application code or packaged defaults changed.
 
-The SQLite database remains external to the image and, in local Docker Compose,
-is mounted from the repository working tree:
+The SQLite database remains external to the image and is mounted from the
+configured BBB data root:
 
 ```text
-./data -> /data
-./data/market.sqlite3 -> /data/market.sqlite3
+${BBB_DATA_ROOT}/market-data -> /data
+${BBB_DATA_ROOT}/market-data/market.sqlite3 -> /data/market.sqlite3
 ```
 
-That means the database file is visible directly in the project folder on the
-host and survives ordinary image rebuilds or image deletion. For local Docker
-Compose, the container reads and writes the same SQLite file that you can
-inspect under `./data/`.
+The host-visible database survives container restart, recreation, image rebuild,
+and image deletion. The deterministic production-container check is available
+as `make container-smoke`; it uses a temporary data root and leaves configured
+operator persistence untouched.
 
 ## Status
 
