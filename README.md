@@ -22,7 +22,7 @@ read-only at runtime; `/data` is the only writable persistent mount. On Linux,
 create the host directory with matching ownership before startup:
 
 ```bash
-export BBB_DATA_ROOT=/srv/bbb-data
+export BBB_DATA_ROOT=/srv/bbb/data
 sudo install -d -m 0750 -o 10001 -g 10001 "${BBB_DATA_ROOT}/market-data"
 docker compose up -d --build
 ```
