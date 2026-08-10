@@ -4,6 +4,7 @@ services:
       context: .
     container_name: market-data-service
     restart: unless-stopped
+    stop_grace_period: 20s
     read_only: true
     environment:
       MDS_DATABASE_PATH: /data/market.sqlite3

@@ -38,6 +38,15 @@ the only writable persistent mount in the standalone deployment.
 - **AND** `/data` is writable by the documented runtime UID/GID
 - **AND** no second writable persistent mount is introduced
 
+#### Scenario: Existing data directory is migrated without world-write access
+
+- **WHEN** an existing external data directory and SQLite files are migrated to
+  the documented runtime UID/GID before the hardened container starts
+- **THEN** directories do not require permissions broader than `0750`
+- **AND** database files do not require permissions broader than `0640`
+- **AND** the non-root service can open the existing database and create or
+  update its SQLite WAL and SHM sidecars under `/data`
+
 ### Requirement: Container preserves direct PID1 signal delivery
 
 The production container SHALL launch the service directly as PID1 using exec
@@ -58,17 +67,21 @@ shell, supervisor, or sidecar intercepting them.
 - **THEN** the signal is delivered to the service PID1 process
 - **AND** the service exits through the shutdown behavior specified by
   `runtime-health-and-readiness`
+- **AND** standalone Compose allows the configured `20s` production grace
+  period before forced termination
 
 ### Requirement: Docker healthcheck reuses process health
 
 The production image SHALL define a Docker healthcheck that requests the
-existing container-local `GET /health` endpoint. It SHALL NOT call
-`/readiness`, introduce another endpoint, or change process-health semantics.
+existing container-local `GET /health` endpoint on the effective
+`MDS_HTTP_PORT`, defaulting to `8080` when the variable is absent. It SHALL NOT
+call `/readiness`, introduce another endpoint, or change process-health
+semantics.
 
 #### Scenario: Existing health response drives Docker health
 
-- **WHEN** `GET http://127.0.0.1:8080/health` returns HTTP 200 within the
-  configured probe timeout
+- **WHEN** `GET http://127.0.0.1:<effective-MDS_HTTP_PORT>/health` returns HTTP
+  200 within the configured probe timeout
 - **THEN** the Docker healthcheck succeeds
 - **AND** a connection failure, timeout, or non-200 response makes the probe
   fail
@@ -97,7 +110,10 @@ reconciliation/readiness rules.
 - **WHEN** a running standalone service has durable SQLite state under `/data`
 - **AND** the container is restarted without deleting the host data directory
 - **THEN** the same host-visible database remains present
-- **AND** previously recorded durable schema and stream evidence is preserved
+- **AND** every previously recorded candle remains present with unchanged
+  canonical values
+- **AND** per-stream candle counts and durable progress are not lower than
+  before restart, while normal additional progress is allowed
 - **AND** Docker health eventually returns to healthy through `GET /health`
 
 #### Scenario: Container recreation preserves data and restores health
@@ -105,7 +121,10 @@ reconciliation/readiness rules.
 - **WHEN** the standalone container is removed and recreated without deleting
   `${BBB_DATA_ROOT}/market-data`
 - **THEN** the recreated container opens the same host-visible database
-- **AND** previously recorded durable schema and stream evidence is preserved
+- **AND** every previously recorded candle remains present with unchanged
+  canonical values
+- **AND** per-stream candle counts and durable progress are not lower than
+  before recreation, while normal additional progress is allowed
 - **AND** Docker health eventually returns to healthy through `GET /health`
 - **AND** readiness remains governed by existing restart reconciliation rules
 

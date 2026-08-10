@@ -55,9 +55,11 @@ will remain owned by root and readable but not writable by the runtime user.
 
 A bind mount hides image-layer ownership. Operator documentation and smoke-test
 setup must therefore create `${BBB_DATA_ROOT}/market-data` with permissions
-that allow the documented runtime UID/GID to write. The container will not
-start as root merely to chown a host directory; that would weaken the non-root
-and direct-PID1 contracts.
+that allow the documented runtime UID/GID to write. For an existing directory,
+the operator performs a one-time ownership migration to `10001:10001` while
+keeping directories at `0750` and database files at `0640`; production data is
+not made world-writable. The container will not start as root merely to chown a
+host directory; that would weaken the non-root and direct-PID1 contracts.
 
 Standalone Compose will set the container root filesystem read-only and expose
 only `/data` as writable persistent storage. No writable application/config
@@ -81,9 +83,10 @@ interposing on that behavior.
 ### Existing `/health` as Docker healthcheck
 
 The healthcheck will be defined in the image so it also applies outside
-Compose. It will request `http://127.0.0.1:8080/health` using Python's standard
-library or another tool already present in the image. HTTP 200 is success;
-connection failure, timeout, or non-200 is failure.
+Compose. It will read `MDS_HTTP_PORT` from the container environment, default
+to `8080` when absent, and request `http://127.0.0.1:<effective-port>/health`
+using Python's standard library or another tool already present in the image.
+HTTP 200 is success; connection failure, timeout, or non-200 is failure.
 
 The check will not call `/readiness`, inspect SQLite, contact Bybit, or add a
 new endpoint. Healthcheck interval, timeout, start period, and retry values will
@@ -108,6 +111,10 @@ volumes:
 The read-only operator config mount remains supported. No downstream service,
 shared SQLite consumer, or second Compose service is introduced.
 
+Standalone Compose will set `stop_grace_period: 20s`. Restart and stop smoke
+commands will use that configured production policy rather than passing a
+longer test-only timeout.
+
 ### Restart and recreate verification
 
 A Docker smoke test will use a temporary `BBB_DATA_ROOT` whose `market-data`
@@ -115,14 +122,19 @@ directory is writable by the runtime UID/GID. It will:
 
 1. build and start the standalone service;
 2. wait for Docker health to become healthy;
-3. verify the process UID is non-zero and the SQLite file is host-visible;
-4. record stable SQLite evidence such as schema version and configured stream
-   rows after a clean stop boundary;
-5. run `docker compose restart`, wait for health, and compare the evidence;
+3. begin with a pre-existing SQLite database whose directory/files have been
+   migrated to `10001:10001` with `0750`/`0640` permissions, then verify the
+   non-root process can create and update WAL/SHM without world-writable data;
+4. verify the process UID is non-zero and real durable candles plus per-stream
+   progress exist before restart;
+5. run `docker compose restart`, wait for health, and prove every recorded
+   candle still exists unchanged while candle counts and progress cursors are
+   equal or further advanced;
 6. remove/recreate only the container, preserving the host directory, then
-   wait for health and compare the evidence again;
-7. exercise SIGTERM and SIGINT delivery without redefining runtime shutdown
-   assertions already owned by the canonical runtime capability.
+   wait for health and repeat the same monotonic evidence checks;
+7. exercise SIGTERM and SIGINT delivery under the configured 20-second stop
+   grace period without redefining runtime shutdown assertions already owned by
+   the canonical runtime capability.
 
 The smoke may use the existing bounded startup settings. It must not infer
 readiness from Docker health or weaken normal restart reconciliation.

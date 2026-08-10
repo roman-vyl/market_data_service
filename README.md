@@ -27,9 +27,20 @@ sudo install -d -m 0750 -o 10001 -g 10001 "${BBB_DATA_ROOT}/market-data"
 docker compose up -d --build
 ```
 
-Compose publishes HTTP only on `127.0.0.1:8080` and uses the existing
-`GET /health` endpoint for Docker health status. `GET /readiness` remains the
-separate data-consumption gate.
+For an existing external database, perform the ownership migration once while
+MDS is stopped. This preserves private production permissions; do not make the
+data directory world-writable:
+
+```bash
+sudo chown -R 10001:10001 "${BBB_DATA_ROOT}/market-data"
+sudo find "${BBB_DATA_ROOT}/market-data" -type d -exec chmod 0750 {} +
+sudo find "${BBB_DATA_ROOT}/market-data" -type f -exec chmod 0640 {} +
+```
+
+Compose publishes HTTP only on `127.0.0.1:8080`, allows 20 seconds for graceful
+stop, and uses the existing `GET /health` endpoint on the configured
+`MDS_HTTP_PORT` for Docker health status. `GET /readiness` remains the separate
+data-consumption gate.
 
 The image contains a default checked-in `config/markets.toml`, while
 `docker-compose.yml` mounts the host file over that path at runtime:

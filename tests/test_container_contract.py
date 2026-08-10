@@ -15,7 +15,8 @@ def test_runtime_image_is_non_root_direct_pid1_and_healthchecked() -> None:
     assert 'CMD ["market-data-service", "serve"]' in runtime
     assert "ENTRYPOINT" not in runtime
     assert "HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3" in runtime
-    assert "http://127.0.0.1:8080/health" in runtime
+    assert "os.environ.get('MDS_HTTP_PORT', '8080')" in runtime
+    assert "http://127.0.0.1:{port}/health" in runtime
     assert "/readiness" not in runtime
 
 
@@ -36,6 +37,7 @@ def test_compose_is_read_only_localhost_only_and_preserves_mounts() -> None:
     lines = {line.strip() for line in compose.splitlines()}
 
     assert "read_only: true" in lines
+    assert "stop_grace_period: 20s" in lines
     assert '- "127.0.0.1:8080:8080"' in lines
     assert '- "8080:8080"' not in lines
     assert "- ./config/markets.toml:/app/config/markets.toml:ro" in lines

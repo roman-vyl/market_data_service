@@ -5,13 +5,13 @@ from __future__ import annotations
 import asyncio
 import json
 import os
-import sqlite3
 import subprocess
 import tempfile
 import threading
 import time
 from collections.abc import Sequence
 from contextlib import AbstractContextManager
+from dataclasses import dataclass
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
@@ -20,9 +20,13 @@ from urllib.parse import parse_qs, urlparse
 from websockets.asyncio.server import ServerConnection, serve
 from websockets.exceptions import ConnectionClosed
 
+from market_data_service.adapters.sqlite import initialize_database
+
 ROOT = Path(__file__).resolve().parents[1]
 SERVICE = "market-data-service"
 RUNTIME_UID = 10001
+RUNTIME_GID = 10001
+SMOKE_HTTP_PORT = 18080
 DAY_MS = 86_400_000
 INTERVAL_MS = {
     "5": 300_000,
@@ -232,6 +236,7 @@ def _write_override(
                 "    environment:",
                 f'      MDS_REST_BASE_URL: "http://host.docker.internal:{rest_port}"',
                 f'      MDS_WEBSOCKET_URL: "ws://host.docker.internal:{ws_port}"',
+                f"      MDS_HTTP_PORT: {SMOKE_HTTP_PORT}",
                 "      MDS_HISTORICAL_RETRY_BASE_SECONDS: 0",
                 "      MDS_HISTORICAL_RETRY_MAX_SECONDS: 0",
                 "      MDS_RECONNECT_DELAY_SECONDS: 0",
@@ -243,7 +248,7 @@ def _write_override(
                 "      start_period: 1s",
                 "      retries: 120",
                 "    ports: !override",
-                "      - target: 8080",
+                f"      - target: {SMOKE_HTTP_PORT}",
                 "        host_ip: 127.0.0.1",
                 "",
             )
@@ -276,27 +281,250 @@ def _wait_for_exit(container_id: str, timeout_seconds: float = 30) -> int:
     raise RuntimeError(f"container {container_id} did not exit")
 
 
-def _sqlite_evidence(database: Path) -> tuple[str, tuple[tuple[str, str], ...]]:
-    deadline = time.monotonic() + 30
-    while not database.exists() and time.monotonic() < deadline:
-        time.sleep(0.25)
-    if not database.exists():
-        raise RuntimeError(f"SQLite database was not created at {database}")
-    with sqlite3.connect(database) as connection:
-        version = connection.execute(
-            "SELECT value FROM schema_meta WHERE key = 'schema_version'"
-        ).fetchone()
-        streams = connection.execute(
-            """
-            SELECT instruments.ticker, streams.timeframe
-            FROM streams
-            JOIN instruments ON instruments.id = streams.instrument_id
-            ORDER BY instruments.ticker, streams.timeframe
-            """
+@dataclass(frozen=True)
+class DurableStreamEvidence:
+    earliest_open_time_ms: int | None
+    latest_committed_open_time_ms: int | None
+    last_audit_at_ms: int | None
+    candles: tuple[tuple[object, ...], ...]
+
+
+@dataclass(frozen=True)
+class SqliteEvidence:
+    schema_version: str
+    streams: dict[str, DurableStreamEvidence]
+
+
+def _sqlite_evidence(compose: list[str], environment: dict[str, str]) -> SqliteEvidence:
+    probe = """
+import json
+import sqlite3
+
+with sqlite3.connect("/data/market.sqlite3", timeout=30) as connection:
+    version = connection.execute(
+        "SELECT value FROM schema_meta WHERE key = 'schema_version'"
+    ).fetchone()
+    stream_rows = connection.execute(
+        '''
+        SELECT streams.id, instruments.ticker, streams.timeframe,
+               stream_state.earliest_available_open_time_ms,
+               stream_state.latest_committed_open_time_ms,
+               stream_state.last_audit_at_ms
+        FROM streams
+        JOIN instruments ON instruments.id = streams.instrument_id
+        JOIN stream_state ON stream_state.stream_id = streams.id
+        ORDER BY instruments.ticker, streams.timeframe
+        '''
+    ).fetchall()
+    streams = []
+    for stream_id, ticker, timeframe, earliest, latest, last_audit in stream_rows:
+        candles = connection.execute(
+            '''
+            SELECT open_time_ms, open_value, high_value, low_value, close_value,
+                   volume_value, source, committed_at_ms
+            FROM candles
+            WHERE stream_id = ?
+            ORDER BY open_time_ms
+            ''',
+            (stream_id,),
         ).fetchall()
-    if version is None or not streams:
-        raise RuntimeError("SQLite schema or configured stream evidence is missing")
-    return str(version[0]), tuple((str(row[0]), str(row[1])) for row in streams)
+        streams.append(
+            {
+                "key": f"{ticker}:{timeframe}",
+                "earliest": earliest,
+                "latest": latest,
+                "last_audit": last_audit,
+                "candles": candles,
+            }
+        )
+print(json.dumps({"schema_version": version[0], "streams": streams}))
+"""
+    raw = _run(
+        [*compose, "exec", "--no-TTY", SERVICE, "python", "-c", probe],
+        environment=environment,
+    )
+    payload = json.loads(raw)
+    streams = {
+        item["key"]: DurableStreamEvidence(
+            earliest_open_time_ms=item["earliest"],
+            latest_committed_open_time_ms=item["latest"],
+            last_audit_at_ms=item["last_audit"],
+            candles=tuple(tuple(row) for row in item["candles"]),
+        )
+        for item in payload["streams"]
+    }
+    evidence = SqliteEvidence(str(payload["schema_version"]), streams)
+    if not evidence.streams or any(not item.candles for item in evidence.streams.values()):
+        raise RuntimeError("real candle evidence is missing before restart")
+    if any(
+        item.latest_committed_open_time_ms is None or item.last_audit_at_ms is None
+        for item in evidence.streams.values()
+    ):
+        raise RuntimeError("durable stream progress evidence is missing before restart")
+    return evidence
+
+
+def _assert_evidence_preserved(
+    before: SqliteEvidence,
+    after: SqliteEvidence,
+    *,
+    context: str,
+) -> None:
+    if after.schema_version != before.schema_version:
+        raise RuntimeError(f"schema version changed {context}")
+    if after.streams.keys() != before.streams.keys():
+        raise RuntimeError(f"configured stream set changed {context}")
+    for stream, previous in before.streams.items():
+        current = after.streams[stream]
+        current_by_open = {int(row[0]): row for row in current.candles}
+        for candle in previous.candles:
+            if current_by_open.get(int(candle[0])) != candle:
+                raise RuntimeError(f"durable candle changed or disappeared for {stream} {context}")
+        if len(current.candles) < len(previous.candles):
+            raise RuntimeError(f"candle count regressed for {stream} {context}")
+        if current.earliest_open_time_ms != previous.earliest_open_time_ms:
+            raise RuntimeError(f"historical lower bound changed for {stream} {context}")
+        _assert_progress_not_lower(
+            previous.latest_committed_open_time_ms,
+            current.latest_committed_open_time_ms,
+            stream=stream,
+            field="latest committed candle",
+            context=context,
+        )
+        _assert_progress_not_lower(
+            previous.last_audit_at_ms,
+            current.last_audit_at_ms,
+            stream=stream,
+            field="last audit",
+            context=context,
+        )
+
+
+def _assert_progress_not_lower(
+    before: int | None,
+    after: int | None,
+    *,
+    stream: str,
+    field: str,
+    context: str,
+) -> None:
+    if before is not None and (after is None or after < before):
+        raise RuntimeError(f"{field} regressed for {stream} {context}")
+
+
+def _set_data_permissions(
+    image_name: str,
+    data_directory: Path,
+    *,
+    uid: int,
+    gid: int,
+    directory_mode: int,
+    file_mode: int,
+) -> None:
+    script = """
+import os
+import sys
+from pathlib import Path
+
+root = Path("/data")
+uid, gid = int(sys.argv[1]), int(sys.argv[2])
+directory_mode, file_mode = int(sys.argv[3], 8), int(sys.argv[4], 8)
+for path in (*root.rglob("*"), root):
+    os.chown(path, uid, gid)
+    os.chmod(path, directory_mode if path.is_dir() else file_mode)
+"""
+    _run(
+        [
+            "docker",
+            "run",
+            "--rm",
+            "--user",
+            "0:0",
+            "--entrypoint",
+            "python",
+            "--mount",
+            f"type=bind,source={data_directory},target=/data",
+            image_name,
+            "-c",
+            script,
+            str(uid),
+            str(gid),
+            f"{directory_mode:o}",
+            f"{file_mode:o}",
+        ]
+    )
+
+
+def _assert_existing_sqlite_is_writable(
+    compose: list[str],
+    environment: dict[str, str],
+) -> None:
+    probe = """
+import json
+import os
+import sqlite3
+import stat
+from pathlib import Path
+
+database = Path("/data/market.sqlite3")
+with sqlite3.connect(database, timeout=30) as connection:
+    connection.execute("BEGIN IMMEDIATE")
+    schema_version = connection.execute(
+        "SELECT value FROM schema_meta WHERE key = 'schema_version'"
+    ).fetchone()[0]
+    connection.execute(
+        "UPDATE schema_meta SET value = 'permission-probe' WHERE key = 'schema_version'"
+    )
+    connection.execute(
+        "UPDATE schema_meta SET value = ? WHERE key = 'schema_version'",
+        (schema_version,),
+    )
+    connection.commit()
+    paths = [database, Path(f"{database}-wal"), Path(f"{database}-shm")]
+    facts = []
+    for path in paths:
+        info = path.stat()
+        facts.append(
+            {
+                "name": path.name,
+                "uid": info.st_uid,
+                "gid": info.st_gid,
+                "mode": stat.S_IMODE(info.st_mode),
+                "writable": os.access(path, os.W_OK),
+            }
+        )
+directory = database.parent.stat()
+print(
+    json.dumps(
+        {
+            "directory_mode": stat.S_IMODE(directory.st_mode),
+            "directory_uid": directory.st_uid,
+            "directory_gid": directory.st_gid,
+            "files": facts,
+        }
+    )
+)
+"""
+    raw = _run(
+        [*compose, "exec", "--no-TTY", SERVICE, "python", "-c", probe],
+        environment=environment,
+    )
+    facts = json.loads(raw)
+    if facts["directory_mode"] != 0o750:
+        raise RuntimeError(f"existing data directory mode is not 0750: {facts}")
+    if facts["directory_uid"] != RUNTIME_UID or facts["directory_gid"] != RUNTIME_GID:
+        raise RuntimeError(f"existing data directory ownership is wrong: {facts}")
+    if {item["name"] for item in facts["files"]} != {
+        "market.sqlite3",
+        "market.sqlite3-wal",
+        "market.sqlite3-shm",
+    }:
+        raise RuntimeError(f"SQLite WAL/SHM evidence is incomplete: {facts}")
+    for item in facts["files"]:
+        if item["uid"] != RUNTIME_UID or item["gid"] != RUNTIME_GID:
+            raise RuntimeError(f"SQLite file ownership is wrong: {item}")
+        if item["mode"] & 0o007 or not item["writable"]:
+            raise RuntimeError(f"SQLite file permissions are too broad or not writable: {item}")
 
 
 def _assert_image_contract(image_id: str) -> None:
@@ -307,7 +535,12 @@ def _assert_image_contract(image_id: str) -> None:
         raise RuntimeError(f"unexpected image command: {inspection['Cmd']}")
     health_test = inspection["Healthcheck"]["Test"]
     health_command = " ".join(health_test)
-    if "/health" not in health_command or "/readiness" in health_command:
+    if (
+        "/health" not in health_command
+        or "/readiness" in health_command
+        or "MDS_HTTP_PORT" not in health_command
+        or "8080" not in health_command
+    ):
         raise RuntimeError(f"unexpected image healthcheck: {health_test}")
 
     probe = """
@@ -361,6 +594,11 @@ def _assert_running_container_contract(compose: list[str], environment: dict[str
     if not container_id:
         raise RuntimeError("Compose service container is missing")
     _wait_for_health(container_id)
+    stop_timeout = _run(
+        ["docker", "inspect", "--format", "{{.Config.StopTimeout}}", container_id]
+    )
+    if stop_timeout != "20":
+        raise RuntimeError(f"container stop timeout is not production 20s: {stop_timeout}")
     pid1_probe = """
 import json
 from pathlib import Path
@@ -394,7 +632,8 @@ def _run_smoke(rest: FakeBybitRest, websocket: FakeBybitWebSocket) -> None:
         data_root = temporary / "bbb-data"
         data_directory = data_root / "market-data"
         data_directory.mkdir(parents=True)
-        data_directory.chmod(0o777)
+        database = data_directory / "market.sqlite3"
+        initialize_database(database)
         override = temporary / "compose-smoke.yml"
         project = f"mds-container-smoke-{os.getpid()}"
         container_name = f"{project}-service"
@@ -402,27 +641,41 @@ def _run_smoke(rest: FakeBybitRest, websocket: FakeBybitWebSocket) -> None:
         _write_override(override, container_name, image_name, rest.port, websocket.port)
         compose = _compose_command(project, override)
         environment = {**os.environ, "BBB_DATA_ROOT": str(data_root)}
-        database = data_directory / "market.sqlite3"
+        image_built = False
         try:
             _run([*compose, "build", SERVICE], environment=environment)
+            image_built = True
             _assert_image_contract(image_name)
+            _set_data_permissions(
+                image_name,
+                data_directory,
+                uid=RUNTIME_UID,
+                gid=RUNTIME_GID,
+                directory_mode=0o750,
+                file_mode=0o640,
+            )
 
             _run([*compose, "up", "--detach", SERVICE], environment=environment)
             container_id = _assert_running_container_contract(compose, environment)
-            initial = _sqlite_evidence(database)
+            _assert_existing_sqlite_is_writable(compose, environment)
+            initial = _sqlite_evidence(compose, environment)
 
-            _run([*compose, "restart", "--timeout", "20", SERVICE], environment=environment)
+            _run([*compose, "restart", SERVICE], environment=environment)
             container_id = _assert_running_container_contract(compose, environment)
-            if _sqlite_evidence(database) != initial:
-                raise RuntimeError("SQLite evidence changed after container restart")
+            after_restart = _sqlite_evidence(compose, environment)
+            _assert_evidence_preserved(initial, after_restart, context="after restart")
 
             _run(
                 [*compose, "up", "--detach", "--force-recreate", "--no-deps", SERVICE],
                 environment=environment,
             )
             container_id = _assert_running_container_contract(compose, environment)
-            if _sqlite_evidence(database) != initial:
-                raise RuntimeError("SQLite evidence changed after container recreation")
+            after_recreate = _sqlite_evidence(compose, environment)
+            _assert_evidence_preserved(
+                after_restart,
+                after_recreate,
+                context="after recreation",
+            )
 
             _run(["docker", "update", "--restart=no", container_id])
             _run(["docker", "kill", "--signal=SIGINT", container_id])
@@ -431,20 +684,27 @@ def _run_smoke(rest: FakeBybitRest, websocket: FakeBybitWebSocket) -> None:
 
             _run([*compose, "up", "--detach", SERVICE], environment=environment)
             container_id = _assert_running_container_contract(compose, environment)
-            _run([*compose, "stop", "--timeout", "20", SERVICE], environment=environment)
+            _run([*compose, "stop", SERVICE], environment=environment)
             if _wait_for_exit(container_id) != 0:
                 raise RuntimeError("SIGTERM shutdown did not exit cleanly")
-            if _sqlite_evidence(database) != initial:
-                raise RuntimeError("SQLite evidence changed after signal shutdown checks")
         finally:
-            _run([*compose, "down", "--remove-orphans", "--timeout", "20"], environment=environment)
-            subprocess.run(
-                ["docker", "image", "rm", image_name],
-                cwd=ROOT,
-                text=True,
-                capture_output=True,
-                check=False,
-            )
+            _run([*compose, "down", "--remove-orphans"], environment=environment)
+            if image_built:
+                _set_data_permissions(
+                    image_name,
+                    data_directory,
+                    uid=os.getuid(),
+                    gid=os.getgid(),
+                    directory_mode=0o700,
+                    file_mode=0o600,
+                )
+                subprocess.run(
+                    ["docker", "image", "rm", image_name],
+                    cwd=ROOT,
+                    text=True,
+                    capture_output=True,
+                    check=False,
+                )
 
 
 def main() -> int:

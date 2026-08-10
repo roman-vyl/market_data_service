@@ -31,12 +31,18 @@ close those gaps. It is proposal-only; it does not apply the implementation.
 - Preserve direct exec/PID1 launch so Docker SIGTERM and SIGINT reach the
   shutdown path already specified by `runtime-health-and-readiness`.
 - Define an image-level Docker healthcheck against the existing `GET /health`
-  endpoint, without creating or reinterpreting a health/readiness API.
+  endpoint on the effective `MDS_HTTP_PORT` (default `8080`), without creating
+  or reinterpreting a health/readiness API.
 - Publish standalone Compose HTTP only as `127.0.0.1:8080:8080`.
 - Preserve `${BBB_DATA_ROOT}/market-data:/data` exactly as the external
   persistence contract.
 - Add container smoke coverage for restart and recreation against the same
-  host directory, including SQLite preservation and return to healthy state.
+  host directory, including monotonic preservation of real candle/progress
+  evidence and return to healthy state.
+- Define a 20-second standalone Compose stop grace period and verify signal
+  shutdown against that production policy.
+- Verify the documented one-time ownership migration for an existing external
+  SQLite directory without world-writable production permissions.
 - Verify both build context and built-image hygiene so repository databases,
   Git metadata, caches, virtual environments, archives, backups, and other
   runtime-unnecessary artifacts do not enter the image.

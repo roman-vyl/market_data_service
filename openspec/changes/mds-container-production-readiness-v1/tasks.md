@@ -56,3 +56,18 @@
       container entries in the acceptance matrix where necessary.
 - [x] 5.3 Run the container smoke suite and `make verify` for the later apply
       change.
+
+## 6. Correction pass
+
+- [x] 6.1 Make the image healthcheck use effective `MDS_HTTP_PORT` with an
+      `8080` default and prove a non-default container port works.
+- [x] 6.2 Replace schema/stream-only restart evidence with real candle rows and
+      monotonic per-stream durable progress checks across restart/recreate.
+- [x] 6.3 Set standalone Compose `stop_grace_period: 20s` and exercise graceful
+      stop using that configured policy without a test-only timeout override.
+- [x] 6.4 Cover one-time migration of an existing external SQLite directory to
+      UID/GID `10001:10001` using `0750` directories and `0640` files, including
+      WAL/SHM writes by the non-root service.
+- [x] 6.5 Run deterministic container smoke, `make verify`, strict OpenSpec
+      validation, and the separate bounded real-Bybit regression against the
+      existing external MDS data root.

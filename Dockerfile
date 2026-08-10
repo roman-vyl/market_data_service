@@ -38,6 +38,6 @@ EXPOSE 8080
 USER 10001:10001
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
-    CMD ["python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/health', timeout=3).close()"]
+    CMD ["python", "-c", "import os, urllib.request; port = os.environ.get('MDS_HTTP_PORT', '8080'); urllib.request.urlopen(f'http://127.0.0.1:{port}/health', timeout=3).close()"]
 
 CMD ["market-data-service", "serve"]
