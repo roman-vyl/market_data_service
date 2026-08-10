@@ -6,6 +6,7 @@ import json
 from dataclasses import dataclass
 from urllib.parse import unquote, urlsplit
 
+from market_data_service.adapters.http.error_envelope import map_exception
 from market_data_service.application.audit_continuity import UnknownStreamError
 from market_data_service.application.history_planning import AuditStreamRange, GetStreamBounds
 from market_data_service.config import ValidatedMarketConfig
@@ -33,7 +34,7 @@ class HistoryPlanningHttpHandler:
         try:
             route = self._parse_route(target)
             if route.operation != "bounds":
-                return 404, {"error": "not_found"}
+                return 404, {"error": "not_found", "detail": "no such planning operation"}
             result = self._bounds.execute(route.stream)
             return 200, {
                 "contract_version": "market_stream_bounds.v1",
@@ -44,7 +45,7 @@ class HistoryPlanningHttpHandler:
                 "latest_committed_open_time_ms": result.latest_committed_open_time_ms,
             }
         except Exception as exc:
-            return self._map_exception(exc)
+            return map_exception(exc)
 
     def handle_post(
         self,
@@ -54,7 +55,7 @@ class HistoryPlanningHttpHandler:
         try:
             route = self._parse_route(target)
             if route.operation != "continuity-audits":
-                return 404, {"error": "not_found"}
+                return 404, {"error": "not_found", "detail": "no such planning operation"}
             request = self._parse_audit_payload(payload)
             result = self._audit.execute(
                 route.stream,
@@ -74,7 +75,7 @@ class HistoryPlanningHttpHandler:
                 "market_data_hash": result.market_data_hash,
             }
         except Exception as exc:
-            return self._map_exception(exc)
+            return map_exception(exc)
 
     def matches(self, target: str) -> bool:
         path = urlsplit(target).path
@@ -103,26 +104,12 @@ class HistoryPlanningHttpHandler:
             raise ValueError("request body must be valid JSON") from exc
         if not isinstance(document, dict):
             raise ValueError("request body must be a JSON object")
-        if set(document) == {"from_ms", "to_ms"}:
-            start = document["from_ms"]
-            end = document["to_ms"]
-        elif set(document) == {"start_time_ms", "end_time_ms"}:
-            start = document["start_time_ms"]
-            end = document["end_time_ms"]
-        else:
+        if set(document) != {"from_ms", "to_ms"}:
             raise ValueError("request body must contain only from_ms/to_ms")
+        start = document["from_ms"]
+        end = document["to_ms"]
         if isinstance(start, bool) or not isinstance(start, int):
             raise ValueError("from_ms must be an integer")
         if isinstance(end, bool) or not isinstance(end, int):
             raise ValueError("to_ms must be an integer")
         return {"from_ms": start, "to_ms": end}
-
-    @staticmethod
-    def _map_exception(exc: Exception) -> tuple[int, dict[str, object]]:
-        if isinstance(exc, LookupError):
-            return 404, {"error": "not_found"}
-        if isinstance(exc, UnknownStreamError):
-            return 404, {"error": "stream_not_found", "message": str(exc)}
-        if isinstance(exc, ValueError):
-            return 422, {"error": "invalid_request", "message": str(exc)}
-        return 500, {"error": "internal_error"}

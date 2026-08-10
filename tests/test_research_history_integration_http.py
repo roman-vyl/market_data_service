@@ -150,13 +150,15 @@ def test_bounds_and_audit_are_read_only_and_ignore_global_readiness(tmp_path: Pa
         code, audit = _request(
             f"http://{host}:{port}/v1/streams/BTCUSDT.P/1m/continuity-audits",
             method="POST",
-            body={"start_time_ms": 0, "end_time_ms": 180_000},
+            body={"from_ms": 0, "to_ms": 180_000},
         )
         assert code == 200
         assert audit["is_continuous"] is True
         assert audit["candle_count"] == 3
         assert audit["state"] == "degraded"
         assert audit["gaps"] == []
+        assert isinstance(audit["market_data_hash"], str)
+        assert len(audit["market_data_hash"]) == 64
 
         with SqliteUnitOfWork(database) as unit_of_work:
             assert unit_of_work.get_stream_state(STREAM).state is StreamLifecycleState.DEGRADED
@@ -174,11 +176,12 @@ def test_audit_reports_exact_gap_without_repair(tmp_path: Path) -> None:
         code, audit = _request(
             f"http://{host}:{port}/v1/streams/BTCUSDT.P/1m/continuity-audits",
             method="POST",
-            body={"start_time_ms": 0, "end_time_ms": 180_000},
+            body={"from_ms": 0, "to_ms": 180_000},
         )
         assert code == 200
         assert audit["is_continuous"] is False
         assert audit["gaps"] == [{"from_ms": 60_000, "to_ms": 120_000}]
+        assert audit["market_data_hash"] is None
 
         with SqliteUnitOfWork(database) as unit_of_work:
             candles = unit_of_work.list_candles(
@@ -233,14 +236,24 @@ def test_history_contract_rejects_unaligned_or_malformed_requests(tmp_path: Path
         code, payload = _request(
             f"http://{host}:{port}/v1/streams/BTCUSDT.P/1m/continuity-audits",
             method="POST",
-            body={"start_time_ms": 1, "end_time_ms": 60_000},
+            body={"from_ms": 1, "to_ms": 60_000},
+        )
+        assert code == 422
+        assert payload["error"] == "invalid_request"
+        assert "detail" in payload
+
+        code, payload = _request(
+            f"http://{host}:{port}/v1/streams/BTCUSDT.P/1m/continuity-audits",
+            method="POST",
+            body={"start_time_ms": 0, "end_time_ms": 60_000},
         )
         assert code == 422
         assert payload["error"] == "invalid_request"
 
         code, payload = _request(f"http://{host}:{port}/v1/streams/ETHUSDT.P/1m/bounds")
         assert code == 404
-        assert payload["error"] == "stream_not_found"
+        assert payload["error"] == "configured_stream_not_found"
+        assert "detail" in payload
     finally:
         server.close()
 
@@ -302,5 +315,32 @@ def test_historical_read_rejects_stale_hash(tmp_path: Path) -> None:
         )
         assert code == 409
         assert payload["error"] == "coverage_stale"
+    finally:
+        server.close()
+
+
+def test_historical_read_rejects_malformed_hash_distinctly_from_stale_hash(
+    tmp_path: Path,
+) -> None:
+    database = tmp_path / "market.sqlite3"
+    _seed(database, (0, 60_000))
+    server = _server(database)
+    server.start()
+    host, port = server.address
+    try:
+        code, payload = _request(
+            f"http://{host}:{port}/v1/historical-candles",
+            method="POST",
+            body={
+                "ticker": "BTCUSDT.P",
+                "timeframe": "1m",
+                "from_ms": 0,
+                "to_ms": 120_000,
+                "expected_market_data_hash": "not-a-hash",
+            },
+        )
+        assert code == 422
+        assert payload["error"] == "invalid_request"
+        assert "detail" in payload
     finally:
         server.close()

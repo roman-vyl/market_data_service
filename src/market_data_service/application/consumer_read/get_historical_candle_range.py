@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import re
+
 from market_data_service.application.consumer_read.errors import (
     ConfiguredStreamNotFound,
     CoverageStale,
+    InvalidRange,
 )
 from market_data_service.application.consumer_read.models import (
     CandleRangeResult,
@@ -20,6 +23,8 @@ from market_data_service.domain.identity import InstrumentKey, StreamKey
 from market_data_service.domain.timeframes import get_timeframe
 from market_data_service.ports.consumer_read import ConsumerCandleReader
 
+_CANONICAL_HASH_FORMAT = re.compile(r"^[0-9a-f]{64}$")
+
 
 class GetHistoricalCandleRange:
     def __init__(self, config: ValidatedMarketConfig, reader: ConsumerCandleReader) -> None:
@@ -33,6 +38,10 @@ class GetHistoricalCandleRange:
             raise ConfiguredStreamNotFound(str(exc)) from exc
         if stream not in self._configured:
             raise ConfiguredStreamNotFound(stream.canonical_id)
+        if not _CANONICAL_HASH_FORMAT.match(request.expected_market_data_hash):
+            raise InvalidRange(
+                "expected_market_data_hash must be a 64-character lowercase hex digest"
+            )
 
         step_ms = get_timeframe(stream.timeframe).duration_ms
         validate_requested_range(request.from_ms, request.to_ms, step_ms)

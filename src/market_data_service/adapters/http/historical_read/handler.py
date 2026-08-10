@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import json
 
-from market_data_service.adapters.http.consumer_read.exception_mapping import map_exception
 from market_data_service.adapters.http.consumer_read.serialization import serialize_result
+from market_data_service.adapters.http.error_envelope import map_exception
 from market_data_service.application.consumer_read import (
     GetHistoricalCandleRange,
     HistoricalCandleRangeRequest,
@@ -38,15 +38,7 @@ class HistoricalReadHttpHandler:
                 expected_market_data_hash=self._require_str(document, "expected_market_data_hash"),
             )
             return 200, serialize_result(self._query.execute(request))
-        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
-            return 422, {"error": "invalid_request", "detail": str(exc)}
         except Exception as exc:
-            from market_data_service.application.consumer_read.errors import ConsumerReadError
-
-            if isinstance(exc, ConsumerReadError):
-                return map_exception(exc)
-            if isinstance(exc, ValueError):
-                return 422, {"error": "invalid_request", "detail": str(exc)}
             return map_exception(exc)
 
     @staticmethod

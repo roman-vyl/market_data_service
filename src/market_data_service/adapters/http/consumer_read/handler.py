@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from market_data_service.adapters.http.consumer_read.exception_mapping import map_exception
 from market_data_service.adapters.http.consumer_read.parsing import parse_request_target
 from market_data_service.adapters.http.consumer_read.serialization import serialize_result
+from market_data_service.adapters.http.error_envelope import map_exception
 from market_data_service.application.consumer_read import GetCandleRange
 
 

@@ -2,120 +2,25 @@
 
 from __future__ import annotations
 
-
-def _parameter(
-    name: str,
-    schema: dict[str, object],
-    *,
-    location: str = "query",
-) -> dict[str, object]:
-    return {
-        "name": name,
-        "in": location,
-        "required": True,
-        "schema": schema,
-    }
+from market_data_service.adapters.http.consumer_read.openapi_schemas import (
+    audit_request_schema,
+    audit_response_schema,
+    bounds_response_schema,
+    candle_response_schema,
+    error_response,
+    historical_candle_request_schema,
+    parameter,
+)
 
 
 def openapi_document() -> dict[str, object]:
-    decimal_schema = {
-        "type": "string",
-        "pattern": r"^-?(0|[1-9][0-9]*)(\.[0-9]+)?$",
-    }
-    candle_schema = {
-        "type": "object",
-        "required": ["open_time_ms", "open", "high", "low", "close", "volume"],
-        "properties": {
-            "open_time_ms": {"type": "integer"},
-            "open": decimal_schema,
-            "high": decimal_schema,
-            "low": decimal_schema,
-            "close": decimal_schema,
-            "volume": decimal_schema,
-        },
-    }
-    candle_response = {
-        "type": "object",
-        "required": [
-            "ticker",
-            "timeframe",
-            "from_ms",
-            "to_ms",
-            "market_data_hash",
-            "candles",
-        ],
-        "properties": {
-            "ticker": {"type": "string"},
-            "timeframe": {"type": "string"},
-            "from_ms": {"type": "integer"},
-            "to_ms": {"type": "integer"},
-            "market_data_hash": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
-            "candles": {"type": "array", "items": candle_schema},
-        },
-    }
-    bounds_response = {
-        "type": "object",
-        "required": [
-            "contract_version",
-            "ticker",
-            "timeframe",
-            "state",
-            "earliest_committed_open_time_ms",
-            "latest_committed_open_time_ms",
-        ],
-        "properties": {
-            "contract_version": {"const": "market_stream_bounds.v1"},
-            "ticker": {"type": "string"},
-            "timeframe": {"type": "string"},
-            "state": {"type": "string"},
-            "earliest_committed_open_time_ms": {
-                "type": ["integer", "null"],
-                "minimum": 0,
-            },
-            "latest_committed_open_time_ms": {
-                "type": ["integer", "null"],
-                "minimum": 0,
-            },
-        },
-    }
-    audit_response = {
-        "type": "object",
-        "required": [
-            "contract_version",
-            "ticker",
-            "timeframe",
-            "checked_start_ms",
-            "checked_end_ms",
-            "candle_count",
-            "is_continuous",
-            "gaps",
-            "state",
-        ],
-        "properties": {
-            "contract_version": {"const": "market_continuity_audit.v1"},
-            "ticker": {"type": "string"},
-            "timeframe": {"type": "string"},
-            "checked_start_ms": {"type": "integer", "minimum": 0},
-            "checked_end_ms": {"type": "integer", "minimum": 1},
-            "candle_count": {"type": "integer", "minimum": 0},
-            "is_continuous": {"type": "boolean"},
-            "gaps": {
-                "type": "array",
-                "items": {
-                    "type": "object",
-                    "required": ["from_ms", "to_ms"],
-                    "properties": {
-                        "from_ms": {"type": "integer"},
-                        "to_ms": {"type": "integer"},
-                    },
-                },
-            },
-            "state": {"type": "string"},
-        },
-    }
+    candle_response = candle_response_schema()
+    bounds_response = bounds_response_schema()
+    audit_response = audit_response_schema()
+    historical_candle_request = historical_candle_request_schema()
     stream_parameters = [
-        _parameter("ticker", {"type": "string"}, location="path"),
-        _parameter("timeframe", {"type": "string"}, location="path"),
+        parameter("ticker", {"type": "string"}, location="path"),
+        parameter("timeframe", {"type": "string"}, location="path"),
     ]
     return {
         "openapi": "3.1.0",
@@ -125,20 +30,46 @@ def openapi_document() -> dict[str, object]:
                 "get": {
                     "summary": "Read one complete canonical candle range",
                     "parameters": [
-                        _parameter("ticker", {"type": "string"}),
-                        _parameter("timeframe", {"type": "string"}),
-                        _parameter("from_ms", {"type": "integer", "minimum": 0}),
-                        _parameter("to_ms", {"type": "integer", "minimum": 0}),
+                        parameter("ticker", {"type": "string"}),
+                        parameter("timeframe", {"type": "string"}),
+                        parameter("from_ms", {"type": "integer", "minimum": 0}),
+                        parameter("to_ms", {"type": "integer", "minimum": 0}),
                     ],
                     "responses": {
                         "200": {
                             "description": "Complete ready-stream range",
                             "content": {"application/json": {"schema": candle_response}},
                         },
-                        "404": {"description": "Configured stream not found"},
-                        "409": {"description": "Stream not ready"},
-                        "422": {"description": "Invalid or unavailable range"},
-                        "500": {"description": "Continuity invariant broken"},
+                        "404": error_response("configured_stream_not_found"),
+                        "409": error_response("stream_not_ready"),
+                        "422": error_response(
+                            "invalid_request, range_not_aligned, or range_out_of_bounds"
+                        ),
+                        "500": error_response("continuity_invariant_broken or internal_error"),
+                    },
+                }
+            },
+            "/v1/historical-candles": {
+                "post": {
+                    "summary": "Read one hash-bound historical candle range, bypassing readiness",
+                    "requestBody": {
+                        "required": True,
+                        "content": {
+                            "application/json": {"schema": historical_candle_request}
+                        },
+                    },
+                    "responses": {
+                        "200": {
+                            "description": "Complete range matching the expected hash",
+                            "content": {"application/json": {"schema": candle_response}},
+                        },
+                        "404": error_response("configured_stream_not_found"),
+                        "409": error_response("coverage_stale"),
+                        "422": error_response(
+                            "invalid_request (including a malformed "
+                            "expected_market_data_hash) or range_not_aligned"
+                        ),
+                        "500": error_response("continuity_invariant_broken or internal_error"),
                     },
                 }
             },
@@ -151,7 +82,9 @@ def openapi_document() -> dict[str, object]:
                             "description": "Committed candle bounds",
                             "content": {"application/json": {"schema": bounds_response}},
                         },
-                        "404": {"description": "Configured stream not found"},
+                        "404": error_response("configured_stream_not_found"),
+                        "422": error_response("invalid_request (malformed ticker/timeframe)"),
+                        "500": error_response("internal_error"),
                     },
                 }
             },
@@ -162,17 +95,7 @@ def openapi_document() -> dict[str, object]:
                     "requestBody": {
                         "required": True,
                         "content": {
-                            "application/json": {
-                                "schema": {
-                                    "type": "object",
-                                    "required": ["start_time_ms", "end_time_ms"],
-                                    "additionalProperties": False,
-                                    "properties": {
-                                        "start_time_ms": {"type": "integer"},
-                                        "end_time_ms": {"type": "integer"},
-                                    },
-                                }
-                            }
+                            "application/json": {"schema": audit_request_schema()}
                         },
                     },
                     "responses": {
@@ -180,8 +103,9 @@ def openapi_document() -> dict[str, object]:
                             "description": "Continuity report",
                             "content": {"application/json": {"schema": audit_response}},
                         },
-                        "404": {"description": "Configured stream not found"},
-                        "422": {"description": "Invalid or unaligned range"},
+                        "404": error_response("configured_stream_not_found"),
+                        "422": error_response("invalid_request or range_not_aligned"),
+                        "500": error_response("internal_error"),
                     },
                 }
             },

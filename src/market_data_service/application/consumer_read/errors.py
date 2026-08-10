@@ -16,7 +16,7 @@ class StreamNotReady(ConsumerReadError):
 
 
 class InvalidRange(ConsumerReadError):
-    code = "invalid_range"
+    code = "invalid_request"
 
 
 class RangeNotAligned(ConsumerReadError):
