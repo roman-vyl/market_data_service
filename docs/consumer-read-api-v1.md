@@ -33,9 +33,13 @@ OHLCV values are normalized decimal text and are never converted to JSON floatin
 
 ## Errors
 
+Every error uses the `{"error": <code>, "detail": <message>}` envelope, shared
+by every public read/planning endpoint (candles, historical-candles, stream
+bounds, continuity-audits).
+
 - `404 configured_stream_not_found`: ticker/timeframe is not a configured canonical stream.
 - `409 stream_not_ready`: the stream is not in durable `ready` state.
-- `422 invalid_range`: missing, duplicate, unsupported, non-integer, zero, or reversed parameters.
+- `422 invalid_request`: missing, duplicate, unsupported, non-integer, zero, or reversed parameters.
 - `422 range_not_aligned`: boundaries are not on the timeframe grid.
 - `422 range_out_of_bounds`: the request is not fully inside the proven available window.
 - `500 continuity_invariant_broken`: a stream marked ready did not return the complete expected grid; no partial success is returned.

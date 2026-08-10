@@ -88,7 +88,8 @@ def test_http_contract_decimal_text_and_errors() -> None:
         assert isinstance(payload["candles"][0]["open"], str)
         code, payload = get(f"http://{host}:{port}/v1/candles?ticker=BTCUSDT.P")
         assert code == 422
-        assert payload["error"] == "invalid_range"
+        assert payload["error"] == "invalid_request"
+        assert "detail" in payload
     finally:
         server.close()
 
@@ -102,7 +103,12 @@ def test_openapi_document_is_served() -> None:
         code, payload = get(f"http://{host}:{port}/openapi.json")
         assert code == 200
         assert "/v1/candles" in payload["paths"]
+        assert "/v1/historical-candles" in payload["paths"]
         assert "/v1/streams/{ticker}/{timeframe}/bounds" in payload["paths"]
         assert "/v1/streams/{ticker}/{timeframe}/continuity-audits" in payload["paths"]
+        audit_request_schema = payload["paths"][
+            "/v1/streams/{ticker}/{timeframe}/continuity-audits"
+        ]["post"]["requestBody"]["content"]["application/json"]["schema"]
+        assert set(audit_request_schema["properties"]) == {"from_ms", "to_ms"}
     finally:
         server.close()

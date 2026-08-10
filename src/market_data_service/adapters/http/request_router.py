@@ -50,11 +50,11 @@ class RuntimeRequestRouter:
             return self._consumer_read.handle(target)
         if self._history_planning is not None and self._history_planning.matches(target):
             return self._history_planning.handle_get(target)
-        return 404, {"error": "not_found"}
+        return 404, {"error": "not_found", "detail": f"no route for {target}"}
 
     def post(self, target: str, payload: bytes) -> tuple[int, dict[str, object]]:
         if urlsplit(target).path == "/v1/historical-candles" and self._historical_read is not None:
             return self._historical_read.handle(payload)
         if self._history_planning is not None and self._history_planning.matches(target):
             return self._history_planning.handle_post(target, payload)
-        return 404, {"error": "not_found"}
+        return 404, {"error": "not_found", "detail": f"no route for {target}"}
