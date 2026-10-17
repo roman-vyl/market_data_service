@@ -21,3 +21,17 @@ exchange_symbol = "ETHUSDT"
 enabled = true
 canonical_timeframes = ["5m", "1h", "4h", "1d"]
 history_policy = "full_available"
+
+[[instruments]]
+ticker = "SOLUSDT.P"
+exchange_symbol = "SOLUSDT"
+enabled = true
+canonical_timeframes = ["5m", "1h", "4h", "1d"]
+history_policy = "full_available"
+
+[[instruments]]
+ticker = "BNBUSDT.P"
+exchange_symbol = "BNBUSDT"
+enabled = true
+canonical_timeframes = ["5m", "1h", "4h", "1d"]
+history_policy = "full_available"
