@@ -21,3 +21,66 @@ exchange_symbol = "ETHUSDT"
 enabled = true
 canonical_timeframes = ["5m", "1h", "4h", "1d"]
 history_policy = "full_available"
+
+[[instruments]]
+ticker = "SOLUSDT.P"
+exchange_symbol = "SOLUSDT"
+enabled = true
+canonical_timeframes = ["5m", "1h", "4h", "1d"]
+history_policy = "full_available"
+
+[[instruments]]
+ticker = "BNBUSDT.P"
+exchange_symbol = "BNBUSDT"
+enabled = true
+canonical_timeframes = ["5m", "1h", "4h", "1d"]
+history_policy = "full_available"
+
+[[instruments]]
+ticker = "XRPUSDT.P"
+exchange_symbol = "XRPUSDT"
+enabled = true
+canonical_timeframes = ["5m", "1h", "4h", "1d"]
+history_policy = "full_available"
+
+[[instruments]]
+ticker = "TRXUSDT.P"
+exchange_symbol = "TRXUSDT"
+enabled = true
+canonical_timeframes = ["5m", "1h", "4h", "1d"]
+history_policy = "full_available"
+
+[[instruments]]
+ticker = "HYPEUSDT.P"
+exchange_symbol = "HYPEUSDT"
+enabled = true
+canonical_timeframes = ["5m", "1h", "4h", "1d"]
+history_policy = "full_available"
+
+[[instruments]]
+ticker = "DOGEUSDT.P"
+exchange_symbol = "DOGEUSDT"
+enabled = true
+canonical_timeframes = ["5m", "1h", "4h", "1d"]
+history_policy = "full_available"
+
+[[instruments]]
+ticker = "ADAUSDT.P"
+exchange_symbol = "ADAUSDT"
+enabled = true
+canonical_timeframes = ["5m", "1h", "4h", "1d"]
+history_policy = "full_available"
+
+[[instruments]]
+ticker = "LINKUSDT.P"
+exchange_symbol = "LINKUSDT"
+enabled = true
+canonical_timeframes = ["5m", "1h", "4h", "1d"]
+history_policy = "full_available"
+
+[[instruments]]
+ticker = "BCHUSDT.P"
+exchange_symbol = "BCHUSDT"
+enabled = true
+canonical_timeframes = ["5m", "1h", "4h", "1d"]
+history_policy = "full_available"

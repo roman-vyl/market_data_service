@@ -4,7 +4,7 @@ import tomllib
 from pathlib import Path
 
 
-def test_example_market_config_declares_unique_btc_and_eth_perpetuals() -> None:
+def test_example_market_config_declares_unique_canonical_perpetuals() -> None:
     config_path = Path(__file__).parents[1] / "config" / "markets.toml"
     payload = tomllib.loads(config_path.read_text(encoding="utf-8"))
 
@@ -12,8 +12,32 @@ def test_example_market_config_declares_unique_btc_and_eth_perpetuals() -> None:
     assert payload["source"] == {"venue": "bybit", "category": "linear"}
 
     instruments = payload["instruments"]
-    assert [item["ticker"] for item in instruments] == ["BTCUSDT.P", "ETHUSDT.P"]
-    assert [item["exchange_symbol"] for item in instruments] == ["BTCUSDT", "ETHUSDT"]
+    assert [item["ticker"] for item in instruments] == [
+        "BTCUSDT.P",
+        "ETHUSDT.P",
+        "SOLUSDT.P",
+        "BNBUSDT.P",
+        "XRPUSDT.P",
+        "TRXUSDT.P",
+        "HYPEUSDT.P",
+        "DOGEUSDT.P",
+        "ADAUSDT.P",
+        "LINKUSDT.P",
+        "BCHUSDT.P",
+    ]
+    assert [item["exchange_symbol"] for item in instruments] == [
+        "BTCUSDT",
+        "ETHUSDT",
+        "SOLUSDT",
+        "BNBUSDT",
+        "XRPUSDT",
+        "TRXUSDT",
+        "HYPEUSDT",
+        "DOGEUSDT",
+        "ADAUSDT",
+        "LINKUSDT",
+        "BCHUSDT",
+    ]
     assert len({item["ticker"] for item in instruments}) == len(instruments)
     assert len({item["exchange_symbol"] for item in instruments}) == len(instruments)
 
