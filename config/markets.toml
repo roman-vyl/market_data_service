@@ -2,6 +2,9 @@
 # `ticker` is the canonical service/research symbol.
 # `exchange_symbol` is the exact symbol sent to Bybit REST/WebSocket APIs.
 
+# The nine instruments after BTC/ETH are paused (enabled = false) until realtime
+# ingestion copes with their concurrent backfill; their stored history is kept.
+
 schema_version = 1
 
 [source]
@@ -25,62 +28,62 @@ history_policy = "full_available"
 [[instruments]]
 ticker = "SOLUSDT.P"
 exchange_symbol = "SOLUSDT"
-enabled = true
+enabled = false
 canonical_timeframes = ["5m", "1h", "4h", "1d"]
 history_policy = "full_available"
 
 [[instruments]]
 ticker = "BNBUSDT.P"
 exchange_symbol = "BNBUSDT"
-enabled = true
+enabled = false
 canonical_timeframes = ["5m", "1h", "4h", "1d"]
 history_policy = "full_available"
 
 [[instruments]]
 ticker = "XRPUSDT.P"
 exchange_symbol = "XRPUSDT"
-enabled = true
+enabled = false
 canonical_timeframes = ["5m", "1h", "4h", "1d"]
 history_policy = "full_available"
 
 [[instruments]]
 ticker = "TRXUSDT.P"
 exchange_symbol = "TRXUSDT"
-enabled = true
+enabled = false
 canonical_timeframes = ["5m", "1h", "4h", "1d"]
 history_policy = "full_available"
 
 [[instruments]]
 ticker = "HYPEUSDT.P"
 exchange_symbol = "HYPEUSDT"
-enabled = true
+enabled = false
 canonical_timeframes = ["5m", "1h", "4h", "1d"]
 history_policy = "full_available"
 
 [[instruments]]
 ticker = "DOGEUSDT.P"
 exchange_symbol = "DOGEUSDT"
-enabled = true
+enabled = false
 canonical_timeframes = ["5m", "1h", "4h", "1d"]
 history_policy = "full_available"
 
 [[instruments]]
 ticker = "ADAUSDT.P"
 exchange_symbol = "ADAUSDT"
-enabled = true
+enabled = false
 canonical_timeframes = ["5m", "1h", "4h", "1d"]
 history_policy = "full_available"
 
 [[instruments]]
 ticker = "LINKUSDT.P"
 exchange_symbol = "LINKUSDT"
-enabled = true
+enabled = false
 canonical_timeframes = ["5m", "1h", "4h", "1d"]
 history_policy = "full_available"
 
 [[instruments]]
 ticker = "BCHUSDT.P"
 exchange_symbol = "BCHUSDT"
-enabled = true
+enabled = false
 canonical_timeframes = ["5m", "1h", "4h", "1d"]
 history_policy = "full_available"

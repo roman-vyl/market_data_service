@@ -44,4 +44,4 @@ def test_example_market_config_declares_unique_canonical_perpetuals() -> None:
     for instrument in instruments:
         assert instrument["canonical_timeframes"] == ["5m", "1h", "4h", "1d"]
         assert instrument["history_policy"] == "full_available"
-        assert instrument["enabled"] is True
+    assert [item["ticker"] for item in instruments if item["enabled"]] == ["BTCUSDT.P", "ETHUSDT.P"]
