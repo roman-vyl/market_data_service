@@ -63,13 +63,17 @@ class RealtimeConnector:
         self._on_event = on_event
         self._on_outcome = on_outcome
         self._reconnect_policy = reconnect_policy or ReconnectPolicy()
+        self._session_established = False
 
     async def run(self, stop_event: asyncio.Event) -> None:
         exhausted = True
-        for attempt in range(1, self._reconnect_policy.max_attempts + 1):
+        attempt = 0
+        while attempt < self._reconnect_policy.max_attempts:
+            attempt += 1
             if stop_event.is_set():
                 exhausted = False
                 break
+            self._session_established = False
             try:
                 await self._run_session(stop_event)
                 exhausted = False
@@ -81,6 +85,11 @@ class RealtimeConnector:
                 await self._on_event(TransportFailed(type(exc).__name__, str(exc), self._now_ms()))
             except Exception as exc:
                 await self._on_event(TransportFailed(type(exc).__name__, str(exc), self._now_ms()))
+            if self._session_established:
+                # The attempt budget counts consecutive failed connects, not
+                # drops over the process lifetime: a session that connected
+                # and later dropped starts the budget over.
+                attempt = 0
             if attempt < self._reconnect_policy.max_attempts:
                 await self._wait_or_stop(stop_event)
                 if stop_event.is_set():
@@ -97,6 +106,7 @@ class RealtimeConnector:
 
     async def _run_session(self, stop_event: asyncio.Event) -> None:
         async with self._transport.connect(self._url) as session:
+            self._session_established = True
             await self._on_event(Connected(self._now_ms()))
             await session.send_text(self._adapter.subscription_payload("subscribe-1"))
             while not stop_event.is_set():
