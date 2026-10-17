@@ -12,7 +12,7 @@ The service is intentionally isolated from:
 
 Its responsibility is to obtain, validate, repair, persist, and expose canonical closed candles.
 
-The backend is explicitly multi-instrument. The checked-in deployment config enables canonical tickers `BTCUSDT.P`, `ETHUSDT.P`, `SOLUSDT.P`, and `BNBUSDT.P`, each mapped to the Bybit API symbol without the `.P` suffix, with operator-declared canonical timeframes in `config/markets.toml`.
+The backend is explicitly multi-instrument. The checked-in deployment config enables canonical tickers `BTCUSDT.P`, `ETHUSDT.P`, `SOLUSDT.P`, `BNBUSDT.P`, `XRPUSDT.P`, `TRXUSDT.P`, `ZECUSDT.P`, `HYPEUSDT.P`, and `DOGEUSDT.P`, each mapped to the Bybit API symbol without the `.P` suffix, with operator-declared canonical timeframes in `config/markets.toml`.
 
 ## Docker config behavior
 
