@@ -29,6 +29,8 @@ class RuntimeSettings:
     realtime_stale_check_seconds: float = 1.0
     reconnect_max_attempts: int = 3
     reconnect_delay_seconds: float = 1.0
+    websocket_ping_timeout_seconds: float = 60.0
+    event_loop_lag_warn_seconds: float = 1.0
     stale_intervals: int = 2
     stale_grace_ms: int = 5_000
     log_level: str = "INFO"
@@ -65,6 +67,10 @@ class RuntimeSettings:
             raise ValueError("realtime_stale_check_seconds must be positive")
         if self.reconnect_delay_seconds < 0:
             raise ValueError("reconnect_delay_seconds must be non-negative")
+        if self.websocket_ping_timeout_seconds <= 0:
+            raise ValueError("websocket_ping_timeout_seconds must be positive")
+        if self.event_loop_lag_warn_seconds <= 0:
+            raise ValueError("event_loop_lag_warn_seconds must be positive")
         if self.stale_grace_ms < 0:
             raise ValueError("stale_grace_ms must be non-negative")
         if self.log_level.upper() not in {"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"}:
@@ -120,6 +126,8 @@ class RuntimeSettings:
             realtime_stale_check_seconds=float(env.get("MDS_REALTIME_STALE_CHECK_SECONDS", "1.0")),
             reconnect_max_attempts=int(env.get("MDS_RECONNECT_MAX_ATTEMPTS", "3")),
             reconnect_delay_seconds=float(env.get("MDS_RECONNECT_DELAY_SECONDS", "1.0")),
+            websocket_ping_timeout_seconds=float(env.get("MDS_WS_PING_TIMEOUT_SECONDS", "60.0")),
+            event_loop_lag_warn_seconds=float(env.get("MDS_EVENT_LOOP_LAG_WARN_SECONDS", "1.0")),
             stale_intervals=int(env.get("MDS_STALE_INTERVALS", "2")),
             stale_grace_ms=int(env.get("MDS_STALE_GRACE_MS", "5000")),
             log_level=env.get("MDS_LOG_LEVEL", "INFO").upper(),

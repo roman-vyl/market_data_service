@@ -23,8 +23,9 @@ class WebsocketsSession:
         try:
             message = await self.connection.recv()
         except ConnectionClosed as exc:
-            code = exc.rcvd.code if exc.rcvd is not None else None
-            reason = exc.rcvd.reason if exc.rcvd is not None else None
+            frame = exc.rcvd if exc.rcvd is not None else exc.sent
+            code = frame.code if frame is not None else None
+            reason = frame.reason if frame is not None else None
             raise WebSocketDisconnected(str(exc), code=code, reason=reason) from exc
         if not isinstance(message, str):
             raise TypeError("binary WebSocket messages are unsupported")
@@ -37,7 +38,7 @@ class WebsocketsSession:
 @dataclass(frozen=True, slots=True)
 class WebsocketsTransport:
     ping_interval_seconds: float = 20.0
-    ping_timeout_seconds: float = 20.0
+    ping_timeout_seconds: float = 60.0
     close_timeout_seconds: float = 10.0
 
     @asynccontextmanager
