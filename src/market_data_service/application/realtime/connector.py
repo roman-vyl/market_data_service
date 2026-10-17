@@ -32,14 +32,23 @@ class RealtimeProtocolAdapter(Protocol):
 
 @dataclass(frozen=True, slots=True)
 class ReconnectPolicy:
+    """`max_attempts` bounds consecutive failed sessions. A session that
+    stayed connected for at least `healthy_session_seconds` before it
+    failed resets the count, so occasional disconnects of a long-running
+    process never exhaust the budget; a connection that keeps failing
+    right away still does."""
+
     max_attempts: int = 3
     delay_seconds: float = 1.0
+    healthy_session_seconds: float = 30.0
 
     def __post_init__(self) -> None:
         if self.max_attempts <= 0:
             raise ValueError("max_attempts must be positive")
         if self.delay_seconds < 0:
             raise ValueError("delay_seconds must be non-negative")
+        if self.healthy_session_seconds < 0:
+            raise ValueError("healthy_session_seconds must be non-negative")
 
 
 class RealtimeConnector:
@@ -63,16 +72,16 @@ class RealtimeConnector:
         self._on_event = on_event
         self._on_outcome = on_outcome
         self._reconnect_policy = reconnect_policy or ReconnectPolicy()
+        self._connected_at: float | None = None
 
     async def run(self, stop_event: asyncio.Event) -> None:
-        exhausted = True
-        for attempt in range(1, self._reconnect_policy.max_attempts + 1):
-            if stop_event.is_set():
-                exhausted = False
-                break
+        loop = asyncio.get_running_loop()
+        failures = 0
+        exhausted = False
+        while not stop_event.is_set():
+            self._connected_at = None
             try:
                 await self._run_session(stop_event)
-                exhausted = False
                 break
             except asyncio.CancelledError:
                 raise
@@ -81,11 +90,16 @@ class RealtimeConnector:
                 await self._on_event(TransportFailed(type(exc).__name__, str(exc), self._now_ms()))
             except Exception as exc:
                 await self._on_event(TransportFailed(type(exc).__name__, str(exc), self._now_ms()))
-            if attempt < self._reconnect_policy.max_attempts:
-                await self._wait_or_stop(stop_event)
-                if stop_event.is_set():
-                    exhausted = False
-                    break
+            policy = self._reconnect_policy
+            healthy = (
+                self._connected_at is not None
+                and loop.time() - self._connected_at >= policy.healthy_session_seconds
+            )
+            failures = 1 if healthy else failures + 1
+            if failures >= policy.max_attempts:
+                exhausted = True
+                break
+            await self._wait_or_stop(stop_event)
         if exhausted:
             await self._on_event(
                 ReconnectExhausted(
@@ -97,6 +111,7 @@ class RealtimeConnector:
 
     async def _run_session(self, stop_event: asyncio.Event) -> None:
         async with self._transport.connect(self._url) as session:
+            self._connected_at = asyncio.get_running_loop().time()
             await self._on_event(Connected(self._now_ms()))
             await session.send_text(self._adapter.subscription_payload("subscribe-1"))
             while not stop_event.is_set():
