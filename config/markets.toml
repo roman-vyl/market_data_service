@@ -51,13 +51,6 @@ canonical_timeframes = ["5m", "1h", "4h", "1d"]
 history_policy = "full_available"
 
 [[instruments]]
-ticker = "ZECUSDT.P"
-exchange_symbol = "ZECUSDT"
-enabled = true
-canonical_timeframes = ["5m", "1h", "4h", "1d"]
-history_policy = "full_available"
-
-[[instruments]]
 ticker = "HYPEUSDT.P"
 exchange_symbol = "HYPEUSDT"
 enabled = true
@@ -67,6 +60,27 @@ history_policy = "full_available"
 [[instruments]]
 ticker = "DOGEUSDT.P"
 exchange_symbol = "DOGEUSDT"
+enabled = true
+canonical_timeframes = ["5m", "1h", "4h", "1d"]
+history_policy = "full_available"
+
+[[instruments]]
+ticker = "ADAUSDT.P"
+exchange_symbol = "ADAUSDT"
+enabled = true
+canonical_timeframes = ["5m", "1h", "4h", "1d"]
+history_policy = "full_available"
+
+[[instruments]]
+ticker = "LINKUSDT.P"
+exchange_symbol = "LINKUSDT"
+enabled = true
+canonical_timeframes = ["5m", "1h", "4h", "1d"]
+history_policy = "full_available"
+
+[[instruments]]
+ticker = "BCHUSDT.P"
+exchange_symbol = "BCHUSDT"
 enabled = true
 canonical_timeframes = ["5m", "1h", "4h", "1d"]
 history_policy = "full_available"

@@ -19,9 +19,11 @@ def test_example_market_config_declares_unique_canonical_perpetuals() -> None:
         "BNBUSDT.P",
         "XRPUSDT.P",
         "TRXUSDT.P",
-        "ZECUSDT.P",
         "HYPEUSDT.P",
         "DOGEUSDT.P",
+        "ADAUSDT.P",
+        "LINKUSDT.P",
+        "BCHUSDT.P",
     ]
     assert [item["exchange_symbol"] for item in instruments] == [
         "BTCUSDT",
@@ -30,9 +32,11 @@ def test_example_market_config_declares_unique_canonical_perpetuals() -> None:
         "BNBUSDT",
         "XRPUSDT",
         "TRXUSDT",
-        "ZECUSDT",
         "HYPEUSDT",
         "DOGEUSDT",
+        "ADAUSDT",
+        "LINKUSDT",
+        "BCHUSDT",
     ]
     assert len({item["ticker"] for item in instruments}) == len(instruments)
     assert len({item["exchange_symbol"] for item in instruments}) == len(instruments)
