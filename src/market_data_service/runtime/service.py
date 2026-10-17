@@ -26,6 +26,7 @@ from market_data_service.runtime.admission import (
 from market_data_service.runtime.committed_bar_notification_factory import (
     build_committed_bar_notifier_worker,
 )
+from market_data_service.runtime.event_loop_lag import EventLoopLagMonitor
 from market_data_service.runtime.historical_worker import HistoricalReconciliationWorker
 from market_data_service.runtime.realtime import RuntimeRealtimeCoordinator
 from market_data_service.runtime.reconciliation import HistoricalStreamReconciler
@@ -82,6 +83,11 @@ class RuntimeService:
             async with asyncio.TaskGroup() as task_group:
                 task_group.create_task(realtime.run(stop_event))
                 task_group.create_task(worker.run(stop_event))
+                task_group.create_task(
+                    EventLoopLagMonitor(
+                        self._logger, warn_seconds=self._settings.event_loop_lag_warn_seconds
+                    ).run(stop_event)
+                )
         except ExceptionGroup as exc:
             root = _root_exception(exc)
             self._mark_fatal(root)
@@ -155,7 +161,9 @@ class RuntimeService:
 
         connector = RealtimeConnector(
             url=self._settings.websocket_url,
-            transport=WebsocketsTransport(),
+            transport=WebsocketsTransport(
+                ping_timeout_seconds=self._settings.websocket_ping_timeout_seconds
+            ),
             adapter=BybitWebSocketAdapter(topic_map),
             candle_handler=AdmissionGatedCandleHandler(
                 admission,

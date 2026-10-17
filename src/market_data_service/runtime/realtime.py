@@ -3,15 +3,20 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from collections.abc import Callable, Sequence
 
 from market_data_service.application.realtime.connector import RealtimeConnector
 from market_data_service.application.realtime.events import (
     CandleObserved,
+    Connected,
+    Disconnected,
     RealtimeEvent,
+    ReconnectExhausted,
     RecoveryReason,
     RecoveryRequired,
     SubscriptionConfirmed,
+    TransportFailed,
 )
 from market_data_service.application.realtime.outcomes import (
     RealtimeIngestionClassification,
@@ -112,6 +117,7 @@ class RuntimeRealtimeCoordinator:
         self._sync_lifecycle()
 
     async def on_event(self, event: RealtimeEvent) -> None:
+        _log_connection_event(event)
         if isinstance(event, CandleObserved) and not self._admission.allows(event.stream):
             return
         signals = tuple(
@@ -194,3 +200,17 @@ class RuntimeRealtimeCoordinator:
     def _refresh_status(self) -> None:
         for facts in self._supervisor.all_facts():
             self._status.update_stream(self._lifecycle.snapshot(facts.stream), facts)
+
+
+_LOGGER = logging.getLogger("market_data_service.runtime.realtime")
+
+
+def _log_connection_event(event: RealtimeEvent) -> None:
+    if isinstance(event, Connected):
+        _LOGGER.info("websocket connected")
+    elif isinstance(event, Disconnected):
+        _LOGGER.warning("websocket disconnected code=%s reason=%s", event.code, event.reason)
+    elif isinstance(event, TransportFailed):
+        _LOGGER.warning("websocket transport failed code=%s detail=%s", event.code, event.detail)
+    elif isinstance(event, ReconnectExhausted):
+        _LOGGER.error("websocket reconnect exhausted attempts=%s", event.attempts)

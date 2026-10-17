@@ -139,3 +139,18 @@ def test_disabled_webhook_ignores_malformed_environment_for_its_own_fields(
     assert settings.strategy_runtime_base_url == ""
     assert settings.runtime_webhook_timeout_seconds == 2.0
     assert settings.runtime_webhook_queue_capacity == 256
+
+
+def test_runtime_settings_websocket_diagnostics_defaults_and_env(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    defaults = RuntimeSettings()
+    assert defaults.websocket_ping_timeout_seconds == 60.0
+    assert defaults.event_loop_lag_warn_seconds == 1.0
+    monkeypatch.setenv("MDS_WS_PING_TIMEOUT_SECONDS", "90")
+    monkeypatch.setenv("MDS_EVENT_LOOP_LAG_WARN_SECONDS", "2.5")
+    settings = RuntimeSettings.from_environment()
+    assert settings.websocket_ping_timeout_seconds == 90.0
+    assert settings.event_loop_lag_warn_seconds == 2.5
+    with pytest.raises(ValueError, match="websocket_ping_timeout_seconds"):
+        RuntimeSettings(websocket_ping_timeout_seconds=0)
