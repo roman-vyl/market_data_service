@@ -161,3 +161,113 @@ def test_reconnect_signal_is_not_delayed_by_waiting_stale_retry() -> None:
 
     assert len(times) >= 2
     assert times[1] - asked_at < 1.0
+
+
+class GatedRecovery(TimedRecovery):
+    """Records requests; the first call blocks until the test releases it."""
+
+    def __init__(self, results: list[RecoveryClassification | str]) -> None:
+        super().__init__(results)
+        self.requests: list[RealtimeRecoveryRequest] = []
+        self.started = asyncio.Event()
+        self.release = asyncio.Event()
+        self._block_first = True
+
+    async def execute(self, request: RealtimeRecoveryRequest) -> RealtimeRecoveryResult:
+        self.requests.append(request)
+        if self._block_first:
+            self._block_first = False
+            self.started.set()
+            await self.release.wait()
+        return await super().execute(request)
+
+
+def _worker(recovery: object, stream: StreamKey) -> RealtimeRecoveryWorker:
+    return RealtimeRecoveryWorker(
+        recovery=recovery,  # type: ignore[arg-type]
+        supervisor=RealtimeSupervisor((stream,), {}, lambda: 1_000),
+        status=RuntimeStatusStore((stream,)),
+        operation_gate=asyncio.Lock(),
+        sync_lifecycle=lambda: None,
+        max_windows=1,
+        base_backoff_seconds=BASE,
+        max_backoff_seconds=MAX,
+        stale_first_retry_seconds=30.0,
+        stale_next_retry_seconds=60.0,
+        idle_seconds=0.001,
+    )
+
+
+def test_preempting_a_waiting_stale_retry_inherits_nothing() -> None:
+    async def scenario() -> None:
+        stream = StreamKey(InstrumentKey("BTCUSDT.P"), "5m")
+        recovery = TimedRecovery(["advanced", F, R])
+        worker = _worker(recovery, stream)
+        stop = asyncio.Event()
+        runner = asyncio.create_task(worker.run(stop))
+        await worker.enqueue(RecoveryRequired(stream, RecoveryReason.STALE, 1_000, 0))
+        for _ in range(200):
+            if len(recovery.times) == 2:
+                break
+            await asyncio.sleep(0.005)
+        await asyncio.sleep(0.02)
+        waiting = worker._pending[stream]
+        loop_now = asyncio.get_running_loop().time()
+        # Meaningful precondition: the stale attempt carries a window, counters and a due time.
+        assert waiting.recovery_window == ADVANCED
+        assert waiting.failures == 1
+        assert waiting.stale_failures == 1
+        assert waiting.due_at > loop_now + 10
+        assert not waiting.executing
+
+        reconnect = RecoveryRequired(stream, RecoveryReason.DISCONNECT, 2_000, None)
+        await worker.enqueue(reconnect)
+        # No await between the preempt and these reads: the worker cannot have run yet.
+        assert worker._pending[stream] is waiting
+        assert waiting.signal is reconnect
+        assert waiting.recovery_window is None
+        assert waiting.progress_marker is None
+        assert waiting.failures == 0
+        assert waiting.no_progress_attempts == 0
+        assert waiting.stale_failures == 0
+        assert waiting.due_at == 0.0
+
+        await asyncio.sleep(0.2)
+        stop.set()
+        await runner
+        assert len(recovery.times) == 3
+        assert worker._pending == {}
+
+    asyncio.run(scenario())
+
+
+def test_reconnect_during_executing_stale_recovery_does_not_touch_it() -> None:
+    async def scenario() -> None:
+        stream = StreamKey(InstrumentKey("BTCUSDT.P"), "5m")
+        recovery = GatedRecovery([R])
+        worker = _worker(recovery, stream)
+        stop = asyncio.Event()
+        runner = asyncio.create_task(worker.run(stop))
+        stale = RecoveryRequired(stream, RecoveryReason.STALE, 1_000, 0)
+        await worker.enqueue(stale)
+        await asyncio.wait_for(recovery.started.wait(), timeout=2)
+        running = worker._pending[stream]
+        assert running.executing
+
+        await worker.enqueue(RecoveryRequired(stream, RecoveryReason.DISCONNECT, 2_000, None))
+
+        # The in-flight attempt keeps its own signal and state; nothing runs concurrently.
+        assert worker._pending[stream] is running
+        assert running.signal is stale
+        assert running.executing
+        assert len(recovery.requests) == 1
+        assert recovery.requests[0].signal is stale
+
+        recovery.release.set()
+        await asyncio.sleep(0.1)
+        stop.set()
+        await runner
+        assert len(recovery.requests) == 1
+        assert worker._pending == {}
+
+    asyncio.run(scenario())

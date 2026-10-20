@@ -5,9 +5,8 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections.abc import Callable
-from dataclasses import dataclass
 
-from market_data_service.application.realtime.events import RecoveryReason, RecoveryRequired
+from market_data_service.application.realtime.events import RecoveryRequired
 from market_data_service.application.realtime.recovery import RealtimeRecoveryCoordinator
 from market_data_service.application.realtime.recovery_types import (
     RealtimeRecoveryRequest,
@@ -17,26 +16,11 @@ from market_data_service.application.realtime.recovery_types import (
 from market_data_service.application.realtime.supervisor import RealtimeSupervisor
 from market_data_service.application.repair_types import RepairProgressMarker
 from market_data_service.domain.identity import StreamKey
-from market_data_service.domain.windows import TimeWindow
+from market_data_service.runtime.realtime_pending_recovery import PendingRecovery, is_stale_signal
 from market_data_service.runtime.realtime_recovery_diagnostics import (
     RealtimeRecoveryDiagnostics,
 )
 from market_data_service.runtime.status import RuntimeStatusStore
-
-
-def _is_stale_signal(signal: RecoveryRequired) -> bool:
-    return signal.reason is RecoveryReason.STALE
-
-
-@dataclass(slots=True)
-class _PendingRecovery:
-    signal: RecoveryRequired
-    failures: int = 0
-    no_progress_attempts: int = 0
-    stale_failures: int = 0
-    due_at: float = 0.0
-    recovery_window: TimeWindow | None = None
-    progress_marker: RepairProgressMarker | None = None
 
 
 class RealtimeRecoveryWorker:
@@ -66,21 +50,19 @@ class RealtimeRecoveryWorker:
         self._stale_first_retry = stale_first_retry_seconds
         self._stale_next_retry = stale_next_retry_seconds
         self._idle_seconds = idle_seconds
-        self._queue: asyncio.Queue[_PendingRecovery] = asyncio.Queue()
-        self._pending: dict[StreamKey, _PendingRecovery] = {}
+        self._queue: asyncio.Queue[PendingRecovery] = asyncio.Queue()
+        self._pending: dict[StreamKey, PendingRecovery] = {}
         self._logger = logging.getLogger("market_data_service.runtime.realtime")
         self._diagnostics = RealtimeRecoveryDiagnostics(self._logger)
 
     async def enqueue(self, signal: RecoveryRequired) -> None:
         waiting = self._pending.get(signal.stream)
         if waiting is not None:
-            if _is_stale_signal(waiting.signal) and not _is_stale_signal(signal):
+            if waiting.can_be_preempted_by(signal):
                 # A reconnect or gap must not wait for the slow STALE retry schedule.
-                waiting.signal = signal
-                waiting.due_at = 0.0
-                waiting.stale_failures = 0
+                waiting.preempt(signal)
             return
-        pending = _PendingRecovery(signal)
+        pending = PendingRecovery(signal)
         self._pending[signal.stream] = pending
         await self._queue.put(pending)
 
@@ -101,7 +83,11 @@ class RealtimeRecoveryWorker:
                         min(self._idle_seconds, pending.due_at - now),
                     )
                     continue
-                retry = await self._execute(pending, loop)
+                pending.executing = True
+                try:
+                    retry = await self._execute(pending, loop)
+                finally:
+                    pending.executing = False
                 if retry is not None and not stop_event.is_set():
                     await self._queue.put(retry)
                 else:
@@ -113,9 +99,9 @@ class RealtimeRecoveryWorker:
 
     async def _execute(
         self,
-        pending: _PendingRecovery,
+        pending: PendingRecovery,
         loop: asyncio.AbstractEventLoop,
-    ) -> _PendingRecovery | None:
+    ) -> PendingRecovery | None:
         async with self._operation_gate:
             result = await self._recovery.execute(
                 RealtimeRecoveryRequest(
@@ -157,7 +143,7 @@ class RealtimeRecoveryWorker:
                 pending.no_progress_attempts += 1
                 delay = (
                     self._stale_delay(pending)
-                    if _is_stale_signal(pending.signal)
+                    if is_stale_signal(pending.signal)
                     else min(
                         self._max_backoff,
                         self._base_backoff * (2 ** (pending.no_progress_attempts - 1)),
@@ -172,7 +158,7 @@ class RealtimeRecoveryWorker:
             pending.failures += 1
             delay = (
                 self._stale_delay(pending)
-                if _is_stale_signal(pending.signal)
+                if is_stale_signal(pending.signal)
                 else min(self._max_backoff, self._base_backoff * (2 ** (pending.failures - 1)))
             )
             pending.due_at = loop.time() + delay
@@ -188,7 +174,7 @@ class RealtimeRecoveryWorker:
         self._log_result(pending, result, previous_marker, delay=0.0)
         return None
 
-    def _stale_delay(self, pending: _PendingRecovery) -> float:
+    def _stale_delay(self, pending: PendingRecovery) -> float:
         """Fixed capped schedule for an unsuccessful STALE recovery: 60 s, then 360 s."""
 
         pending.stale_failures += 1
@@ -196,7 +182,7 @@ class RealtimeRecoveryWorker:
 
     def _log_result(
         self,
-        pending: _PendingRecovery,
+        pending: PendingRecovery,
         result: RealtimeRecoveryResult,
         previous_marker: RepairProgressMarker | None,
         *,
