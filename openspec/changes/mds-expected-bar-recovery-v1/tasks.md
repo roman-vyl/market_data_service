@@ -4,9 +4,9 @@
 - [ ] 1.3 `detect_stale`: expected-bar rule (D1, D2); on `restored` commit the stored pending bar (never the bar expected at completion); `incomplete`/failure do not
 - [ ] 1.4 Keep `realtime_live` semantics; heartbeat/transport activity no longer used for staleness
 
-## 1a. Retry schedule (D6)
-- [ ] 1a.1 Recovery worker: one failure counter per pending recovery; delay = BASE for the first failure, MAX for every later one; reset on `restored` and on `incomplete` with progress
-- [ ] 1a.2 Settings: `MDS_REALTIME_RECOVERY_BASE_SECONDS` default 60, `MDS_REALTIME_RECOVERY_MAX_SECONDS` default 360, README, settings tests
+## 1a. Retry schedule for STALE (D6)
+- [ ] 1a.1 Recovery worker: the schedule is chosen inside the existing worker by `signal.reason`; STALE uses one failure counter (60 s first, 360 s later), reset on `restored` and on real progress; other reasons run the current code path unchanged; no second worker
+- [ ] 1a.2 Settings `MDS_STALE_RECOVERY_FIRST_RETRY_SECONDS` (60) and `MDS_STALE_RECOVERY_NEXT_RETRY_SECONDS` (360), validation, README; `MDS_REALTIME_RECOVERY_BASE/MAX_SECONDS` unchanged
 
 ## 2. Tests (deterministic fake clock)
 - [ ] 2.1 WebSocket candle within grace: no signal, and at runtime level the stale worker enqueues nothing into the recovery queue for that stream
@@ -20,8 +20,9 @@
 - [ ] 2.7 `realtime_live` and `ready` unchanged by stale recovery; runtime-level stale worker test updated
 - [ ] 2.8 Update the existing supervisor test that used the old rule
 
-- [ ] 2.9 Retry schedule: 60 s then 360 s, 360 s repeating; new expected bar does not create a second recovery or reset the delay; `restored` (also `attempted=0`) and progress reset; recoverable failure and no-progress incomplete count; fatal not retried
-- [ ] 2.10 Update existing worker tests that assumed 1 s doubling backoff
+- [ ] 2.9 STALE schedule: 60 s then 360 s repeating; new expected bar creates no second recovery and does not reset the delay; `restored` (also `attempted=0`) and real progress reset; recoverable failure and no-progress incomplete count; fatal not retried
+- [ ] 2.9a Same window and marker without advance, even after a successful REST response, always falls under the schedule
+- [ ] 2.9b Reconnect and sequence-gap recoveries keep 1 s doubling to 60 s with unchanged settings and defaults (existing worker tests stay valid unchanged)
 
 ## 3. Verification
 - [ ] 3.1 `make verify` green; `openspec validate --all --strict` green

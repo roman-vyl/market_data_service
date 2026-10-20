@@ -50,8 +50,8 @@ A restored stale recovery SHALL leave stream readiness to the existing readiness
 - **WHEN** a stream is restored by stale recovery and no WebSocket candle follows
 - **THEN** `realtime_live` stays false and `ready` is whatever the existing readiness rules give, unchanged by this change
 
-### Requirement: Failed realtime recovery is retried on a fixed capped schedule
-After an unsuccessful realtime recovery the worker SHALL retry the stream not earlier than 60 seconds later, and every further retry not earlier than 360 seconds after the previous attempt (`MDS_REALTIME_RECOVERY_BASE_SECONDS`, `MDS_REALTIME_RECOVERY_MAX_SECONDS`). A newly expected bar SHALL NOT reset, shorten or duplicate this schedule. A `restored` result SHALL reset it.
+### Requirement: Failed stale recovery is retried on a fixed capped schedule
+After an unsuccessful realtime recovery with reason `STALE` the worker SHALL retry the stream not earlier than 60 seconds later, and every further retry not earlier than 360 seconds after the previous attempt (`MDS_STALE_RECOVERY_FIRST_RETRY_SECONDS`, `MDS_STALE_RECOVERY_NEXT_RETRY_SECONDS`). A newly expected bar SHALL NOT reset, shorten or duplicate this schedule. A `restored` result SHALL reset it. The schedule SHALL be selected inside the existing recovery worker by recovery reason; reconnect, sequence-gap and other reasons SHALL keep the existing backoff, settings and defaults.
 
 #### Scenario: REST works, WebSocket silent
 - **WHEN** REST restores the missing bar at 12:05:15 and the WebSocket stays silent
@@ -66,8 +66,16 @@ After an unsuccessful realtime recovery the worker SHALL retry the stream not ea
 - **THEN** it resets the schedule and is not retried
 
 #### Scenario: Progress is not a failure
-- **WHEN** a recovery ends `incomplete` because a bar closed during it or `max_windows` was reached, and the window advanced
+- **WHEN** a stale recovery ends `incomplete` because a bar closed during it or `max_windows` was reached, and the recovery window or progress marker advanced
 - **THEN** it continues immediately and the failure counter is reset
+
+#### Scenario: Same window without advance is rate-limited
+- **WHEN** a stale recovery ends `incomplete` with an unchanged window and progress marker, even after a successful REST response
+- **THEN** it counts as unsuccessful and the next attempt follows the 60 s / 360 s schedule
+
+#### Scenario: Reconnect and sequence gap keep the existing backoff
+- **WHEN** a recovery with reason reconnect or sequence gap fails with a recoverable error or ends `incomplete` without progress
+- **THEN** the retry delay is the existing 1 s base doubling to 60 s, with the existing settings and defaults, and the stale schedule is not applied
 
 #### Scenario: Success resets the schedule
 - **WHEN** a recovery after one or more failures ends `restored`
