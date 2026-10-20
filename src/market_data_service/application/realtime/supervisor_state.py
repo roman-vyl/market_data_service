@@ -98,13 +98,24 @@ class RealtimeSupervisorState:
             fatal_error_code=outcome.error_code or "realtime_ingestion_failed",
         )
 
-    def require_recovery(self, stream: StreamKey, status: RealtimeStreamStatus) -> None:
+    def require_recovery(
+        self,
+        stream: StreamKey,
+        status: RealtimeStreamStatus,
+        *,
+        pending_expected_open_ms: int | None = None,
+    ) -> None:
         facts = self._facts[stream]
         self._facts[stream] = replace(
             facts,
             status=status,
             recovery_pending=True,
             recovery_restored=False,
+            pending_expected_open_ms=(
+                pending_expected_open_ms
+                if pending_expected_open_ms is not None
+                else facts.pending_expected_open_ms
+            ),
         )
 
     def record_recovery_result(
@@ -136,6 +147,10 @@ class RealtimeSupervisorState:
             recovery_pending=not restored,
             recovery_restored=restored,
             recovery_completed_at_ms=completed_at_ms if restored else None,
+            last_checked_expected_open_ms=(
+                _commit_checked(facts) if restored else facts.last_checked_expected_open_ms
+            ),
+            pending_expected_open_ms=(None if restored else facts.pending_expected_open_ms),
             last_successful_open_time_ms=(
                 max(
                     facts.last_successful_open_time_ms or restored_through_open_time_ms or 0,
@@ -179,3 +194,13 @@ class RealtimeSupervisorState:
 
     def all_facts(self) -> tuple[RealtimeStreamFacts, ...]:
         return tuple(self._facts.values())
+
+
+def _commit_checked(facts: RealtimeStreamFacts) -> int | None:
+    """Mark exactly the bar stored at signal time, never the one expected later."""
+
+    pending = facts.pending_expected_open_ms
+    checked = facts.last_checked_expected_open_ms
+    if pending is None:
+        return checked
+    return pending if checked is None else max(checked, pending)

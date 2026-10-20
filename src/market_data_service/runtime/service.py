@@ -144,7 +144,6 @@ class RuntimeService:
             topic_map.topic_to_stream,
             self._wiring.clock.now_ms,
             stale_policy=StalePolicy(
-                intervals=self._settings.stale_intervals,
                 grace_ms=self._settings.stale_grace_ms,
             ),
             initial_latest_open_time_ms=initial,
@@ -191,6 +190,8 @@ class RuntimeService:
             stale_check_seconds=self._settings.realtime_stale_check_seconds,
             recovery_base_backoff_seconds=(self._settings.realtime_recovery_base_seconds),
             recovery_max_backoff_seconds=(self._settings.realtime_recovery_max_seconds),
+            stale_first_retry_seconds=self._settings.stale_recovery_first_retry_seconds,
+            stale_next_retry_seconds=self._settings.stale_recovery_next_retry_seconds,
             recovery_idle_seconds=self._settings.realtime_recovery_idle_seconds,
             notifier_worker=notifier_worker,
         )

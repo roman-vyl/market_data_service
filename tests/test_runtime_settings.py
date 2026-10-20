@@ -154,3 +154,14 @@ def test_runtime_settings_websocket_diagnostics_defaults_and_env(
     assert settings.event_loop_lag_warn_seconds == 2.5
     with pytest.raises(ValueError, match="websocket_ping_timeout_seconds"):
         RuntimeSettings(websocket_ping_timeout_seconds=0)
+
+
+def test_stale_defaults_and_retry_schedule_validation() -> None:
+    settings = RuntimeSettings()
+    assert settings.stale_grace_ms == 15_000
+    assert settings.stale_recovery_first_retry_seconds == 60.0
+    assert settings.stale_recovery_next_retry_seconds == 360.0
+    assert settings.realtime_recovery_base_seconds == 1.0
+    assert settings.realtime_recovery_max_seconds == 60.0
+    with pytest.raises(ValueError, match="stale_recovery_next_retry_seconds"):
+        RuntimeSettings(stale_recovery_first_retry_seconds=60, stale_recovery_next_retry_seconds=30)

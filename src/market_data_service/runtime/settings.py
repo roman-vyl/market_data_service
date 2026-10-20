@@ -31,8 +31,9 @@ class RuntimeSettings:
     reconnect_delay_seconds: float = 1.0
     websocket_ping_timeout_seconds: float = 60.0
     event_loop_lag_warn_seconds: float = 1.0
-    stale_intervals: int = 2
-    stale_grace_ms: int = 5_000
+    stale_grace_ms: int = 15_000
+    stale_recovery_first_retry_seconds: float = 60.0
+    stale_recovery_next_retry_seconds: float = 360.0
     log_level: str = "INFO"
     runtime_webhook_enabled: bool = False
     strategy_runtime_base_url: str = ""
@@ -49,7 +50,6 @@ class RuntimeSettings:
             "startup_repair_windows_per_stream",
             "realtime_recovery_windows_per_stream",
             "reconnect_max_attempts",
-            "stale_intervals",
         ):
             if getattr(self, name) <= 0:
                 raise ValueError(f"{name} must be positive")
@@ -73,6 +73,10 @@ class RuntimeSettings:
             raise ValueError("event_loop_lag_warn_seconds must be positive")
         if self.stale_grace_ms < 0:
             raise ValueError("stale_grace_ms must be non-negative")
+        if self.stale_recovery_first_retry_seconds <= 0:
+            raise ValueError("stale_recovery_first_retry_seconds must be positive")
+        if self.stale_recovery_next_retry_seconds < self.stale_recovery_first_retry_seconds:
+            raise ValueError("stale_recovery_next_retry_seconds must be >= first")
         if self.log_level.upper() not in {"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"}:
             raise ValueError("unsupported log_level")
         if self.runtime_webhook_enabled:
@@ -128,8 +132,13 @@ class RuntimeSettings:
             reconnect_delay_seconds=float(env.get("MDS_RECONNECT_DELAY_SECONDS", "1.0")),
             websocket_ping_timeout_seconds=float(env.get("MDS_WS_PING_TIMEOUT_SECONDS", "60.0")),
             event_loop_lag_warn_seconds=float(env.get("MDS_EVENT_LOOP_LAG_WARN_SECONDS", "1.0")),
-            stale_intervals=int(env.get("MDS_STALE_INTERVALS", "2")),
-            stale_grace_ms=int(env.get("MDS_STALE_GRACE_MS", "5000")),
+            stale_grace_ms=int(env.get("MDS_STALE_GRACE_MS", "15000")),
+            stale_recovery_first_retry_seconds=float(
+                env.get("MDS_STALE_RECOVERY_FIRST_RETRY_SECONDS", "60.0")
+            ),
+            stale_recovery_next_retry_seconds=float(
+                env.get("MDS_STALE_RECOVERY_NEXT_RETRY_SECONDS", "360.0")
+            ),
             log_level=env.get("MDS_LOG_LEVEL", "INFO").upper(),
             runtime_webhook_enabled=webhook.enabled,
             strategy_runtime_base_url=webhook.base_url,
