@@ -16,10 +16,10 @@ from market_data_service.application.realtime.recovery_types import (
 from market_data_service.application.realtime.supervisor import RealtimeSupervisor
 from market_data_service.application.repair_types import RepairProgressMarker
 from market_data_service.domain.identity import StreamKey
-from market_data_service.runtime.realtime_pending_recovery import PendingRecovery, is_stale_signal
 from market_data_service.runtime.realtime_recovery_diagnostics import (
     RealtimeRecoveryDiagnostics,
 )
+from market_data_service.runtime.realtime_recovery_intent import RecoveryIntent
 from market_data_service.runtime.status import RuntimeStatusStore
 
 
@@ -50,83 +50,87 @@ class RealtimeRecoveryWorker:
         self._stale_first_retry = stale_first_retry_seconds
         self._stale_next_retry = stale_next_retry_seconds
         self._idle_seconds = idle_seconds
-        self._queue: asyncio.Queue[PendingRecovery] = asyncio.Queue()
-        self._pending: dict[StreamKey, PendingRecovery] = {}
+        self._queue: asyncio.Queue[RecoveryIntent] = asyncio.Queue()
+        self._intents: dict[StreamKey, RecoveryIntent] = {}
         self._logger = logging.getLogger("market_data_service.runtime.realtime")
         self._diagnostics = RealtimeRecoveryDiagnostics(self._logger)
 
     async def enqueue(self, signal: RecoveryRequired) -> None:
-        waiting = self._pending.get(signal.stream)
-        if waiting is not None:
-            if waiting.can_be_preempted_by(signal):
-                # A reconnect or gap must not wait for the slow STALE retry schedule.
-                waiting.preempt(signal)
+        """Merge the signal into the stream's single intent; never start parallel work."""
+
+        intent = self._intents.get(signal.stream)
+        if intent is not None:
+            intent.absorb(signal)
             return
-        pending = PendingRecovery(signal)
-        self._pending[signal.stream] = pending
-        await self._queue.put(pending)
+        intent = RecoveryIntent.from_signal(signal)
+        self._intents[signal.stream] = intent
+        await self._queue.put(intent)
 
     async def run(self, stop_event: asyncio.Event) -> None:
         try:
             while not stop_event.is_set():
                 try:
-                    pending = await asyncio.wait_for(self._queue.get(), timeout=0.2)
+                    intent = await asyncio.wait_for(self._queue.get(), timeout=0.2)
                 except TimeoutError:
                     continue
                 loop = asyncio.get_running_loop()
                 now = loop.time()
-                if pending.due_at > now:
-                    await self._queue.put(pending)
+                if intent.due_at > now:
+                    await self._queue.put(intent)
                     self._queue.task_done()
-                    await self._wait(
-                        stop_event,
-                        min(self._idle_seconds, pending.due_at - now),
-                    )
+                    await self._wait(stop_event, min(self._idle_seconds, intent.due_at - now))
                     continue
-                pending.executing = True
-                try:
-                    retry = await self._execute(pending, loop)
-                finally:
-                    pending.executing = False
+                retry = await self._execute(intent, loop)
                 if retry is not None and not stop_event.is_set():
                     await self._queue.put(retry)
                 else:
-                    self._pending.pop(pending.signal.stream, None)
+                    self._intents.pop(intent.stream, None)
                 self._queue.task_done()
                 self._sync_lifecycle()
         finally:
-            self._pending.clear()
+            self._intents.clear()
 
     async def _execute(
         self,
-        pending: PendingRecovery,
+        intent: RecoveryIntent,
         loop: asyncio.AbstractEventLoop,
-    ) -> PendingRecovery | None:
+    ) -> RecoveryIntent | None:
+        started_revision = intent.revision
         async with self._operation_gate:
             result = await self._recovery.execute(
                 RealtimeRecoveryRequest(
-                    signal=pending.signal,
+                    signal=intent.request_signal(),
                     max_windows=self._max_windows,
-                    recovery_window=pending.recovery_window,
+                    recovery_window=intent.recovery_window,
                 )
             )
-        previous_marker = pending.progress_marker
+        # A requirement that changed during the attempt makes its outcome incomplete.
+        changed = intent.revision != started_revision
+        previous_marker = intent.progress_marker
         fatal = result.classification is RecoveryClassification.FATAL_FAILURE
         self._supervisor.record_recovery_result(
-            pending.signal.stream,
-            restored=result.restored,
+            intent.stream,
+            restored=result.restored and not changed,
             fatal=fatal,
             restored_through_open_time_ms=result.restored_through_open_time_ms,
         )
-        if result.classification is RecoveryClassification.RESTORED:
-            self._status.clear_blocking_reason(pending.signal.stream)
-            self._log_result(pending, result, previous_marker, delay=0.0)
+        if fatal:
+            self._log_result(intent, result, previous_marker, delay=0.0)
             return None
+        if changed:
+            self._status.set_blocking_reason(intent.stream, "realtime_recovery")
+            self._log_result(intent, result, previous_marker, delay=0.0)
+            return intent
+        if result.classification is RecoveryClassification.RESTORED:
+            self._status.clear_blocking_reason(intent.stream)
+            self._log_result(intent, result, previous_marker, delay=0.0)
+            return None
+        delay = 0.0
+        reason = "realtime_recovery"
         if result.classification is RecoveryClassification.INCOMPLETE:
-            pending.failures = 0
-            previous_window = pending.recovery_window
-            pending.recovery_window = result.next_recovery_window or result.recovery_window
-            pending.progress_marker = result.progress_marker
+            previous_window = intent.recovery_window
+            intent.recovery_window = result.next_recovery_window or result.recovery_window
+            intent.progress_marker = result.progress_marker
             progressed = result.made_progress or (
                 result.next_recovery_window is not None
                 and result.next_recovery_window != previous_window
@@ -134,67 +138,48 @@ class RealtimeRecoveryWorker:
             if not progressed and previous_marker is not None:
                 progressed = result.progress_marker != previous_marker
             if progressed:
-                pending.no_progress_attempts = 0
-                pending.stale_failures = 0
-                pending.due_at = 0.0
-                reason = "realtime_recovery"
-                delay = 0.0
+                intent.attempts_without_progress = 0
             else:
-                pending.no_progress_attempts += 1
-                delay = (
-                    self._stale_delay(pending)
-                    if is_stale_signal(pending.signal)
-                    else min(
-                        self._max_backoff,
-                        self._base_backoff * (2 ** (pending.no_progress_attempts - 1)),
-                    )
-                )
-                pending.due_at = loop.time() + delay
+                delay = self._retry_delay(intent)
                 reason = "realtime_recovery_no_progress_backoff"
-            self._status.set_blocking_reason(pending.signal.stream, reason)
-            self._log_result(pending, result, previous_marker, delay=delay)
-            return pending
-        if result.classification is RecoveryClassification.RECOVERABLE_FAILURE:
-            pending.failures += 1
-            delay = (
-                self._stale_delay(pending)
-                if is_stale_signal(pending.signal)
-                else min(self._max_backoff, self._base_backoff * (2 ** (pending.failures - 1)))
-            )
-            pending.due_at = loop.time() + delay
-            self._status.set_blocking_reason(pending.signal.stream, "realtime_recovery_backoff")
-            self._log_result(pending, result, previous_marker, delay=delay)
+        else:
+            delay = self._retry_delay(intent)
+            reason = "realtime_recovery_backoff"
             self._logger.warning(
                 "realtime recovery backoff stream=%s delay_seconds=%s error=%s",
-                pending.signal.stream.canonical_id,
+                intent.stream.canonical_id,
                 delay,
                 result.error_code,
             )
-            return pending
-        self._log_result(pending, result, previous_marker, delay=0.0)
-        return None
+        intent.due_at = loop.time() + delay if delay else 0.0
+        self._status.set_blocking_reason(intent.stream, reason)
+        self._log_result(intent, result, previous_marker, delay=delay)
+        return intent
 
-    def _stale_delay(self, pending: PendingRecovery) -> float:
-        """Fixed capped schedule for an unsuccessful STALE recovery: 60 s, then 360 s."""
+    def _retry_delay(self, intent: RecoveryIntent) -> float:
+        """Urgent: fast doubling backoff. Background (stale): fixed 60 s, then 360 s."""
 
-        pending.stale_failures += 1
-        return self._stale_first_retry if pending.stale_failures == 1 else self._stale_next_retry
+        intent.attempts_without_progress += 1
+        attempts = intent.attempts_without_progress
+        if intent.urgent:
+            return min(self._max_backoff, self._base_backoff * 2.0 ** (attempts - 1))
+        return self._stale_first_retry if attempts == 1 else self._stale_next_retry
 
     def _log_result(
         self,
-        pending: PendingRecovery,
+        intent: RecoveryIntent,
         result: RealtimeRecoveryResult,
         previous_marker: RepairProgressMarker | None,
         *,
         delay: float,
     ) -> None:
         self._diagnostics.record(
-            stream=pending.signal.stream,
-            reason=pending.signal.reason.value,
+            stream=intent.stream,
+            reason=intent.reason.value,
             before=previous_marker,
             result=result,
             delay_seconds=delay,
-            no_progress_attempts=pending.no_progress_attempts,
+            no_progress_attempts=intent.attempts_without_progress,
         )
 
     @staticmethod

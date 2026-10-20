@@ -27,9 +27,11 @@ class TimedRecovery:
     def __init__(self, results: list[RecoveryClassification | str]) -> None:
         self._results = deque(results)
         self.times: list[float] = []
+        self.requests: list[RealtimeRecoveryRequest] = []
 
     async def execute(self, request: RealtimeRecoveryRequest) -> RealtimeRecoveryResult:
         self.times.append(asyncio.get_running_loop().time())
+        self.requests.append(request)
         item = self._results.popleft()
         advanced = item == "advanced"
         classification = RecoveryClassification.INCOMPLETE if advanced else item
@@ -164,110 +166,196 @@ def test_reconnect_signal_is_not_delayed_by_waiting_stale_retry() -> None:
 
 
 class GatedRecovery(TimedRecovery):
-    """Records requests; the first call blocks until the test releases it."""
+    """The first call blocks until the test releases it."""
 
     def __init__(self, results: list[RecoveryClassification | str]) -> None:
         super().__init__(results)
-        self.requests: list[RealtimeRecoveryRequest] = []
         self.started = asyncio.Event()
         self.release = asyncio.Event()
         self._block_first = True
 
     async def execute(self, request: RealtimeRecoveryRequest) -> RealtimeRecoveryResult:
-        self.requests.append(request)
         if self._block_first:
             self._block_first = False
+            self.requests.append(request)
             self.started.set()
             await self.release.wait()
+            self.requests.pop()
         return await super().execute(request)
 
 
-def _worker(recovery: object, stream: StreamKey) -> RealtimeRecoveryWorker:
+STREAM = StreamKey(InstrumentKey("BTCUSDT.P"), "5m")
+
+
+def _worker(recovery: object, *, base: float = BASE, cap: float = MAX) -> RealtimeRecoveryWorker:
     return RealtimeRecoveryWorker(
         recovery=recovery,  # type: ignore[arg-type]
-        supervisor=RealtimeSupervisor((stream,), {}, lambda: 1_000),
-        status=RuntimeStatusStore((stream,)),
+        supervisor=RealtimeSupervisor((STREAM,), {}, lambda: 1_000),
+        status=RuntimeStatusStore((STREAM,)),
         operation_gate=asyncio.Lock(),
         sync_lifecycle=lambda: None,
         max_windows=1,
-        base_backoff_seconds=BASE,
-        max_backoff_seconds=MAX,
+        base_backoff_seconds=base,
+        max_backoff_seconds=cap,
         stale_first_retry_seconds=30.0,
         stale_next_retry_seconds=60.0,
         idle_seconds=0.001,
     )
 
 
-def test_preempting_a_waiting_stale_retry_inherits_nothing() -> None:
+def _signal(reason: RecoveryReason, hint: int | None = None) -> RecoveryRequired:
+    return RecoveryRequired(STREAM, reason, 1_000, hint)
+
+
+async def _until(condition: object, timeout: float = 2.0) -> None:
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + timeout
+    while not condition():  # type: ignore[operator]
+        assert loop.time() < deadline, "condition not reached"
+        await asyncio.sleep(0.005)
+
+
+def test_urgent_signal_escalates_waiting_background_retry_and_resets_state() -> None:
     async def scenario() -> None:
-        stream = StreamKey(InstrumentKey("BTCUSDT.P"), "5m")
         recovery = TimedRecovery(["advanced", F, R])
-        worker = _worker(recovery, stream)
+        worker = _worker(recovery)
         stop = asyncio.Event()
         runner = asyncio.create_task(worker.run(stop))
-        await worker.enqueue(RecoveryRequired(stream, RecoveryReason.STALE, 1_000, 0))
-        for _ in range(200):
-            if len(recovery.times) == 2:
-                break
-            await asyncio.sleep(0.005)
+        await worker.enqueue(_signal(RecoveryReason.STALE, 0))
+        await _until(lambda: len(recovery.times) == 2)
         await asyncio.sleep(0.02)
-        waiting = worker._pending[stream]
-        loop_now = asyncio.get_running_loop().time()
-        # Meaningful precondition: the stale attempt carries a window, counters and a due time.
-        assert waiting.recovery_window == ADVANCED
-        assert waiting.failures == 1
-        assert waiting.stale_failures == 1
-        assert waiting.due_at > loop_now + 10
-        assert not waiting.executing
+        intent = worker._intents[STREAM]
+        assert not intent.urgent
+        assert intent.recovery_window == ADVANCED
+        assert intent.attempts_without_progress == 1
+        assert intent.due_at > asyncio.get_running_loop().time() + 10
 
-        reconnect = RecoveryRequired(stream, RecoveryReason.DISCONNECT, 2_000, None)
-        await worker.enqueue(reconnect)
-        # No await between the preempt and these reads: the worker cannot have run yet.
-        assert worker._pending[stream] is waiting
-        assert waiting.signal is reconnect
-        assert waiting.recovery_window is None
-        assert waiting.progress_marker is None
-        assert waiting.failures == 0
-        assert waiting.no_progress_attempts == 0
-        assert waiting.stale_failures == 0
-        assert waiting.due_at == 0.0
+        await worker.enqueue(_signal(RecoveryReason.DISCONNECT))
+        # No await since the merge: the worker cannot have run yet.
+        assert worker._intents[STREAM] is intent
+        assert intent.urgent
+        assert intent.reason is RecoveryReason.DISCONNECT
+        assert intent.revision == 1
+        assert intent.recovery_window is None
+        assert intent.progress_marker is None
+        assert intent.attempts_without_progress == 0
+        assert intent.due_at == 0.0
 
-        await asyncio.sleep(0.2)
+        await _until(lambda: len(recovery.times) == 3)
+        await _until(lambda: not worker._intents)
         stop.set()
         await runner
-        assert len(recovery.times) == 3
-        assert worker._pending == {}
 
     asyncio.run(scenario())
 
 
-def test_reconnect_during_executing_stale_recovery_does_not_touch_it() -> None:
+def test_duplicate_urgent_signal_changes_nothing_and_keeps_backoff() -> None:
     async def scenario() -> None:
-        stream = StreamKey(InstrumentKey("BTCUSDT.P"), "5m")
-        recovery = GatedRecovery([R])
-        worker = _worker(recovery, stream)
+        recovery = TimedRecovery([F, R])
+        worker = _worker(recovery, base=5.0, cap=10.0)
         stop = asyncio.Event()
         runner = asyncio.create_task(worker.run(stop))
-        stale = RecoveryRequired(stream, RecoveryReason.STALE, 1_000, 0)
-        await worker.enqueue(stale)
-        await asyncio.wait_for(recovery.started.wait(), timeout=2)
-        running = worker._pending[stream]
-        assert running.executing
+        await worker.enqueue(_signal(RecoveryReason.DISCONNECT))
+        await _until(lambda: len(recovery.times) == 1)
+        await asyncio.sleep(0.02)
+        intent = worker._intents[STREAM]
+        before = (intent.revision, intent.due_at, intent.attempts_without_progress)
+        assert before[1] > asyncio.get_running_loop().time() + 3
 
-        await worker.enqueue(RecoveryRequired(stream, RecoveryReason.DISCONNECT, 2_000, None))
-
-        # The in-flight attempt keeps its own signal and state; nothing runs concurrently.
-        assert worker._pending[stream] is running
-        assert running.signal is stale
-        assert running.executing
-        assert len(recovery.requests) == 1
-        assert recovery.requests[0].signal is stale
-
-        recovery.release.set()
-        await asyncio.sleep(0.1)
+        for reason in (
+            RecoveryReason.DISCONNECT,
+            RecoveryReason.STARTUP_RECONCILIATION,
+            RecoveryReason.SEQUENCE_DISCONTINUITY,
+        ):
+            await worker.enqueue(_signal(reason))
+            assert (intent.revision, intent.due_at, intent.attempts_without_progress) == before
+        await asyncio.sleep(0.05)
+        assert len(recovery.times) == 1  # a flood of duplicates does not speed up retries
         stop.set()
         await runner
-        assert len(recovery.requests) == 1
-        assert worker._pending == {}
+
+    asyncio.run(scenario())
+
+
+def test_earliest_only_moves_earlier_and_only_then_wakes_the_intent() -> None:
+    async def scenario() -> None:
+        worker = _worker(TimedRecovery([]))
+        await worker.enqueue(_signal(RecoveryReason.DISCONNECT))
+        intent = worker._intents[STREAM]
+        assert (intent.earliest_open_ms, intent.revision) == (None, 0)
+
+        await worker.enqueue(_signal(RecoveryReason.SEQUENCE_DISCONTINUITY, 200))
+        assert (intent.earliest_open_ms, intent.revision) == (200, 1)
+        await worker.enqueue(_signal(RecoveryReason.SEQUENCE_DISCONTINUITY, 300))
+        assert (intent.earliest_open_ms, intent.revision) == (200, 1)
+        intent.due_at = 99.0
+        await worker.enqueue(_signal(RecoveryReason.SEQUENCE_DISCONTINUITY, 100))
+        assert (intent.earliest_open_ms, intent.revision, intent.due_at) == (100, 2, 0.0)
+
+    asyncio.run(scenario())
+
+
+def test_event_during_running_attempt_forces_another_pass_with_the_hint() -> None:
+    async def scenario() -> None:
+        recovery = GatedRecovery([R, R])
+        worker = _worker(recovery)
+        stop = asyncio.Event()
+        runner = asyncio.create_task(worker.run(stop))
+        await worker.enqueue(_signal(RecoveryReason.STALE, 600))
+        await asyncio.wait_for(recovery.started.wait(), timeout=2)
+        intent = worker._intents[STREAM]
+
+        await worker.enqueue(_signal(RecoveryReason.SEQUENCE_DISCONTINUITY, 123))
+        assert worker._intents[STREAM] is intent  # merged, nothing replaced or started
+
+        recovery.release.set()
+        await _until(lambda: len(recovery.requests) == 2)
+        await _until(lambda: not worker._intents)
+        stop.set()
+        await runner
+
+        # The first RESTORED did not finish the recovery: a second pass ran for the new hint.
+        second = recovery.requests[1]
+        assert second.signal.reason is RecoveryReason.SEQUENCE_DISCONTINUITY
+        assert second.signal.suspected_start_time_ms == 123
+        assert second.recovery_window is None
+
+    asyncio.run(scenario())
+
+
+def test_unchanged_intent_keeps_incomplete_continuation_cursor() -> None:
+    async def scenario() -> None:
+        recovery = GatedRecovery(["advanced", R])
+        worker = _worker(recovery)
+        stop = asyncio.Event()
+        runner = asyncio.create_task(worker.run(stop))
+        await worker.enqueue(_signal(RecoveryReason.DISCONNECT))
+        await asyncio.wait_for(recovery.started.wait(), timeout=2)
+        recovery.release.set()
+        await _until(lambda: not worker._intents)
+        stop.set()
+        await runner
+
+        assert [r.recovery_window for r in recovery.requests] == [None, ADVANCED]
+
+    asyncio.run(scenario())
+
+
+def test_changed_intent_drops_the_old_cursor() -> None:
+    async def scenario() -> None:
+        recovery = GatedRecovery(["advanced", R])
+        worker = _worker(recovery)
+        stop = asyncio.Event()
+        runner = asyncio.create_task(worker.run(stop))
+        await worker.enqueue(_signal(RecoveryReason.DISCONNECT))
+        await asyncio.wait_for(recovery.started.wait(), timeout=2)
+        await worker.enqueue(_signal(RecoveryReason.SEQUENCE_DISCONTINUITY, 50))
+        recovery.release.set()
+        await _until(lambda: not worker._intents)
+        stop.set()
+        await runner
+
+        assert [r.recovery_window for r in recovery.requests] == [None, None]
+        assert recovery.requests[1].signal.suspected_start_time_ms == 50
 
     asyncio.run(scenario())

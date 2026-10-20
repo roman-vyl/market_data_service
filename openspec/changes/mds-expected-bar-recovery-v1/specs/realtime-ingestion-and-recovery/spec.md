@@ -51,7 +51,7 @@ A restored stale recovery SHALL leave stream readiness to the existing readiness
 - **THEN** `realtime_live` stays false and `ready` is whatever the existing readiness rules give, unchanged by this change
 
 ### Requirement: Failed stale recovery is retried on a fixed capped schedule
-After an unsuccessful realtime recovery with reason `STALE` the worker SHALL retry the stream not earlier than 60 seconds later, and every further retry not earlier than 360 seconds after the previous attempt (`MDS_STALE_RECOVERY_FIRST_RETRY_SECONDS`, `MDS_STALE_RECOVERY_NEXT_RETRY_SECONDS`). A newly expected bar SHALL NOT reset, shorten or duplicate this schedule. A `restored` result SHALL reset it. The schedule SHALL be selected inside the existing recovery worker by recovery reason; reconnect, sequence-gap and other reasons SHALL keep the existing backoff, settings and defaults.
+After an unsuccessful realtime recovery with reason `STALE` the worker SHALL retry the stream not earlier than 60 seconds later, and every further retry not earlier than 360 seconds after the previous attempt (`MDS_STALE_RECOVERY_FIRST_RETRY_SECONDS`, `MDS_STALE_RECOVERY_NEXT_RETRY_SECONDS`). A newly expected bar SHALL NOT reset, shorten or duplicate this schedule. A `restored` result SHALL reset it. The worker SHALL keep a single recovery intent per stream into which all signals merge; reconnect, sequence-gap and other urgent reasons SHALL keep the existing backoff, settings and defaults.
 
 #### Scenario: REST works, WebSocket silent
 - **WHEN** REST restores the missing bar at 12:05:15 and the WebSocket stays silent
@@ -87,4 +87,12 @@ After an unsuccessful realtime recovery with reason `STALE` the worker SHALL ret
 
 #### Scenario: Reconnect is not delayed by a waiting stale retry
 - **WHEN** a stream waits for a stale retry and a reconnect or sequence-gap signal arrives for it
-- **THEN** the waiting recovery takes the new reason and runs immediately, with the stale schedule reset
+- **THEN** the intent becomes urgent and due now, with cursor and backoff reset
+
+#### Scenario: Duplicate signals change nothing
+- **WHEN** a signal arrives that adds no earlier start and no escalation
+- **THEN** the intent revision, next attempt time and backoff are unchanged
+
+#### Scenario: A requirement that changes during an attempt is not lost
+- **WHEN** a signal that changes the intent arrives while an attempt runs and the attempt ends `RESTORED`
+- **THEN** the intent is not cleared and another pass runs from the database with the earliest required start; an unchanged intent keeps its `INCOMPLETE` continuation window

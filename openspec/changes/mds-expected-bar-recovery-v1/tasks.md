@@ -24,7 +24,7 @@
 - [x] 2.9a Same window and marker without advance, even after a successful REST response, always falls under the schedule
 - [x] 2.9b Reconnect and sequence-gap recoveries keep 1 s doubling to 60 s with unchanged settings and defaults (existing worker tests stay valid unchanged)
 
-- [x] 2.11 Reconnect/gap signal for a stream waiting on a stale retry replaces the waiting recovery and runs immediately
+- [x] 2.11 Single recovery intent per stream: merge by min earliest and urgency, revision only on real change, reconnect/gap wakes a waiting stale retry, duplicates change nothing, change during an attempt forces another pass, cursor kept only for an unchanged revision
 
 ## 3. Verification
 - [x] 3.1 `make verify` green; `openspec validate --all --strict` green
