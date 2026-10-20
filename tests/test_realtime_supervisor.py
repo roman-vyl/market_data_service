@@ -170,24 +170,33 @@ def test_websocket_bar_within_grace_emits_no_signal() -> None:
 
 def test_silent_websocket_gives_one_signal_per_missed_bar_over_25_minutes() -> None:
     supervisor, stream, now = _expected_bar_supervisor()
-    signals = []
+    signals: list[tuple[int, int | None, int | None]] = []
+    # 1 s ticks for 25 minutes; the last committed bar is T0 and the WebSocket stays silent.
     for second in range(0, 25 * 60):
         now[0] = T0 + STEP + second * 1_000
-        found = supervisor.detect_stale()
-        for signal in found:
-            signals.append((now[0], signal))
-            # Restored with nothing attempted or committed (attempted=0) must not repeat.
+        for signal in supervisor.detect_stale():
+            assert signal.reason is RecoveryReason.STALE
+            signals.append(
+                (
+                    now[0],
+                    signal.suspected_start_time_ms,
+                    supervisor.facts(stream).pending_expected_open_ms,
+                )
+            )
+            # Restored with attempted=0 committed=0: the durable state does not move.
             supervisor.record_recovery_result(
                 stream,
                 restored=True,
                 restored_through_open_time_ms=supervisor.facts(stream).last_successful_open_time_ms,
             )
-    # bars T0+STEP.. close at T0+2*STEP, +3*STEP...; checked at close+15 s
-    assert len(signals) <= 5
-    assert [signal.reason for _, signal in signals] == [RecoveryReason.STALE] * len(signals)
-    times = [moment for moment, _ in signals]
-    assert times == sorted(set(times))
-    assert all((moment - T0 - GRACE) % STEP == 0 for moment in times)
+
+    # Bar k closes at T0 + (k + 1) * STEP and is checked at close + grace: exactly once each.
+    assert signals == [
+        (T0 + 2 * STEP + GRACE, T0 + STEP, T0 + STEP),
+        (T0 + 3 * STEP + GRACE, T0 + STEP, T0 + 2 * STEP),
+        (T0 + 4 * STEP + GRACE, T0 + STEP, T0 + 3 * STEP),
+        (T0 + 5 * STEP + GRACE, T0 + STEP, T0 + 4 * STEP),
+    ]
 
 
 def test_incomplete_or_failed_recovery_keeps_original_pending_bar() -> None:

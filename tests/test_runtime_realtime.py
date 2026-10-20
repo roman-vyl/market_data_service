@@ -174,8 +174,9 @@ def _runtime(
     *,
     backoff_seconds: float = 0.001,
     notifier_worker: CommittedBarNotificationWorker | None = None,
+    clock: Clock | None = None,
 ) -> tuple[RuntimeRealtimeCoordinator, RuntimeStatusStore]:
-    clock = Clock()
+    clock = clock or Clock()
     topics = {
         f"kline.1.{stream.instrument.ticker.removesuffix('.P')}": stream for stream in streams
     }
@@ -716,23 +717,75 @@ async def _no_notifier_worker_scenario(tmp_path: Path) -> None:
     )
 
 
-def test_stream_whose_bars_arrive_on_time_never_enters_recovery_queue(tmp_path: Path) -> None:
-    asyncio.run(_on_time_stream_scenario(tmp_path))
+class ManualClock(Clock):
+    """Deterministic clock: time moves only when the test says so."""
+
+    def now_ms(self) -> int:
+        return self.value
 
 
-async def _on_time_stream_scenario(tmp_path: Path) -> None:
+BAR_MS = 60_000
+GRACE_MS = 15_000
+BAR0 = 1_799_971_200_000  # aligned to the minute grid
+
+
+async def _drive_bars(
+    clock: ManualClock,
+    runtime: RuntimeRealtimeCoordinator,
+    stream: StreamKey,
+    *,
+    bars: range,
+    skip: set[int],
+) -> None:
+    """Deliver bar k at close + 2 s unless skipped, then let the stale worker tick."""
+
+    for bar in bars:
+        close_ms = BAR0 + (bar + 1) * BAR_MS
+        clock.value = close_ms + 2_000
+        if bar not in skip:
+            await runtime.on_outcome(
+                RealtimeIngestionOutcome(
+                    stream, BAR0 + bar * BAR_MS, RealtimeIngestionClassification.COMMITTED
+                )
+            )
+        for offset in range(2_000, BAR_MS + GRACE_MS, 5_000):
+            clock.value = close_ms + offset
+            await asyncio.sleep(0.02)
+
+
+def test_consecutive_on_time_bars_never_trigger_stale_recovery(tmp_path: Path) -> None:
+    asyncio.run(_consecutive_on_time_scenario(tmp_path, skip=set(), expected_calls=1))
+
+
+def test_one_missed_bar_triggers_exactly_one_stale_recovery(tmp_path: Path) -> None:
+    # Control: the same driver with the last bar withheld must produce the stale recovery,
+    # otherwise the on-time test above could pass on a dead clock.
+    asyncio.run(_consecutive_on_time_scenario(tmp_path, skip={6}, expected_calls=2))
+
+
+async def _consecutive_on_time_scenario(
+    tmp_path: Path, *, skip: set[int], expected_calls: int
+) -> None:
     path = tmp_path / "market.sqlite3"
     initialize_database(path)
     stream = _stream("BTCUSDT.P")
     _register_connecting(path, stream)
     _insert_candle(path, stream)
-    recovery = FakeRecovery({stream: (RecoveryClassification.RESTORED,)})
-    runtime, _ = _runtime(path, (stream,), recovery)
+    recovery = FakeRecovery(
+        {stream: (RecoveryClassification.RESTORED, RecoveryClassification.RESTORED)}
+    )
+    clock = ManualClock()
+    clock.value = BAR0
+    runtime, _ = _runtime(path, (stream,), recovery, clock=clock)
     stop = asyncio.Event()
     runner = asyncio.create_task(runtime.run(stop))
-    await runtime.on_event(SubscriptionConfirmed(("kline.1.BTCUSDT",), observed_at_ms=10))
-    await asyncio.sleep(0.2)
+    await runtime.on_outcome(
+        RealtimeIngestionOutcome(stream, BAR0, RealtimeIngestionClassification.COMMITTED)
+    )
+    await runtime.on_event(SubscriptionConfirmed(("kline.1.BTCUSDT",), observed_at_ms=BAR0))
+    await asyncio.sleep(0.1)  # startup recovery
+    await _drive_bars(clock, runtime, stream, bars=range(1, 7), skip=skip)
     stop.set()
     await runner
 
-    assert recovery.calls == [stream]  # only the startup recovery; no stale recovery
+    assert recovery.calls == [stream] * expected_calls
