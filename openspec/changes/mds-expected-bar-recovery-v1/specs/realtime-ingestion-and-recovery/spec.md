@@ -1,7 +1,7 @@
 ## ADDED Requirements
 
 ### Requirement: A missing expected bar is recovered once per bar
-For each admitted stream, realtime supervision SHALL compute the latest expected closed bar on the stream's own time grid, defined as the latest bar whose close plus the configured grace period has passed. When that bar has not been committed by WebSocket or by recovery, supervision SHALL emit exactly one stale recovery-required signal for it, unless the stream is already recovery-pending or failed. A recovery classified `restored` SHALL mark that expected bar as checked, and no further stale signal SHALL be emitted for the stream until a later expected bar becomes due. A recovery that is `incomplete` or fails SHALL NOT mark the bar checked and SHALL be governed only by the existing recovery backoff. The grace period SHALL default to 15 seconds and be configured by `MDS_STALE_GRACE_MS`.
+For each admitted stream, supervision SHALL compute the latest expected closed bar on the stream's own time grid: the latest bar whose close plus the grace period (`MDS_STALE_GRACE_MS`, default 15 seconds) has passed. When that bar is not committed, supervision SHALL emit exactly one stale signal for it, unless the stream is recovery-pending or failed. A `restored` recovery SHALL mark the bar that triggered it as checked; `incomplete` or failed recovery SHALL NOT, and follows the retry schedule below.
 
 #### Scenario: WebSocket delivers the bar within the grace period
 - **WHEN** the confirmed candle of an expected bar is committed before its grace period ends
@@ -17,7 +17,7 @@ For each admitted stream, realtime supervision SHALL compute the latest expected
 
 #### Scenario: Incomplete recovery is not a check
 - **WHEN** a stale recovery ends `incomplete` or fails
-- **THEN** the bar is not marked checked, the stream stays recovery-pending, and only the existing backoff schedules the next attempt
+- **THEN** the bar is not marked checked, the stream stays recovery-pending, and only the retry schedule schedules the next attempt
 
 #### Scenario: The recovery marks the bar that triggered it
 - **WHEN** a stale recovery is started for expected bar E1 and the next expected bar E2 becomes due before the recovery completes `restored`
@@ -49,3 +49,30 @@ A restored stale recovery SHALL leave stream readiness to the existing readiness
 #### Scenario: REST recovery does not make a stream live
 - **WHEN** a stream is restored by stale recovery and no WebSocket candle follows
 - **THEN** `realtime_live` stays false and `ready` is whatever the existing readiness rules give, unchanged by this change
+
+### Requirement: Failed realtime recovery is retried on a fixed capped schedule
+After an unsuccessful realtime recovery the worker SHALL retry the stream not earlier than 60 seconds later, and every further retry not earlier than 360 seconds after the previous attempt (`MDS_REALTIME_RECOVERY_BASE_SECONDS`, `MDS_REALTIME_RECOVERY_MAX_SECONDS`). A newly expected bar SHALL NOT reset, shorten or duplicate this schedule. A `restored` result SHALL reset it.
+
+#### Scenario: REST works, WebSocket silent
+- **WHEN** REST restores the missing bar at 12:05:15 and the WebSocket stays silent
+- **THEN** the next stale check happens at 12:10:15 when the next bar becomes expected, not later than that
+
+#### Scenario: REST and WebSocket both fail
+- **WHEN** the attempt at 12:05:15 fails, the retry at 12:06:15 fails and the bar of 12:10 becomes due
+- **THEN** no second independent recovery is created, the next attempt is not before 12:12:15, then not before 12:18:15, and the first success covers all missed bars
+
+#### Scenario: Empty recovery is not a failure
+- **WHEN** a recovery ends `restored` with `attempted=0 committed=0`
+- **THEN** it resets the schedule and is not retried
+
+#### Scenario: Progress is not a failure
+- **WHEN** a recovery ends `incomplete` because a bar closed during it or `max_windows` was reached, and the window advanced
+- **THEN** it continues immediately and the failure counter is reset
+
+#### Scenario: Success resets the schedule
+- **WHEN** a recovery after one or more failures ends `restored`
+- **THEN** the next unsuccessful recovery of that stream starts again with the 60 s delay
+
+#### Scenario: What counts as unsuccessful
+- **WHEN** a recovery ends with a recoverable failure or with `incomplete` and no progress
+- **THEN** it counts toward the schedule, while `incomplete` with progress continues immediately and resets the counter

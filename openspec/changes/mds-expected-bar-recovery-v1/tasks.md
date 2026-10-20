@@ -4,6 +4,10 @@
 - [ ] 1.3 `detect_stale`: expected-bar rule (D1, D2); on `restored` commit the stored pending bar (never the bar expected at completion); `incomplete`/failure do not
 - [ ] 1.4 Keep `realtime_live` semantics; heartbeat/transport activity no longer used for staleness
 
+## 1a. Retry schedule (D6)
+- [ ] 1a.1 Recovery worker: one failure counter per pending recovery; delay = BASE for the first failure, MAX for every later one; reset on `restored` and on `incomplete` with progress
+- [ ] 1a.2 Settings: `MDS_REALTIME_RECOVERY_BASE_SECONDS` default 60, `MDS_REALTIME_RECOVERY_MAX_SECONDS` default 360, README, settings tests
+
 ## 2. Tests (deterministic fake clock)
 - [ ] 2.1 WebSocket candle within grace: no signal, and at runtime level the stale worker enqueues nothing into the recovery queue for that stream
 - [ ] 2.2 Silent WebSocket, 1 s ticks over 25 min on 5m: one signal per missed bar (regression of the 895 repeats)
@@ -15,6 +19,9 @@
 - [ ] 2.6 5m, 1h, 4h, 1d each on their own grid; stream without anchor: no signal
 - [ ] 2.7 `realtime_live` and `ready` unchanged by stale recovery; runtime-level stale worker test updated
 - [ ] 2.8 Update the existing supervisor test that used the old rule
+
+- [ ] 2.9 Retry schedule: 60 s then 360 s, 360 s repeating; new expected bar does not create a second recovery or reset the delay; `restored` (also `attempted=0`) and progress reset; recoverable failure and no-progress incomplete count; fatal not retried
+- [ ] 2.10 Update existing worker tests that assumed 1 s doubling backoff
 
 ## 3. Verification
 - [ ] 3.1 `make verify` green; `openspec validate --all --strict` green

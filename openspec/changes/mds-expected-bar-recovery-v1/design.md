@@ -37,9 +37,30 @@ The suspected start hint stays `last_successful_open_time_ms + S`.
 After a `restored` recovery the stream is checked for that expected bar and cannot be signalled again until `expected_open` advances, which takes one full step. With a silent WebSocket MDS runs at most one stale recovery per stream per bar, a short time after each close. The two conditions are redundant on purpose: `last_successful` normally reaches the expected bar after `restored`, and the checked marker is the hard guarantee if it does not (for example an exchange hole REST cannot fill).
 
 ### D4. Unchanged by design
-`last_confirmed_observed_at_ms` and `recovery_completed_at_ms` keep their only remaining role: `realtime_live` requires a confirmed WebSocket candle after the recovery. Heartbeat and transport activity no longer decide staleness. Recovery planning, `max_windows`, the worker queue and backoff are untouched.
+`last_confirmed_observed_at_ms` and `recovery_completed_at_ms` keep their only remaining role: `realtime_live` requires a confirmed WebSocket candle after the recovery. Heartbeat and transport activity no longer decide staleness. Recovery planning, `max_windows` and the worker queue are untouched; the retry schedule changes only as D6 says.
 
 **Readiness is not changed by this change.** `ready` stays as defined by `runtime-health-and-readiness`: durable `ready`, active subscription, restored recovery, no pending recovery, no fatal error. It does not depend on `realtime_live` (that capability already states that `ready` may be true while `realtime_live` is false; for example `durable_state=ready realtime_status=subscribed data_ready=True realtime_live=False ready=True` in the 2026-10-20 07:00:03 logs). This change does not make a stream ready or not ready that was not before, and does not touch WebSocket readiness semantics. How a trading cycle may use a bar restored over REST is decided in the separate Runtime-notification change.
+
+### D6. Retry limit after an unsuccessful recovery
+The 15 s grace is only the time of the **first check of a new bar** in normal mode. It is not a retry interval. After an unsuccessful REST recovery the stream is rate-limited by its own schedule, independent of how often bars close:
+
+- first retry: not earlier than 60 s after the failed attempt;
+- second and every later retry: not earlier than 360 s after the previous attempt;
+- a new expected bar never resets or shortens this schedule and never creates an independent recovery: while the stream is `recovery_pending` (already true today) `detect_stale` emits nothing, and the next successful attempt covers every bar missed meanwhile through its normal window;
+- a `restored` recovery resets the schedule; afterwards the normal rule "bar close + grace" applies again.
+
+What counts as unsuccessful (one shared counter per pending recovery):
+- `recoverable failure` (REST error, timeout): counts;
+- `incomplete` without progress (window and progress marker unchanged, so the required bar is still absent): counts;
+- `incomplete` with progress (REST works, the window advanced, for example a bar closed during recovery or `max_windows` was hit): not a failure, continues immediately as today and resets the counter;
+- `restored` including `attempted=0 committed=0`: success, not a failure;
+- `fatal`: no retry, unchanged.
+
+Settings: `MDS_REALTIME_RECOVERY_BASE_SECONDS` becomes the first retry delay (default 60, was 1) and `MDS_REALTIME_RECOVERY_MAX_SECONDS` the delay of every later retry (default 360, was 60); the doubling formula is removed. The existing check `max >= base` stays.
+
+Scope: the schedule applies to every realtime recovery of the worker (stale, reconnect, sequence gap), because they share one worker and one REST budget. Historical backfill backoff is a separate worker and is untouched.
+
+Not done: priority of 5m over 1h/4h/1d in the shared operation gate. Per-stream schedules cap the load, but a rare higher-timeframe request may still land on a 5m boundary. A strict guarantee would need a priority queue; not added now.
 
 ### D5. Settings
 `MDS_STALE_GRACE_MS` (existing) becomes the grace `G`, default 15000. `MDS_STALE_INTERVALS` is removed together with `StalePolicy.intervals` and its README line. `realtime_stale_check_seconds` stays.
@@ -63,5 +84,6 @@ After a `restored` recovery the stream is checked for that expected bar and cann
 ## Risks
 - REST load with a silent WebSocket: one recovery per stream per bar. 40 streams are mostly 5m: about 40 recoveries per 5 minutes. Recoveries are serialised by the operation gate, so the last stream of a burst can finish tens of seconds after the first.
 - A WebSocket candle later than `G` (up to 77 s seen on 2026-10-19 at network stalls) triggers one extra REST recovery; the later WebSocket candle is a `duplicate`. Harmless; raise `MDS_STALE_GRACE_MS` if it is noisy.
-- If REST genuinely lacks the expected bar, recovery ends `incomplete` and the existing no-progress backoff retries; unchanged behaviour.
+- If REST is down or lacks the expected bar, the stream retries after 60 s, then every 360 s (D6). Bars missed during that time arrive with the first successful attempt, up to about 6 minutes late; this is the accepted price of capping REST load.
+- Reconnect and gap recoveries are slower to retry after a failure than before (60 s instead of 1-2 s); a successful first attempt is unaffected.
 - Until the Runtime-notification change lands, faster recovery does not reach Runtime.
