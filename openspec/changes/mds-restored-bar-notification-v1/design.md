@@ -28,10 +28,10 @@ The recovery worker takes an optional callback `on_restored(stream, open_time_ms
 ### D4. Why after sync
 If sent earlier, Engine would hit a non-READY stream again. After `_sync_lifecycle()` the durable state is READY when the supervisor says `data_ready`. If it is still not READY, Engine fails closed as today.
 
-### D5. One notification per episode
-Only `restored_through` is sent, never intermediate bars: a decision is made for the latest closed bar on a complete history. If the notified bar is later than the WebSocket bar that was refused, the refused bar is covered because history through `restored_through` is complete.
+### D5. Latest-only semantics
+Only `restored_through` is sent, never intermediate bars. The notification means "history through this bar is complete; decide on the latest closed bar". Complete history is covered; intermediate trading cycles (the refused WebSocket bar, the restored bars) are not replayed and no decision is made retroactively for them.
 
 ## Risks
-- A bar already handled may be sent again if a hole below it was repaired. Engine decides on the complete history, so that is the intended retry; whether Runtime tolerates a repeat for the same bar must be confirmed in strategy_runtime.
+- A bar already handled may be sent again if a hole below it was repaired. Engine decides on the complete history, so that is the intended retry. A repeated notification for the same bar is idempotent in Runtime (Runtime contract and production E2E).
 - Queue overflow drops the notification (existing best-effort contract).
 - Unrelated gap repaired in the same recovery as an already traded latest bar: one repeat notification, accepted.

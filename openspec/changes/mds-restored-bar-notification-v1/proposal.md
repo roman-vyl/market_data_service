@@ -27,5 +27,4 @@ Recovery planning, windows, the intent worker, 60/360 s stale schedule, the stal
 
 ## Out of scope
 - Bars closed while MDS was down (repaired silently by the startup reconciler).
-- Runtime handling of a repeated notification for a bar it already tried: to be confirmed in strategy_runtime, no change made here.
 - Durable outbox or delivery retries.

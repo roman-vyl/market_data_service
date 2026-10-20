@@ -1,3 +1,16 @@
+## MODIFIED Requirements
+
+### Requirement: Only genuine admitted realtime commits notify
+MDS SHALL enqueue a notification only from one of two sources, both after the stream has passed realtime admission: (1) a realtime ingestion outcome classified `committed`; (2) the end of a realtime recovery episode that ended `restored`, under the episode requirement below. Duplicate, corrected, rejected, failed, unconfirmed, or admission-blocked observations, `incomplete` or failed recovery attempts, and the historical reconciler SHALL NOT enqueue a committed-bar notification.
+
+#### Scenario: Duplicate realtime candle produces no notification
+- **WHEN** a confirmed admitted realtime candle is classified `duplicate`
+- **THEN** MDS does not enqueue a committed-bar notification for it.
+
+#### Scenario: Restored recovery episode is the second source
+- **WHEN** a realtime recovery episode ends `restored` and the episode requirement says a notification is needed
+- **THEN** MDS enqueues one notification for the episode's latest restored bar.
+
 ## ADDED Requirements
 
 ### Requirement: A restored realtime recovery episode notifies once for its latest bar
