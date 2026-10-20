@@ -10,22 +10,26 @@
 ### D1. Owner of the event
 `RuntimeRealtimeCoordinator` (runtime layer) owns "a canonical bar became live-relevant". Application and ports layers return facts only.
 
-### D2. Trigger
-The recovery worker takes an optional callback `on_restored(stream, open_time_ms)`. It is invoked in `run()` after `_execute` returned and after `self._sync_lifecycle()`, only when:
-- the result is `RESTORED` and no requirement changed during the attempt (same condition under which supervisor gets `restored=True`);
-- `restored_through_open_time_ms` is set;
-- the recovery committed at least one bar (`committed > 0` in the repair result, summed over windows already reflected in the final result).
+### D2. Episode flag `retry_needed`
+The recovery intent (one per stream, already the episode owner) gets a sticky boolean `retry_needed`, false at creation. It is set:
+- A: after any attempt of the episode whose repair result committed at least one bar (every attempt, including `incomplete` ones such as `recovery_target_advanced`);
+- B: by the coordinator when a WebSocket outcome is `COMMITTED` and, after `supervisor.observe_outcome` and enqueue of its signals, the stream is recovery-pending. This covers a new bar closing during recovery and the bar that revealed a sequence gap.
 
-The coordinator's callback enqueues a `CommittedBarNotification` (if the notifier worker exists) into the existing queue.
+It is never cleared by `incomplete` or failure. It is cleared only when the episode ends: `restored` with unchanged revision (after the notification decision) or fatal failure.
 
-### D3. Why after sync
-If sent earlier, Engine would hit a non-READY stream again. After `_sync_lifecycle()` the durable state is READY when the supervisor says `data_ready`. If the state is still not READY, Engine fails closed as today.
+Example A: attempt 1 commits T1, target advanced, `incomplete`; attempt 2 finds continuity, committed 0, `restored`. Flag set by attempt 1, so one notification.
+Example B: reconnect, recovery pending, T1 closes over WebSocket and is committed, Runtime sends it and Engine refuses (DEGRADED); REST audit finds no hole, committed 0, `restored`. Flag set by B, so one notification for T1.
 
-### D4. One notification per recovery
-Only `restored_through` is sent, never the intermediate bars: a trading decision is made for the latest closed bar on a complete history, not retroactively for each restored bar.
+Not designed: a WebSocket replaying an old missed bar. Bybit v5 kline WebSocket is a live feed with no replay; missed history is only restored over REST.
 
-### D5. Not sent when nothing was restored
-`committed == 0` (reconnect, startup, duplicate-only windows) means Runtime already received every bar over WebSocket; sending would repeat a handled bar.
+### D3. Trigger
+The recovery worker takes an optional callback `on_restored(stream, open_time_ms)`, called in `run()` after `_execute` and after `self._sync_lifecycle()` when the result is `RESTORED`, no requirement changed during the attempt, `restored_through_open_time_ms` is set, and the episode flag is true. The coordinator's callback enqueues a `CommittedBarNotification` (no-op without a notifier worker).
+
+### D4. Why after sync
+If sent earlier, Engine would hit a non-READY stream again. After `_sync_lifecycle()` the durable state is READY when the supervisor says `data_ready`. If it is still not READY, Engine fails closed as today.
+
+### D5. One notification per episode
+Only `restored_through` is sent, never intermediate bars: a decision is made for the latest closed bar on a complete history. If the notified bar is later than the WebSocket bar that was refused, the refused bar is covered because history through `restored_through` is complete.
 
 ## Risks
 - A bar already handled may be sent again if a hole below it was repaired. Engine decides on the complete history, so that is the intended retry; whether Runtime tolerates a repeat for the same bar must be confirmed in strategy_runtime.
