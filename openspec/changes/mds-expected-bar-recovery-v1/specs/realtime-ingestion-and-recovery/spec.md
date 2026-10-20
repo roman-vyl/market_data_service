@@ -84,3 +84,7 @@ After an unsuccessful realtime recovery with reason `STALE` the worker SHALL ret
 #### Scenario: What counts as unsuccessful
 - **WHEN** a recovery ends with a recoverable failure or with `incomplete` and no progress
 - **THEN** it counts toward the schedule, while `incomplete` with progress continues immediately and resets the counter
+
+#### Scenario: Reconnect is not delayed by a waiting stale retry
+- **WHEN** a stream waits for a stale retry and a reconnect or sequence-gap signal arrives for it
+- **THEN** the waiting recovery takes the new reason and runs immediately, with the stale schedule reset

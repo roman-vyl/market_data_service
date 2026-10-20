@@ -127,3 +127,37 @@ def test_reconnect_and_sequence_gap_keep_existing_backoff() -> None:
 
         assert len(gaps) == 3
         assert all(gap < FIRST for gap in gaps), (reason, gaps)
+
+
+def test_reconnect_signal_is_not_delayed_by_waiting_stale_retry() -> None:
+    async def scenario() -> tuple[list[float], float]:
+        stream = StreamKey(InstrumentKey("BTCUSDT.P"), "5m")
+        recovery = TimedRecovery([F, R, R])
+        worker = RealtimeRecoveryWorker(
+            recovery=recovery,  # type: ignore[arg-type]
+            supervisor=RealtimeSupervisor((stream,), {}, lambda: 1_000),
+            status=RuntimeStatusStore((stream,)),
+            operation_gate=asyncio.Lock(),
+            sync_lifecycle=lambda: None,
+            max_windows=1,
+            base_backoff_seconds=BASE,
+            max_backoff_seconds=MAX,
+            stale_first_retry_seconds=30.0,
+            stale_next_retry_seconds=60.0,
+            idle_seconds=0.001,
+        )
+        stop = asyncio.Event()
+        runner = asyncio.create_task(worker.run(stop))
+        await worker.enqueue(RecoveryRequired(stream, RecoveryReason.STALE, 1_000, 0))
+        await asyncio.sleep(0.05)  # STALE attempt failed, retry is 30 s away
+        asked_at = asyncio.get_running_loop().time()
+        await worker.enqueue(RecoveryRequired(stream, RecoveryReason.DISCONNECT, 1_000, None))
+        await asyncio.sleep(0.3)
+        stop.set()
+        await runner
+        return recovery.times, asked_at
+
+    times, asked_at = asyncio.run(scenario())
+
+    assert len(times) >= 2
+    assert times[1] - asked_at < 1.0

@@ -24,6 +24,10 @@ from market_data_service.runtime.realtime_recovery_diagnostics import (
 from market_data_service.runtime.status import RuntimeStatusStore
 
 
+def _is_stale_signal(signal: RecoveryRequired) -> bool:
+    return signal.reason is RecoveryReason.STALE
+
+
 @dataclass(slots=True)
 class _PendingRecovery:
     signal: RecoveryRequired
@@ -63,15 +67,22 @@ class RealtimeRecoveryWorker:
         self._stale_next_retry = stale_next_retry_seconds
         self._idle_seconds = idle_seconds
         self._queue: asyncio.Queue[_PendingRecovery] = asyncio.Queue()
-        self._pending: set[StreamKey] = set()
+        self._pending: dict[StreamKey, _PendingRecovery] = {}
         self._logger = logging.getLogger("market_data_service.runtime.realtime")
         self._diagnostics = RealtimeRecoveryDiagnostics(self._logger)
 
     async def enqueue(self, signal: RecoveryRequired) -> None:
-        if signal.stream in self._pending:
+        waiting = self._pending.get(signal.stream)
+        if waiting is not None:
+            if _is_stale_signal(waiting.signal) and not _is_stale_signal(signal):
+                # A reconnect or gap must not wait for the slow STALE retry schedule.
+                waiting.signal = signal
+                waiting.due_at = 0.0
+                waiting.stale_failures = 0
             return
-        self._pending.add(signal.stream)
-        await self._queue.put(_PendingRecovery(signal))
+        pending = _PendingRecovery(signal)
+        self._pending[signal.stream] = pending
+        await self._queue.put(pending)
 
     async def run(self, stop_event: asyncio.Event) -> None:
         try:
@@ -94,7 +105,7 @@ class RealtimeRecoveryWorker:
                 if retry is not None and not stop_event.is_set():
                     await self._queue.put(retry)
                 else:
-                    self._pending.discard(pending.signal.stream)
+                    self._pending.pop(pending.signal.stream, None)
                 self._queue.task_done()
                 self._sync_lifecycle()
         finally:
@@ -146,7 +157,7 @@ class RealtimeRecoveryWorker:
                 pending.no_progress_attempts += 1
                 delay = (
                     self._stale_delay(pending)
-                    if self._is_stale(pending)
+                    if _is_stale_signal(pending.signal)
                     else min(
                         self._max_backoff,
                         self._base_backoff * (2 ** (pending.no_progress_attempts - 1)),
@@ -161,7 +172,7 @@ class RealtimeRecoveryWorker:
             pending.failures += 1
             delay = (
                 self._stale_delay(pending)
-                if self._is_stale(pending)
+                if _is_stale_signal(pending.signal)
                 else min(self._max_backoff, self._base_backoff * (2 ** (pending.failures - 1)))
             )
             pending.due_at = loop.time() + delay
@@ -176,10 +187,6 @@ class RealtimeRecoveryWorker:
             return pending
         self._log_result(pending, result, previous_marker, delay=0.0)
         return None
-
-    @staticmethod
-    def _is_stale(pending: _PendingRecovery) -> bool:
-        return pending.signal.reason is RecoveryReason.STALE
 
     def _stale_delay(self, pending: _PendingRecovery) -> float:
         """Fixed capped schedule for an unsuccessful STALE recovery: 60 s, then 360 s."""
