@@ -30,7 +30,7 @@ from market_data_service.application.realtime.supervisor_types import (
     StalePolicy,
 )
 from market_data_service.domain.identity import StreamKey
-from market_data_service.domain.timeframes import get_timeframe
+from market_data_service.domain.timeframes import align_to_grid, get_timeframe
 
 
 class RealtimeSupervisor:
@@ -96,20 +96,29 @@ class RealtimeSupervisor:
         for facts in self._state.all_facts():
             if not facts.subscription_active or facts.recovery_pending or facts.fatal_error_code:
                 continue
-            anchor = facts.last_confirmed_observed_at_ms or facts.last_transport_activity_ms
-            if anchor is None:
+            if facts.last_successful_open_time_ms is None:
                 continue
             step_ms = get_timeframe(facts.stream.timeframe).duration_ms
-            timeout_ms = step_ms * self._stale_policy.intervals + self._stale_policy.grace_ms
-            if observed_now - anchor <= timeout_ms:
-                continue
-            suspected_start = (
-                None
-                if facts.last_successful_open_time_ms is None
-                else facts.last_successful_open_time_ms + step_ms
+            expected_open_ms = (
+                align_to_grid(observed_now - self._stale_policy.grace_ms, step_ms) - step_ms
             )
-            self._state.require_recovery(facts.stream, RealtimeStreamStatus.STALE)
-            signals.extend(self._signal(facts.stream, RecoveryReason.STALE, suspected_start))
+            if facts.last_successful_open_time_ms >= expected_open_ms:
+                continue
+            checked = facts.last_checked_expected_open_ms
+            if checked is not None and expected_open_ms <= checked:
+                continue
+            self._state.require_recovery(
+                facts.stream,
+                RealtimeStreamStatus.STALE,
+                pending_expected_open_ms=expected_open_ms,
+            )
+            signals.extend(
+                self._signal(
+                    facts.stream,
+                    RecoveryReason.STALE,
+                    facts.last_successful_open_time_ms + step_ms,
+                )
+            )
         return tuple(signals)
 
     def record_recovery_result(

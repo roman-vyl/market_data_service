@@ -21,12 +21,9 @@ class RealtimeStreamStatus(StrEnum):
 
 @dataclass(frozen=True, slots=True)
 class StalePolicy:
-    intervals: int = 2
-    grace_ms: int = 5_000
+    grace_ms: int = 15_000
 
     def __post_init__(self) -> None:
-        if self.intervals <= 0:
-            raise ValueError("stale intervals must be positive")
         if self.grace_ms < 0:
             raise ValueError("stale grace_ms must be non-negative")
 
@@ -40,6 +37,8 @@ class RealtimeStreamFacts:
     last_confirmed_observed_at_ms: int | None = None
     last_confirmed_open_time_ms: int | None = None
     last_successful_open_time_ms: int | None = None
+    last_checked_expected_open_ms: int | None = None
+    pending_expected_open_ms: int | None = None
     last_ingestion_classification: str | None = None
     recovery_pending: bool = False
     recovery_restored: bool = False

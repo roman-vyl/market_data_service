@@ -526,9 +526,7 @@ async def _late_admission_scenario(tmp_path: Path) -> None:
     _register_connecting(path, stream)
     with SqliteUnitOfWork(path) as unit_of_work:
         state = unit_of_work.get_stream_state(stream)
-        unit_of_work.save_stream_state(
-            replace(state, latest_committed_open_time_ms=240_000)
-        )
+        unit_of_work.save_stream_state(replace(state, latest_committed_open_time_ms=240_000))
         unit_of_work.commit()
     clock = Clock()
     topics = {"kline.1.ETHUSDT": stream}
@@ -716,3 +714,25 @@ async def _no_notifier_worker_scenario(tmp_path: Path) -> None:
     await runtime.on_outcome(
         RealtimeIngestionOutcome(stream, 0, RealtimeIngestionClassification.COMMITTED)
     )
+
+
+def test_stream_whose_bars_arrive_on_time_never_enters_recovery_queue(tmp_path: Path) -> None:
+    asyncio.run(_on_time_stream_scenario(tmp_path))
+
+
+async def _on_time_stream_scenario(tmp_path: Path) -> None:
+    path = tmp_path / "market.sqlite3"
+    initialize_database(path)
+    stream = _stream("BTCUSDT.P")
+    _register_connecting(path, stream)
+    _insert_candle(path, stream)
+    recovery = FakeRecovery({stream: (RecoveryClassification.RESTORED,)})
+    runtime, _ = _runtime(path, (stream,), recovery)
+    stop = asyncio.Event()
+    runner = asyncio.create_task(runtime.run(stop))
+    await runtime.on_event(SubscriptionConfirmed(("kline.1.BTCUSDT",), observed_at_ms=10))
+    await asyncio.sleep(0.2)
+    stop.set()
+    await runner
+
+    assert recovery.calls == [stream]  # only the startup recovery; no stale recovery

@@ -53,6 +53,8 @@ class RuntimeRealtimeCoordinator:
         stale_check_seconds: float = 1.0,
         recovery_base_backoff_seconds: float = 1.0,
         recovery_max_backoff_seconds: float = 60.0,
+        stale_first_retry_seconds: float = 60.0,
+        stale_next_retry_seconds: float = 360.0,
         recovery_idle_seconds: float = 0.1,
         notifier_worker: CommittedBarNotificationWorker | None = None,
     ) -> None:
@@ -74,6 +76,8 @@ class RuntimeRealtimeCoordinator:
             max_windows=max_recovery_windows,
             base_backoff_seconds=recovery_base_backoff_seconds,
             max_backoff_seconds=recovery_max_backoff_seconds,
+            stale_first_retry_seconds=stale_first_retry_seconds,
+            stale_next_retry_seconds=stale_next_retry_seconds,
             idle_seconds=recovery_idle_seconds,
         )
 
