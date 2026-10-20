@@ -5,7 +5,7 @@ For each admitted stream, realtime supervision SHALL compute the latest expected
 
 #### Scenario: WebSocket delivers the bar within the grace period
 - **WHEN** the confirmed candle of an expected bar is committed before its grace period ends
-- **THEN** no stale signal is emitted for that bar
+- **THEN** no stale signal is emitted for that bar and nothing is enqueued for that stream in the recovery worker
 
 #### Scenario: Silent WebSocket
 - **WHEN** no candle arrives for an expected bar and its grace period has passed
@@ -19,6 +19,18 @@ For each admitted stream, realtime supervision SHALL compute the latest expected
 - **WHEN** a stale recovery ends `incomplete` or fails
 - **THEN** the bar is not marked checked, the stream stays recovery-pending, and only the existing backoff schedules the next attempt
 
+#### Scenario: The recovery marks the bar that triggered it
+- **WHEN** a stale recovery is started for expected bar E1 and the next expected bar E2 becomes due before the recovery completes `restored`
+- **THEN** E1, the bar stored when the signal was emitted, is marked checked, and E2 is judged independently afterwards: no signal if the restored recovery already covered E2, otherwise exactly one signal for E2
+
+#### Scenario: Retry keeps the original expected bar
+- **WHEN** the recovery for expected bar E1 ends `incomplete` or fails and is retried after one or more later bars have become due
+- **THEN** the pending expected bar stays E1 until a retry completes `restored`, and then E1 is marked checked
+
+#### Scenario: Long idle produces one signal
+- **WHEN** MDS resumes after many missed bars
+- **THEN** one stale signal is emitted for the current expected bar and the recovery window covers all missed bars through the existing bounded recovery
+
 #### Scenario: Late WebSocket candle after recovery
 - **WHEN** the WebSocket delivers a bar that REST recovery already restored
 - **THEN** it is classified as a duplicate and does not trigger another stale signal
@@ -31,9 +43,9 @@ For each admitted stream, realtime supervision SHALL compute the latest expected
 - **WHEN** a stream has no last successful bar
 - **THEN** no stale signal is emitted for it
 
-### Requirement: Live readiness still requires a confirmed WebSocket candle
-`realtime_live` SHALL remain true only after a confirmed WebSocket candle has been observed after the stream's last restored recovery. Stale detection SHALL NOT depend on heartbeat or other transport activity.
+### Requirement: Stale recovery does not change readiness or live semantics
+A restored stale recovery SHALL leave stream readiness to the existing readiness rules and SHALL NOT force a stream ready. `realtime_live` SHALL remain true only after a confirmed WebSocket candle has been observed after the stream's last restored recovery. Stale detection SHALL NOT depend on heartbeat or other transport activity.
 
-#### Scenario: REST recovery alone does not make a stream live
-- **WHEN** a stream is restored by recovery and no WebSocket candle follows
-- **THEN** the stream is ready but `realtime_live` stays false
+#### Scenario: REST recovery does not make a stream live
+- **WHEN** a stream is restored by stale recovery and no WebSocket candle follows
+- **THEN** `realtime_live` stays false and `ready` is whatever the existing readiness rules give, unchanged by this change

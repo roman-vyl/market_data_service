@@ -23,7 +23,13 @@ A stream is stale, and `detect_stale` emits one `RecoveryRequired(STALE)`, only 
 - `last_successful_open_time_ms` is not None and `< expected_open(now)`;
 - `expected_open(now) > last_checked_expected_open_ms`.
 
-`last_checked_expected_open_ms` is a new per-stream fact. The supervisor records `expected_open` on the facts when it emits the signal and commits it as checked when that recovery is reported `restored`. A failed or incomplete recovery does not commit it; the stream stays `recovery_pending` under the worker's existing backoff, so nothing new is emitted meanwhile.
+`last_checked_expected_open_ms` and `pending_expected_open_ms` are new per-stream facts.
+
+**Identity of the expected bar.** When `detect_stale` emits the signal it stores the bar that triggered it in `pending_expected_open_ms` (the value computed at that moment, not recomputed later). That identity stays with the stream through every retry and every `incomplete` continuation window of the same recovery. When the recovery is reported `restored`, exactly that stored bar is committed: `last_checked_expected_open_ms = max(last_checked_expected_open_ms, pending_expected_open_ms)` and the pending value is cleared. The expected bar at completion time is never used for marking. A failed or incomplete result does not commit anything and keeps the pending value; the stream stays `recovery_pending` under the worker's backoff, so nothing new is emitted meanwhile.
+
+**Crossing a bar boundary during recovery.** If the next expected bar `E2` becomes due while the recovery for `E1` runs, `E1` is still the bar marked checked on completion. `E2` is then judged independently on the next tick: if the restored recovery already covered it (`last_successful_open_time_ms >= E2`, which is the normal case because the recovery window end is aligned to the latest closed bar at planning time and a bar closing mid-recovery makes the result `incomplete` with a next window), no signal is emitted; if it is still missing, exactly one signal is emitted for `E2`.
+
+**After a long idle.** If MDS was down for many bars, one signal is emitted for the expected bar at that moment; the recovery window covers every missed bar through the existing bounded window logic, and only that one bar identity is marked. There is no signal per missed bar.
 
 The suspected start hint stays `last_successful_open_time_ms + S`.
 
@@ -32,6 +38,8 @@ After a `restored` recovery the stream is checked for that expected bar and cann
 
 ### D4. Unchanged by design
 `last_confirmed_observed_at_ms` and `recovery_completed_at_ms` keep their only remaining role: `realtime_live` requires a confirmed WebSocket candle after the recovery. Heartbeat and transport activity no longer decide staleness. Recovery planning, `max_windows`, the worker queue and backoff are untouched.
+
+**Readiness is not changed by this change.** `ready` stays as defined by `runtime-health-and-readiness`: durable `ready`, active subscription, restored recovery, no pending recovery, no fatal error. It does not depend on `realtime_live` (that capability already states that `ready` may be true while `realtime_live` is false; for example `durable_state=ready realtime_status=subscribed data_ready=True realtime_live=False ready=True` in the 2026-10-20 07:00:03 logs). This change does not make a stream ready or not ready that was not before, and does not touch WebSocket readiness semantics. How a trading cycle may use a bar restored over REST is decided in the separate Runtime-notification change.
 
 ### D5. Settings
 `MDS_STALE_GRACE_MS` (existing) becomes the grace `G`, default 15000. `MDS_STALE_INTERVALS` is removed together with `StalePolicy.intervals` and its README line. `realtime_stale_check_seconds` stays.
