@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 
 from market_data_service.application.realtime.events import RecoveryRequired
 from market_data_service.application.realtime.recovery import RealtimeRecoveryCoordinator
@@ -38,6 +38,7 @@ class RealtimeRecoveryWorker:
         stale_first_retry_seconds: float = 60.0,
         stale_next_retry_seconds: float = 360.0,
         idle_seconds: float = 0.1,
+        on_restored: Callable[[StreamKey, int], Awaitable[None]] | None = None,
     ) -> None:
         self._recovery = recovery
         self._supervisor = supervisor
@@ -50,6 +51,7 @@ class RealtimeRecoveryWorker:
         self._stale_first_retry = stale_first_retry_seconds
         self._stale_next_retry = stale_next_retry_seconds
         self._idle_seconds = idle_seconds
+        self._on_restored = on_restored
         self._queue: asyncio.Queue[RecoveryIntent] = asyncio.Queue()
         self._intents: dict[StreamKey, RecoveryIntent] = {}
         self._logger = logging.getLogger("market_data_service.runtime.realtime")
@@ -65,6 +67,13 @@ class RealtimeRecoveryWorker:
         intent = RecoveryIntent.from_signal(signal)
         self._intents[signal.stream] = intent
         await self._queue.put(intent)
+
+    def mark_live_commit(self, stream: StreamKey) -> None:
+        """Mark the stream's active episode after a WebSocket commit (no await in between)."""
+
+        intent = self._intents.get(stream)
+        if intent is not None:
+            intent.retry_needed = True
 
     async def run(self, stop_event: asyncio.Event) -> None:
         try:
@@ -87,6 +96,8 @@ class RealtimeRecoveryWorker:
                     self._intents.pop(intent.stream, None)
                 self._queue.task_done()
                 self._sync_lifecycle()
+                if retry is None and self._on_restored and intent.notify_open_ms is not None:
+                    await self._on_restored(intent.stream, intent.notify_open_ms)
         finally:
             self._intents.clear()
 
@@ -106,6 +117,8 @@ class RealtimeRecoveryWorker:
             )
         # A requirement that changed during the attempt makes its outcome incomplete.
         changed = intent.revision != started_revision
+        if result.committed_bars:
+            intent.retry_needed = True
         previous_marker = intent.progress_marker
         fatal = result.classification is RecoveryClassification.FATAL_FAILURE
         self._supervisor.record_recovery_result(
@@ -122,6 +135,8 @@ class RealtimeRecoveryWorker:
             self._log_result(intent, result, previous_marker, delay=0.0)
             return intent
         if result.classification is RecoveryClassification.RESTORED:
+            if intent.retry_needed:
+                intent.notify_open_ms = result.restored_through_open_time_ms
             self._status.clear_blocking_reason(intent.stream)
             self._log_result(intent, result, previous_marker, delay=0.0)
             return None

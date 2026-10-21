@@ -34,6 +34,10 @@ class RecoveryIntent:
     attempts_without_progress: int = 0
     recovery_window: TimeWindow | None = None
     progress_marker: RepairProgressMarker | None = None
+    # Sticky for the whole episode: Runtime may have refused a bar while the stream was
+    # not READY, or REST committed bars Runtime never heard about. Ends with the episode.
+    retry_needed: bool = False
+    notify_open_ms: int | None = None
 
     @classmethod
     def from_signal(cls, signal: RecoveryRequired) -> RecoveryIntent:

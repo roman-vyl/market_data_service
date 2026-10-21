@@ -5,10 +5,19 @@ from __future__ import annotations
 import asyncio
 import logging
 
+from market_data_service.domain.identity import StreamKey
 from market_data_service.ports.committed_bar_notifier import (
     CommittedBarNotification,
     CommittedBarNotifier,
 )
+
+
+def bar_notification(stream: StreamKey, open_time_ms: int) -> CommittedBarNotification:
+    return CommittedBarNotification(
+        instrument=stream.instrument.canonical_id,
+        timeframe=stream.timeframe,
+        open_time_ms=open_time_ms,
+    )
 
 
 class CommittedBarNotificationWorker:
