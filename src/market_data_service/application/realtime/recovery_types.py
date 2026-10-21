@@ -57,6 +57,14 @@ class RealtimeRecoveryResult:
         return None if self.repair is None else self.repair.progress_marker
 
     @property
+    def committed_bars(self) -> int:
+        """Bars this single attempt newly committed over REST."""
+
+        if self.repair is None:
+            return 0
+        return sum(item.committed for item in self.repair.window_results)
+
+    @property
     def made_progress(self) -> bool:
         if self.next_recovery_window is not None:
             return True

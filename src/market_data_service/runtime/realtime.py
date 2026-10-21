@@ -3,20 +3,15 @@
 from __future__ import annotations
 
 import asyncio
-import logging
 from collections.abc import Callable, Sequence
 
 from market_data_service.application.realtime.connector import RealtimeConnector
 from market_data_service.application.realtime.events import (
     CandleObserved,
-    Connected,
-    Disconnected,
     RealtimeEvent,
-    ReconnectExhausted,
     RecoveryReason,
     RecoveryRequired,
     SubscriptionConfirmed,
-    TransportFailed,
 )
 from market_data_service.application.realtime.outcomes import (
     RealtimeIngestionClassification,
@@ -26,12 +21,13 @@ from market_data_service.application.realtime.recovery import RealtimeRecoveryCo
 from market_data_service.application.realtime.supervisor import RealtimeSupervisor
 from market_data_service.domain.identity import StreamKey
 from market_data_service.domain.stream_state import StreamLifecycleState
-from market_data_service.ports.committed_bar_notifier import CommittedBarNotification
 from market_data_service.runtime.admission import RealtimeAdmissionGate
 from market_data_service.runtime.committed_bar_notification import (
     CommittedBarNotificationWorker,
+    bar_notification,
 )
 from market_data_service.runtime.lifecycle import RuntimeLifecycleRecorder
+from market_data_service.runtime.realtime_connection_log import log_connection_event
 from market_data_service.runtime.realtime_recovery_worker import RealtimeRecoveryWorker
 from market_data_service.runtime.status import RuntimeStatusStore
 
@@ -79,6 +75,7 @@ class RuntimeRealtimeCoordinator:
             stale_first_retry_seconds=stale_first_retry_seconds,
             stale_next_retry_seconds=stale_next_retry_seconds,
             idle_seconds=recovery_idle_seconds,
+            on_restored=self._notify_restored,
         )
 
     async def run(self, stop_event: asyncio.Event) -> None:
@@ -121,7 +118,7 @@ class RuntimeRealtimeCoordinator:
         self._sync_lifecycle()
 
     async def on_event(self, event: RealtimeEvent) -> None:
-        _log_connection_event(event)
+        log_connection_event(event)
         if isinstance(event, CandleObserved) and not self._admission.allows(event.stream):
             return
         signals = tuple(
@@ -154,15 +151,20 @@ class RuntimeRealtimeCoordinator:
             and outcome.classification is RealtimeIngestionClassification.COMMITTED
         ):
             await self._notifier_worker.enqueue(
-                CommittedBarNotification(
-                    instrument=outcome.stream.instrument.canonical_id,
-                    timeframe=outcome.stream.timeframe,
-                    open_time_ms=outcome.open_time_ms,
-                )
+                bar_notification(outcome.stream, outcome.open_time_ms)
             )
         for signal in self._supervisor.observe_outcome(outcome):
             await self._enqueue(signal)
+        if outcome.classification is RealtimeIngestionClassification.COMMITTED:
+            # Same step as the enqueue above: the episode active now, or created by this outcome.
+            self._recovery_worker.mark_live_commit(outcome.stream)
         self._sync_lifecycle()
+
+    async def _notify_restored(self, stream: StreamKey, open_time_ms: int) -> None:
+        """One ordinary notification for the latest bar a restored episode made complete."""
+
+        if self._notifier_worker is not None:
+            await self._notifier_worker.enqueue(bar_notification(stream, open_time_ms))
 
     async def _enqueue(self, signal: RecoveryRequired) -> None:
         await self._recovery_worker.enqueue(signal)
@@ -204,17 +206,3 @@ class RuntimeRealtimeCoordinator:
     def _refresh_status(self) -> None:
         for facts in self._supervisor.all_facts():
             self._status.update_stream(self._lifecycle.snapshot(facts.stream), facts)
-
-
-_LOGGER = logging.getLogger("market_data_service.runtime.realtime")
-
-
-def _log_connection_event(event: RealtimeEvent) -> None:
-    if isinstance(event, Connected):
-        _LOGGER.info("websocket connected")
-    elif isinstance(event, Disconnected):
-        _LOGGER.warning("websocket disconnected code=%s reason=%s", event.code, event.reason)
-    elif isinstance(event, TransportFailed):
-        _LOGGER.warning("websocket transport failed code=%s detail=%s", event.code, event.detail)
-    elif isinstance(event, ReconnectExhausted):
-        _LOGGER.error("websocket reconnect exhausted attempts=%s", event.attempts)
