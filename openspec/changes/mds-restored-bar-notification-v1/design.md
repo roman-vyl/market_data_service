@@ -13,9 +13,12 @@
 ### D2. Episode flag `retry_needed`
 The recovery intent (one per stream, already the episode owner) gets a sticky boolean `retry_needed`, false at creation. It is set:
 - A: after any attempt of the episode whose repair result committed at least one bar (every attempt, including `incomplete` ones such as `recovery_target_advanced`);
-- B: by the coordinator when a WebSocket outcome is `COMMITTED` and, after `supervisor.observe_outcome` and enqueue of its signals, the stream is recovery-pending. This covers a new bar closing during recovery and the bar that revealed a sequence gap.
+- B: by the coordinator for a WebSocket outcome classified `COMMITTED`, on exactly one episode, in one synchronous step with no `await` between the enqueue of the signals produced by `supervisor.observe_outcome` for that outcome and the mark:
+  1. an episode that was already active when the outcome was processed (the signals of this outcome merge into it, or there are none);
+  2. otherwise the episode created by the signals that `observe_outcome` returned for this same outcome (a sequence gap revealed by this bar).
+  If neither exists (stream not recovery-pending and no signal produced), nothing is marked. The mark is placed on the episode object itself, so a superseded or already finished episode cannot be marked later, and an unrelated recovery of the same stream cannot inherit it. A signal that merely merges into an existing episode does not create a new one, so case 1 covers it.
 
-It is never cleared by `incomplete` or failure. It is cleared only when the episode ends: `restored` with unchanged revision (after the notification decision) or fatal failure.
+It is never cleared by `incomplete`, non-fatal failure or a change during an attempt. It is discarded only when the episode ends: `restored` with unchanged revision (after the notification decision), or fatal failure (no notification, the episode and its flag are discarded).
 
 Example A: attempt 1 commits T1, target advanced, `incomplete`; attempt 2 finds continuity, committed 0, `restored`. Flag set by attempt 1, so one notification.
 Example B: reconnect, recovery pending, T1 closes over WebSocket and is committed, Runtime sends it and Engine refuses (DEGRADED); REST audit finds no hole, committed 0, `restored`. Flag set by B, so one notification for T1.

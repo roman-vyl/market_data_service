@@ -13,7 +13,7 @@ The same applies when the WebSocket is silent and REST restores the bar: Runtime
 ## What changes
 Each recovery episode (from the first signal until `restored`) carries a sticky flag `retry_needed`. It becomes true when either:
 A. any REST attempt of the episode committed at least one bar (not only the last attempt);
-B. a WebSocket bar was committed while the stream was recovery-pending (including the bar that revealed a sequence gap). Runtime got that bar while the stream was DEGRADED and Engine refused it.
+B. a WebSocket `COMMITTED` outcome was processed while a recovery episode was active, or created that episode itself by revealing a sequence gap. The mark goes only to the episode that was active when the outcome was processed or that was created as a direct consequence of that same outcome. Runtime got that bar while the stream was DEGRADED and Engine refused it.
 
 After the episode ends `restored`, and only after the stream's durable state has been synchronised (READY again), MDS sends exactly one ordinary closed-bar notification for `restored_through_open_time_ms` if `retry_needed` is true. The flag is cleared with the episode.
 
