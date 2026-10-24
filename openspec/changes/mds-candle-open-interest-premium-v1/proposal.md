@@ -24,8 +24,10 @@ Research Service or Runtime.
    each closed 5m bar.
 4. **Read.** `/v1/candles` and `/v1/historical-candles` return the two fields (null when not loaded). The candle hash stays over
    OHLCV only, so experiments saved earlier keep their hash; the extras get their own `extras_hash` in the response.
-5. **Readiness of the bar.** For an instrument with extras the 5m bar notification to Runtime waits for both values, at most
-   `MDS_EXTRAS_NOTIFY_WAIT_SECONDS` (default 20) (owner choice 1/2 pending).
+5. **Existing mechanisms untouched** (owner, 2026-10-24 08:02: nothing in WebSocket, REST or anything else is broken). The
+   candle WebSocket, kline REST backfill, repair, recovery and the bar notification to Runtime keep their code and timing.
+   Extras are a separate add-on step that runs after a candle is committed; if it fails, the candle and its notification are
+   unaffected and the bar simply has no extras yet (the Engine fails closed only for strategies that read them).
 
 ## Check before the Engine uses it
 Research used OI with a 15-minute step. Bybit's 15-minute value at time T is expected to equal the 5-minute value at T; this is

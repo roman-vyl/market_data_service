@@ -12,7 +12,7 @@ and live. A value for a time with no candle row is kept until the candle arrives
 
 ## D3. Live
 After a 5m candle is committed (WebSocket or REST), MDS runs `AttachCandleExtras` for the last 3 bars with the REST retry
-policy. Load: 3 coins x 2 requests every 5 minutes.
+policy, as a separate worker: it never blocks or changes candle ingestion, recovery or notification. Load: 3 coins x 2 requests every 5 minutes.
 
 ## D4. Hash
 `market_data_hash` stays over OHLCV, so saved experiment hashes and the stale-provenance rule are unaffected. Responses add

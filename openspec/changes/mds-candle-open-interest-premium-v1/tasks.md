@@ -8,7 +8,7 @@
 ## 3. Ingestion
 - [ ] 3.1 `AttachCandleExtras` use case (history, repair, live share it)
 - [ ] 3.2 Backfill fills extras of existing rows; audit reports bars without extras
-- [ ] 3.3 Live: after each committed 5m bar; notification wait (after owner choice)
+- [ ] 3.3 Live: separate step after each committed 5m bar; candle WS/REST/recovery/notification code untouched (regression tests stay green)
 
 ## 4. Read
 - [ ] 4.1 `/v1/candles` and `/v1/historical-candles` return the fields and `extras_hash`; OpenAPI
