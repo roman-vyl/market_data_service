@@ -1,7 +1,7 @@
 # MDS open interest history track v1
 
 ## Status
-DRAFT for the owner's review. No code until the owner's word.
+Approved by the owner 2026-10-25 and implemented. Smoke on a copy of the production database passed (migration, automatic start, resume, candle readiness).
 
 ## Why
 Some configured 5m streams need Bybit open interest (OI) as a second required market-data source, next to kline. The target model

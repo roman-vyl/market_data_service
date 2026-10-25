@@ -37,4 +37,4 @@
 
 ## 7. Verification
 - [x] 7.1 Targeted tests, then `make verify` green (357 tests)
-- [ ] 7.2 `openspec validate --all --strict` (CLI not installed in the cloud session)
+- [x] 7.2 `openspec validate --all --strict` on the owner's Mac: 12 passed, 0 failed
