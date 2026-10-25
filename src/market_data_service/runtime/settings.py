@@ -23,6 +23,8 @@ class RuntimeSettings:
     realtime_recovery_windows_per_stream: int = 2
     historical_retry_base_seconds: float = 1.0
     historical_retry_max_seconds: float = 60.0
+    oi_track_windows_per_pass: int = 2
+    oi_track_refresh_seconds: float = 300.0
     realtime_recovery_base_seconds: float = 1.0
     realtime_recovery_max_seconds: float = 60.0
     realtime_recovery_idle_seconds: float = 0.1
@@ -50,6 +52,7 @@ class RuntimeSettings:
             "startup_repair_windows_per_stream",
             "realtime_recovery_windows_per_stream",
             "reconnect_max_attempts",
+            "oi_track_windows_per_pass",
         ):
             if getattr(self, name) <= 0:
                 raise ValueError(f"{name} must be positive")
@@ -57,6 +60,8 @@ class RuntimeSettings:
             raise ValueError("historical_retry_base_seconds must be non-negative")
         if self.historical_retry_max_seconds < self.historical_retry_base_seconds:
             raise ValueError("historical_retry_max_seconds must be >= base")
+        if self.oi_track_refresh_seconds <= 0:
+            raise ValueError("oi_track_refresh_seconds must be positive")
         if self.realtime_recovery_base_seconds < 0:
             raise ValueError("realtime_recovery_base_seconds must be non-negative")
         if self.realtime_recovery_max_seconds < self.realtime_recovery_base_seconds:
@@ -118,6 +123,8 @@ class RuntimeSettings:
                 env.get("MDS_HISTORICAL_RETRY_BASE_SECONDS", "1.0")
             ),
             historical_retry_max_seconds=float(env.get("MDS_HISTORICAL_RETRY_MAX_SECONDS", "60.0")),
+            oi_track_windows_per_pass=int(env.get("MDS_OI_TRACK_WINDOWS_PER_PASS", "2")),
+            oi_track_refresh_seconds=float(env.get("MDS_OI_TRACK_REFRESH_SECONDS", "300")),
             realtime_recovery_base_seconds=float(
                 env.get("MDS_REALTIME_RECOVERY_BASE_SECONDS", "1.0")
             ),

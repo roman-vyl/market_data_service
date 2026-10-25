@@ -42,6 +42,14 @@ class ValidatedMarketConfig:
         )
 
     @property
+    def open_interest_streams(self) -> tuple[StreamKey, ...]:
+        return tuple(
+            stream
+            for coverage in self.enabled_instruments
+            for stream in coverage.open_interest_streams
+        )
+
+    @property
     def exchange_symbols(self) -> dict[str, str]:
         return {item.instrument.ticker: item.exchange_symbol for item in self.enabled_instruments}
 
@@ -86,6 +94,9 @@ def load_market_config(path: Path) -> ValidatedMarketConfig:
         if not all(isinstance(value, str) for value in raw_timeframes):
             raise MarketConfigError(f"{context}.canonical_timeframes must contain strings")
         history_policy_raw = _required_string(raw, "history_policy", context=context)
+        open_interest = raw.get("open_interest", False)
+        if not isinstance(open_interest, bool):
+            raise MarketConfigError(f"{context}.open_interest must be a boolean")
         try:
             history_policy = HistoryPolicy(history_policy_raw)
             coverage = InstrumentCoverage(
@@ -94,6 +105,7 @@ def load_market_config(path: Path) -> ValidatedMarketConfig:
                 enabled=enabled,
                 canonical_timeframes=tuple(raw_timeframes),
                 history_policy=history_policy,
+                open_interest=open_interest,
             )
         except ValueError as exc:
             raise MarketConfigError(f"invalid {context}: {exc}") from exc

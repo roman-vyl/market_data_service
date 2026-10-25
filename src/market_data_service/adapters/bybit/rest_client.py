@@ -105,13 +105,13 @@ class BybitRestCandleSource:
         *,
         observed_at_ms: int,
     ) -> tuple[ObservedCandle, ...]:
-        symbol = self._exchange_symbol(stream)
+        symbol = self._exchange_symbol_for_instrument(stream.instrument)
         timeframe = get_timeframe(stream.timeframe)
         max_rows = max(1, window.duration_ms // timeframe.duration_ms)
         if max_rows > 1000:
             raise ValueError("Bybit kline window must contain no more than 1000 candles")
-        payload = self._get_json_with_retry(
-            f"{self.base_url.rstrip('/')}/v5/market/kline",
+        rows = self.get_market_rows(
+            "/v5/market/kline",
             {
                 "category": self.category,
                 "symbol": symbol,
@@ -121,7 +121,6 @@ class BybitRestCandleSource:
                 "limit": max_rows,
             },
         )
-        rows = _extract_rows(payload)
         return parse_kline_rows(
             rows,
             stream=stream,
@@ -129,8 +128,9 @@ class BybitRestCandleSource:
             observed_at_ms=observed_at_ms,
         )
 
-    def _exchange_symbol(self, stream: StreamKey) -> str:
-        return self._exchange_symbol_for_instrument(stream.instrument)
+    def get_market_rows(self, path: str, params: dict[str, str | int]) -> list[Any]:
+        url = f"{self.base_url.rstrip('/')}{path}"
+        return _extract_rows(self._get_json_with_retry(url, params))
 
     def _exchange_symbol_for_instrument(self, instrument: InstrumentKey) -> str:
         try:

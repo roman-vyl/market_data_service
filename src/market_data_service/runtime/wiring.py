@@ -6,21 +6,28 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 
-from market_data_service.adapters.bybit import BybitRestCandleSource
+from market_data_service.adapters.bybit import BybitOpenInterestSource, BybitRestCandleSource
+from market_data_service.adapters.bybit.open_interest_source import MAX_POINTS_PER_WINDOW
 from market_data_service.adapters.sqlite import SqliteUnitOfWork
 from market_data_service.adapters.sqlite.consumer_candle_reader import (
     SqliteConsumerCandleReader,
 )
-from market_data_service.application.audit_continuity import AuditStreamContinuity
+from market_data_service.application.audit_continuity import (
+    AuditStreamContinuity,
+    open_interest_open_times,
+)
 from market_data_service.application.backfill_stream import BackfillStreamHistory
 from market_data_service.application.consumer_read import (
     GetCandleRange,
     GetHistoricalCandleRange,
 )
 from market_data_service.application.history_planning import AuditStreamRange, GetStreamBounds
+from market_data_service.application.import_open_interest import ImportOpenInterestWindow
 from market_data_service.application.import_window import ImportHistoricalWindow
 from market_data_service.application.ingest import IngestObservedCandle
 from market_data_service.application.lower_bound import ResolveHistoricalLowerBound
+from market_data_service.application.lower_bound_probe import OpenInterestLowerBoundProbe
+from market_data_service.application.open_interest_track_state import OpenInterestTrackState
 from market_data_service.application.realtime.handler import RealtimeCandleHandler
 from market_data_service.application.realtime.recovery import RealtimeRecoveryCoordinator
 from market_data_service.application.repair_gaps import RepairStreamGaps
@@ -125,3 +132,34 @@ class RuntimeWiring:
 
     def lifecycle(self) -> RuntimeLifecycleRecorder:
         return RuntimeLifecycleRecorder(self.unit_of_work, self.clock.now_ms)
+
+    def open_interest_state(self) -> OpenInterestTrackState:
+        return OpenInterestTrackState(self.unit_of_work, self.clock)
+
+    def open_interest_lower_bound(self) -> ResolveHistoricalLowerBound:
+        probe = OpenInterestLowerBoundProbe(
+            BybitOpenInterestSource(self.rest_source),
+            max_points_per_probe=MAX_POINTS_PER_WINDOW,
+        )
+        return ResolveHistoricalLowerBound(
+            self.rest_source,
+            self.rest_source,
+            self.unit_of_work,
+            self.clock,
+            probe=probe,
+            progress=self.open_interest_state(),
+        )
+
+    def open_interest_importer(self) -> ImportOpenInterestWindow:
+        source = BybitOpenInterestSource(self.rest_source)
+        return ImportOpenInterestWindow(source, self.unit_of_work, self.clock)
+
+    def open_interest_repair(self) -> RepairStreamGaps:
+        return RepairStreamGaps(
+            AuditStreamContinuity(self.unit_of_work, open_interest_open_times),
+            self.open_interest_importer(),
+            self.unit_of_work,
+            self.clock,
+            max_candles_per_window=MAX_POINTS_PER_WINDOW,
+            state=self.open_interest_state(),
+        )

@@ -7,6 +7,7 @@ from typing import Protocol
 from market_data_service.domain.candles import CanonicalCandle
 from market_data_service.domain.identity import InstrumentKey, StreamKey
 from market_data_service.domain.instruments import InstrumentMetadata
+from market_data_service.domain.open_interest import CanonicalOpenInterest, TrackProgress
 from market_data_service.domain.stream_state import StreamStateSnapshot
 
 
@@ -69,6 +70,26 @@ class CanonicalStorageUnitOfWork(Protocol):
         payload_json: str | None,
         created_at_ms: int,
     ) -> bool: ...
+
+    def get_open_interest(
+        self,
+        stream: StreamKey,
+        open_time_ms: int,
+    ) -> CanonicalOpenInterest | None: ...
+
+    def save_open_interest(self, point: CanonicalOpenInterest) -> None: ...
+
+    def list_open_interest_times(
+        self,
+        stream: StreamKey,
+        *,
+        start_time_ms: int,
+        end_time_ms: int,
+    ) -> tuple[int, ...]: ...
+
+    def get_track_progress(self, stream: StreamKey, track: str) -> TrackProgress: ...
+
+    def save_track_progress(self, progress: TrackProgress) -> None: ...
 
     def commit(self) -> None: ...
 

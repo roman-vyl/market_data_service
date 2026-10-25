@@ -28,6 +28,7 @@ from market_data_service.runtime.committed_bar_notification_factory import (
 )
 from market_data_service.runtime.event_loop_lag import EventLoopLagMonitor
 from market_data_service.runtime.historical_worker import HistoricalReconciliationWorker
+from market_data_service.runtime.open_interest_runner import OpenInterestTrackRunner
 from market_data_service.runtime.realtime import RuntimeRealtimeCoordinator
 from market_data_service.runtime.reconciliation import HistoricalStreamReconciler
 from market_data_service.runtime.settings import RuntimeSettings
@@ -83,6 +84,14 @@ class RuntimeService:
             async with asyncio.TaskGroup() as task_group:
                 task_group.create_task(realtime.run(stop_event))
                 task_group.create_task(worker.run(stop_event))
+                task_group.create_task(
+                    OpenInterestTrackRunner(
+                        streams=self._config.open_interest_streams,
+                        wiring=self._wiring,
+                        settings=self._settings,
+                        operation_gate=operation_gate,
+                    ).run(stop_event)
+                )
                 task_group.create_task(
                     EventLoopLagMonitor(
                         self._logger, warn_seconds=self._settings.event_loop_lag_warn_seconds

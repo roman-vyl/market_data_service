@@ -10,7 +10,7 @@ from market_data_service.application.audit_continuity import (
     AuditStreamContinuity,
     AuditStreamContinuityRequest,
 )
-from market_data_service.application.import_window import ImportHistoricalWindow
+from market_data_service.application.import_window import ImportWindowResult
 from market_data_service.application.repair_state import RepairStateRecorder
 from market_data_service.application.repair_types import (
     RepairStatus,
@@ -31,21 +31,46 @@ class Clock(Protocol):
     def now_ms(self) -> int: ...
 
 
+class WindowImporter(Protocol):
+    def execute(self, stream: StreamKey, window: TimeWindow) -> ImportWindowResult: ...
+
+
+class RepairRecorder(Protocol):
+    def ensure_auditing(self, stream: StreamKey) -> None: ...
+
+    def record_audit(self, stream: StreamKey) -> None: ...
+
+    def transition_to_repairing(self, stream: StreamKey) -> None: ...
+
+    def record_rest_success(self, stream: StreamKey) -> None: ...
+
+    def record_failure(self, stream: StreamKey, exc: Exception) -> None: ...
+
+    def transition_repairing_to_auditing(self, stream: StreamKey) -> None: ...
+
+    def record_unresolved_gaps(self, stream: StreamKey, gaps: tuple[Gap, ...]) -> None: ...
+
+
 class RepairStreamGaps:
-    """Repair one stream/range through REST-backed canonical ingestion."""
+    """Repair one stream/range of one track through REST-backed ingestion.
+
+    Candles by default; another track passes its own importer and a recorder
+    that keeps its progress outside the stream lifecycle.
+    """
 
     def __init__(
         self,
         auditor: AuditStreamContinuity,
-        window_importer: ImportHistoricalWindow,
+        window_importer: WindowImporter,
         unit_of_work_factory: Callable[[], CanonicalStorageUnitOfWork],
         clock: Clock,
         *,
         max_candles_per_window: int = 1000,
+        state: RepairRecorder | None = None,
     ) -> None:
         self._auditor = auditor
         self._window_importer = window_importer
-        self._state = RepairStateRecorder(unit_of_work_factory, clock)
+        self._state = state or RepairStateRecorder(unit_of_work_factory, clock)
         self._max_candles_per_window = max_candles_per_window
 
     def execute(self, request: RepairStreamGapsRequest) -> RepairStreamGapsResult:

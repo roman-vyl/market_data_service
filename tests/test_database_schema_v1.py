@@ -127,7 +127,7 @@ def test_stream_state_schema_accepts_connecting_and_tracks_state_change_time() -
     ).fetchone() == ("connecting",)
 
 
-def test_schema_v1_migrates_to_v2_without_losing_canonical_data(tmp_path: Path) -> None:
+def test_schema_v1_migrates_to_current_without_losing_canonical_data(tmp_path: Path) -> None:
     path = tmp_path / "market.sqlite3"
     connection = sqlite3.connect(path)
     connection.executescript(SCHEMA_V1.read_text(encoding="utf-8"))
@@ -158,7 +158,7 @@ def test_schema_v1_migrates_to_v2_without_losing_canonical_data(tmp_path: Path) 
     try:
         assert migrated.execute(
             "SELECT value FROM schema_meta WHERE key='schema_version'"
-        ).fetchone() == ("2",)
+        ).fetchone() == ("3",)
         assert migrated.execute("SELECT COUNT(*) FROM candles").fetchone() == (1,)
         assert migrated.execute(
             "SELECT state, lower_bound_discovery_next_open_time_ms FROM stream_state"
