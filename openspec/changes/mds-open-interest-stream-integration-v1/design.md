@@ -15,7 +15,7 @@
   `RuntimeWiring.open_interest_repair()`, already audits OI continuity (`open_interest_open_times`), fetches only gap windows
   (`iter_fetch_windows`, 200 points), stops at the first REST failure and audits again (`complete` / `incomplete` / `failed`).
 - `track_progress.latest_committed_open_time_ms` of the OI track is the maximum stored point. It is a valid continuation point
-  only while every writer keeps the stored OI continuous up to it (D3, D5).
+  the continuation point exactly as `stream_state.latest_committed_open_time_ms` is for candle recovery.
 - The Bybit REST client retries 4 times with a 10 s timeout (worst case about 1 minute per call).
 - The OI history runner reschedules a full pass `[oi_lower_bound, now]` every `oi_track_refresh_seconds` (300 s) under the shared
   `operation_gate`.
@@ -41,8 +41,8 @@ and nothing changes for them.
 | 11 | Runtime POST fails after the check | `_send` logs | already stored | the next notification finds `L >= T` |
 | 12 | OI history backfill pass on start | `runtime/open_interest_runner.py` -> `OpenInterestTrackReconciler` -> OI `RepairStreamGaps` | never notifies | it only fills history and may move `L` forward |
 
-So the check never needs to know which chain brought T: in every case the bars still missing OI are exactly `(L, T]`, because
-OI is written only by the check (continuous runs, D3) and by the backfill pass, which completes before the flag is relied on.
+So the check never needs to know which chain brought T: in every case the bars still missing OI are exactly `(L, T]`, the same way
+candle recovery continues from its latest committed candle (D2).
 
 ## Decisions
 
@@ -53,22 +53,21 @@ the order and the delivery. The check has no queue, no task, no timer, no lifecy
 without the flag it answers yes without I/O, so those streams behave exactly as today. A no answer drops that notification with a
 warning log (stream, T, reason); WebSocket, ingestion and `COMMITTED` are not affected.
 
-### D2. Continue from the last stored point
-For bar T with step s let `L` be the latest stored OI point of the stream (track progress). The prepared history is continuous up
-to `L` (it is loaded and audited before the flag is used), and D3 keeps it that way, so `L` is the continuation point:
-- `L >= T`: OI(T) is stored, yes without REST (stored OI is never fetched again);
-- `L < T`: the missing range is `[L + s, T + s)`;
-- `L` unknown (history not prepared): no, `oi_history_not_prepared`, no fetch.
-No lookback window, no extra watermark, no new state.
+### D2. Same REST repair as candles
+OI and candles already share one REST repair mechanism: `application/repair_gaps.py` `RepairStreamGaps` (audit -> import only the
+gap windows -> audit again), with the candle importer for candles and `ImportOpenInterestWindow` + `open_interest_open_times`
+for OI (`RuntimeWiring.open_interest_repair()`). The check calls exactly that, with the window chosen the same way candle
+recovery chooses it (`application/realtime/recovery_plan.py`: from the latest committed point plus one step to the bar):
 
-### D3. Fetch only a continuous continuation
-The check fetches `[L + s, T + s)` in windows of at most 200 points, oldest first, at most `W` windows per check
-(`MDS_OI_PUBLISH_WINDOWS_PER_CHECK`, default 2), through the existing `ImportOpenInterestWindow`, with one small addition: the window's points are cut at the first
-missing `open_time_ms` before they are stored. It stores only the continuous
-run of points that starts exactly at `L + s`; a point after the first missing one is not stored, and the check stops there. So `L`
-only ever moves over continuous data, and a partial Bybit answer can never leave a hole behind `L`.
-Result: stored through T -> yes; stopped earlier (missing point, more than `W` windows, REST failure) -> no with the reason.
-Values come only from Bybit points with exactly the bar's `open_time_ms`; nothing is interpolated or copied from a neighbour.
+`RepairStreamGaps.execute(stream, start = L + s, end = T + s, max_windows = W)`, `L` = latest stored OI point.
+
+- `L >= T`: nothing to repair, yes without REST (stored OI is never fetched again);
+- result `complete` -> yes; `incomplete` (partial Bybit answer, more gaps than `W` windows) -> no, `oi_incomplete`;
+  `failed` -> no, `oi_source_failed` -- the same three outcomes candle recovery acts on;
+- `L` unknown (history not prepared) -> no, `oi_history_not_prepared`, no fetch.
+Windows of at most 200 points (`iter_fetch_windows`), at most `W` per check (`MDS_OI_PUBLISH_WINDOWS_PER_CHECK`, default 2).
+Validation, `duplicate` / `corrected` and quarantine are the importer's own. No lookback window, no extra watermark, no new state,
+no OI-specific continuity logic.
 
 ### D4. REST budget on the shared queue
 The check uses its own instance of the existing Bybit REST client with 1 attempt and a short timeout

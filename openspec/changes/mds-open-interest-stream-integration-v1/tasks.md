@@ -1,12 +1,12 @@
 ## 1. Publication check
-- [ ] 1.1 Publication check (application layer): flagged streams, continuation from `L` per D2/D3 through the existing
-      `ImportOpenInterestWindow` (continuous run only, at most `MDS_OI_PUBLISH_WINDOWS_PER_CHECK` windows), yes/no + reason;
+- [ ] 1.1 Publication check (application layer): flagged streams, existing OI `RepairStreamGaps` over `[L + s, T + s)`
+      per D2 (at most `MDS_OI_PUBLISH_WINDOWS_PER_CHECK` windows), yes/no + reason;
       unflagged -> yes without I/O
 - [ ] 1.2 Wiring: dedicated Bybit REST client instance (1 attempt, `MDS_OI_PUBLISH_TIMEOUT_SECONDS`), settings
       `MDS_OI_PUBLISH_WINDOWS_PER_CHECK`, `MDS_OI_PUBLISH_TIMEOUT_SECONDS`
 - [ ] 1.3 `CommittedBarNotificationWorker`: optional check in `asyncio.to_thread` before `send`; no answer -> warning log, no send
 - [ ] 1.4 Tests: unflagged stream identical; OI stored -> no REST, sent; OI missing -> fetched, sent; REST failure -> held, next bar
-      fetches both points and is sent; partial answer -> only the continuous run stored, held; restored episode T1..T10 ->
+      fetches both points and is sent; partial answer -> `incomplete`, held; restored episode T1..T10 ->
       range filled, one send for T10; L far behind -> W windows per check; no prepared history -> held, no REST;
       WebSocket keeps ingesting while a check waits
 

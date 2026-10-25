@@ -13,14 +13,14 @@ For a stream whose instrument has `open_interest = true`, the notification worke
 
 #### Scenario: Partial REST answer
 - **WHEN** Bybit returns the points after L with one point missing before T
-- **THEN** only the points before the missing one are stored and the notification is not sent
+- **THEN** the repair ends incomplete and the notification is not sent
 
 #### Scenario: Stream without the flag
 - **WHEN** the worker takes a notification of an unflagged stream
 - **THEN** it is sent exactly as before this change
 
 ### Requirement: Open interest continues from the last stored point
-For bar T the publication check SHALL continue open interest from the stream's latest stored point L: if L is at or after T it SHALL send without a REST request; otherwise it SHALL fetch the range from L plus one step to T through the existing open interest importer and SHALL store only the continuous run of points that starts right after L. A stream without stored open interest SHALL be held without fetching.
+For bar T the publication check SHALL continue open interest from the stream's latest stored point L: if L is at or after T it SHALL send without a REST request; otherwise it SHALL repair the range from L plus one step to T with the same REST gap repair used for candles (audit, import only the gap windows through the existing open interest importer, audit again) and SHALL send only when that repair completes. A stream without stored open interest SHALL be held without fetching.
 
 #### Scenario: Restart after an outage
 - **WHEN** the latest stored open interest point is far behind T

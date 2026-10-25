@@ -13,9 +13,9 @@ continuous, so MDS only has to continue it bar by bar, driven by the bars it alr
 
 ## What changes
 - **One publication check before send.** `CommittedBarNotificationWorker` keeps its queue, order and delivery. Before it sends
-  the notification for bar T of a stream with `open_interest = true`, it runs a small publication check: continue OI from the last
-  stored point up to T through the existing importer (`ImportOpenInterestWindow`), storing only a continuous run. Only when OI is
-  stored through T is the bar published. Otherwise the notification is not sent and the reason is logged.
+  the notification for bar T of a stream with `open_interest = true`, it runs a small publication check: the same REST repair that
+  candles use (`RepairStreamGaps`, already wired for OI), from the last stored OI point up to T. Only a `complete` result publishes
+  the bar. Otherwise the notification is not sent and the reason is logged.
 - **One trigger for all three paths.** Live WebSocket commits, restored REST recovery episodes and the restart path already end in
   this worker, so the check covers all of them. No other code path changes.
 - **No own retry.** A failed check is retried by the next notification of the same stream (normally the next bar, 5 minutes later),
