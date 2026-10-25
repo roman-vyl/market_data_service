@@ -143,6 +143,7 @@ class RuntimeService:
         initial = {
             stream: lifecycle.snapshot(stream).latest_committed_open_time_ms for stream in streams
         }
+        oi_initial = initial_open_interest_frontiers(self._wiring, admitted_streams)
         supervisor = RealtimeSupervisor(
             streams,
             topic_map.topic_to_stream,
@@ -151,7 +152,7 @@ class RuntimeService:
                 grace_ms=self._settings.stale_grace_ms,
             ),
             initial_latest_open_time_ms=initial,
-            initial_open_interest_open_time_ms=initial_open_interest_frontiers(self._wiring),
+            initial_open_interest_open_time_ms=oi_initial,
         )
         admission = RealtimeAdmissionGate(admitted_streams)
         holder: dict[str, RuntimeRealtimeCoordinator] = {}

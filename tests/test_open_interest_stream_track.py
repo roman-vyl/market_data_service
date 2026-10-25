@@ -479,3 +479,29 @@ def test_startup_hands_off_only_after_open_interest_is_proven() -> None:
     plain, _, _ = _startup(plain_pass, PLAIN)
     assert plain.classification is StartupClassification.CONNECTING
     assert plain_pass.calls == 0
+
+
+def test_streams_admitted_at_startup_start_with_their_proven_frontier() -> None:
+    from types import SimpleNamespace
+
+    from market_data_service.runtime.open_interest_composition import (
+        initial_open_interest_frontiers,
+    )
+
+    other = StreamKey(InstrumentKey("XRPUSDT.P"), "5m")
+    wiring = SimpleNamespace(
+        config=SimpleNamespace(open_interest_streams=(STREAM, other)),
+        open_interest_latest=lambda stream: _bar(4),
+    )
+    frontiers = initial_open_interest_frontiers(wiring, (STREAM,))  # type: ignore[arg-type]
+    assert frontiers == {STREAM: _bar(4), other: None}
+
+    now = [_bar(5) + 20_000]
+    supervisor = RealtimeSupervisor(
+        (STREAM,),
+        {TOPIC: STREAM},
+        lambda: now[0],
+        initial_latest_open_time_ms={STREAM: _bar(4)},
+        initial_open_interest_open_time_ms={STREAM: frontiers[STREAM]},
+    )
+    assert supervisor.facts(STREAM).current
