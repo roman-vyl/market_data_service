@@ -225,9 +225,7 @@ async def _scenario(tmp_path: Path) -> None:
         clock.value = 900_000
         results = await asyncio.gather(
             *(
-                coordinator.execute(
-                    RealtimeRecoveryRequest(signal, max_windows=2)
-                )
+                coordinator.execute(RealtimeRecoveryRequest(signal, max_windows=2))
                 for signal in resubscribe_signals
             )
         )
@@ -258,8 +256,9 @@ async def _scenario(tmp_path: Path) -> None:
             fresh_outcome = handler.handle(fresh_event)
             assert fresh_outcome is not None
             supervisor.observe_outcome(fresh_outcome)
-        assert all(facts.data_ready for facts in supervisor.all_facts())
-        assert all(facts.realtime_live for facts in supervisor.all_facts())
+            # Readiness is judged at the stream's own clock: later clocks expect later bars.
+            assert supervisor.facts(stream).data_ready
+            assert supervisor.facts(stream).realtime_live
 
         with uow_factory() as unit_of_work:
             assert unit_of_work.get_candle(btc, 120_000) is not None

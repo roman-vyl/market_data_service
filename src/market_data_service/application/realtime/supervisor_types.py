@@ -46,6 +46,7 @@ class RealtimeStreamFacts:
     fatal_error_code: str | None = None
     open_interest_required: bool = False
     last_open_interest_open_time_ms: int | None = None
+    expected_open_time_ms: int | None = None
 
     @property
     def continuity_frontier_ms(self) -> int | None:
@@ -67,12 +68,21 @@ class RealtimeStreamFacts:
         return self.data_ready and frontier is not None and frontier >= open_time_ms
 
     @property
+    def current(self) -> bool:
+        """Every required track has reached the last closed bar expected after grace."""
+
+        frontier = self.continuity_frontier_ms
+        expected = self.expected_open_time_ms
+        return expected is not None and frontier is not None and frontier >= expected
+
+    @property
     def data_ready(self) -> bool:
         return (
             self.subscription_active
             and self.recovery_restored
             and not self.recovery_pending
             and self.fatal_error_code is None
+            and self.current
         )
 
     @property

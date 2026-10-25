@@ -203,12 +203,14 @@ class RuntimeRealtimeCoordinator:
                     durable = self._lifecycle.mark_ready(facts.stream)
             elif (
                 facts.recovery_pending
+                or not facts.current
                 or facts.status.value in {"disconnected", "stale", "recovery_required"}
             ) and durable.state in {
                 StreamLifecycleState.CONNECTING,
                 StreamLifecycleState.READY,
             }:
-                durable = self._lifecycle.mark_degraded(facts.stream, reason=facts.status.value)
+                reason = facts.status.value if facts.current else "stale"
+                durable = self._lifecycle.mark_degraded(facts.stream, reason=reason)
             self._status.update_stream(durable, facts)
 
     def _refresh_status(self) -> None:

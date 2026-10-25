@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable, Collection
+from collections.abc import Collection
 
 from market_data_service.application.realtime.recovery_types import (
     RealtimeRecoveryResult,
@@ -15,40 +15,23 @@ from market_data_service.application.repair_types import (
     RepairStreamGapsResult,
 )
 from market_data_service.domain.identity import StreamKey
-from market_data_service.domain.timeframes import get_timeframe
 from market_data_service.domain.windows import TimeWindow
 
 
 class OpenInterestRecoveryTrack:
     """Repair open interest over the episode window with the candle gap repair.
 
-    The window starts no later than the bar after the latest stored open
-    interest point, so a bar whose candle is stored but whose open interest is
-    not is always inside the episode.
+    The window comes from the recovery signal, whose start is never later than
+    the bar after proven continuity of both tracks (see the supervisor), so a
+    hole after the last proven bar is always inside the audited range.
     """
 
-    def __init__(
-        self,
-        *,
-        streams: Collection[StreamKey],
-        repair: StreamRepair,
-        latest_open_time_ms: Callable[[StreamKey], int | None],
-    ) -> None:
+    def __init__(self, *, streams: Collection[StreamKey], repair: StreamRepair) -> None:
         self._streams = frozenset(streams)
         self._repair = repair
-        self._latest_open_time_ms = latest_open_time_ms
 
     def required(self, stream: StreamKey) -> bool:
         return stream in self._streams
-
-    def widen(self, stream: StreamKey, window: TimeWindow) -> TimeWindow:
-        if not self.required(stream):
-            return window
-        latest = self._latest_open_time_ms(stream)
-        if latest is None:
-            return window
-        step_ms = get_timeframe(stream.timeframe).duration_ms
-        return TimeWindow(min(window.start_ms, latest + step_ms), window.end_ms)
 
     def repair(
         self, stream: StreamKey, window: TimeWindow, max_windows: int

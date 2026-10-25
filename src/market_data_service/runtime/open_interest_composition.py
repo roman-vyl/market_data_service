@@ -20,12 +20,13 @@ from market_data_service.runtime.wiring import RuntimeWiring
 
 
 def initial_open_interest_frontiers(wiring: RuntimeWiring) -> dict[StreamKey, int | None]:
-    """Open interest frontier of every flagged stream; absent keys mean no flag."""
+    """Every flagged stream starts with an unproven open interest frontier.
 
-    return {
-        stream: wiring.open_interest_latest(stream)
-        for stream in wiring.config.open_interest_streams
-    }
+    The frontier is set at hand-off, after startup reconciliation proved the
+    track; absent keys mean no flag.
+    """
+
+    return dict.fromkeys(wiring.config.open_interest_streams)
 
 
 def open_interest_notification_worker(

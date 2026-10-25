@@ -129,7 +129,6 @@ class RuntimeWiring:
             open_interest = OpenInterestRecoveryTrack(
                 streams=self.config.open_interest_streams,
                 repair=self.open_interest_repair(),
-                latest_open_time_ms=self.open_interest_latest,
             )
         return RealtimeRecoveryCoordinator(
             repair=self.repair(),

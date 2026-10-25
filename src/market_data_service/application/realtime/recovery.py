@@ -59,8 +59,6 @@ class RealtimeRecoveryCoordinator:
         self._state.mark_unavailable(stream, reason=request.signal.reason.value)
         try:
             recovery_window = request.recovery_window or self._planner.derive_window(request.signal)
-            if recovery_window is not None and self._open_interest is not None:
-                recovery_window = self._open_interest.widen(stream, recovery_window)
             if recovery_window is None:
                 return RealtimeRecoveryResult(
                     stream=stream,

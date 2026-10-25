@@ -19,6 +19,7 @@ from market_data_service.application.import_open_interest import ImportOpenInter
 from market_data_service.application.import_window import ImportHistoricalWindow
 from market_data_service.application.open_interest_live import AppendLiveOpenInterest
 from market_data_service.application.realtime.events import (
+    Disconnected,
     RecoveryReason,
     RecoveryRequired,
     SubscriptionConfirmed,
@@ -133,6 +134,55 @@ def test_restored_episode_advances_both_frontiers() -> None:
     assert facts.last_successful_open_time_ms == _bar(8)
     assert facts.last_open_interest_open_time_ms == _bar(8)
     assert supervisor.facts(PLAIN).last_open_interest_open_time_ms is None
+
+
+def test_ready_needs_both_tracks_current_without_waiting_for_stale_check() -> None:
+    now = [_bar(5) + 1]
+    supervisor = _supervisor(now, candle=_bar(3), open_interest=_bar(3))
+    _commit(supervisor, STREAM, _bar(4))
+    supervisor.observe_open_interest(STREAM, _bar(4))
+    assert supervisor.facts(STREAM).data_ready
+
+    # Bar 5 closes; the candle arrives, open interest does not. No stale check runs.
+    now[0] = _bar(6) + 1
+    _commit(supervisor, STREAM, _bar(5))
+    facts = supervisor.facts(STREAM)
+    assert not facts.recovery_pending
+    assert not facts.current
+    assert not facts.data_ready
+    assert not facts.published_through(_bar(4))
+
+    # Plain stream with the same lag is not ready either: one rule for every track.
+    _commit(supervisor, PLAIN, _bar(4))
+    assert not supervisor.facts(PLAIN).data_ready
+
+
+def test_open_interest_hole_keeps_the_proven_frontier() -> None:
+    now = [_bar(103) + 1]
+    supervisor = _supervisor(now, candle=_bar(99), open_interest=_bar(99))
+    _commit(supervisor, STREAM, _bar(100))
+    supervisor.observe_open_interest(STREAM, _bar(100))
+    _commit(supervisor, STREAM, _bar(101))
+    _commit(supervisor, STREAM, _bar(102))
+
+    # Bar 101 is missing, bar 102 is stored: the proven frontier stays at 100.
+    signals = supervisor.observe_open_interest(STREAM, _bar(102))
+    assert supervisor.facts(STREAM).last_open_interest_open_time_ms == _bar(100)
+    assert supervisor.facts(STREAM).continuity_frontier_ms == _bar(100)
+    assert [s.suspected_start_time_ms for s in signals] == [_bar(101)]
+
+    # A failed episode does not move the proven frontier either.
+    stale = supervisor.detect_stale(now_ms=_bar(110))
+    assert [item for item in stale if item.stream == STREAM] == []  # recovery pending
+    supervisor.record_recovery_result(STREAM, restored=False)
+    assert supervisor.facts(STREAM).last_open_interest_open_time_ms == _bar(100)
+
+
+def test_candle_hole_keeps_the_proven_frontier_too() -> None:
+    now = [_bar(103) + 1]
+    supervisor = _supervisor(now, candle=_bar(100), open_interest=_bar(100))
+    _commit(supervisor, STREAM, _bar(102))
+    assert supervisor.facts(STREAM).last_successful_open_time_ms == _bar(100)
 
 
 def test_missing_open_interest_frontier_is_not_continuity() -> None:
@@ -292,7 +342,9 @@ class FakeOpenInterestRepair:
         )
 
 
-def _recover(path: Path, oi_repair: FakeOpenInterestRepair):  # type: ignore[no-untyped-def]
+def _recover(  # type: ignore[no-untyped-def]
+    path: Path, oi_repair: FakeOpenInterestRepair, signal: RecoveryRequired | None = None
+):
     factory = _factory(path)
     with factory() as unit_of_work:
         snapshot = unit_of_work.get_stream_state(STREAM)
@@ -310,15 +362,13 @@ def _recover(path: Path, oi_repair: FakeOpenInterestRepair):  # type: ignore[no-
         repair=candle_repair,
         unit_of_work_factory=factory,
         now_ms=clock.now_ms,
-        open_interest=OpenInterestRecoveryTrack(
-            streams=(STREAM,), repair=oi_repair, latest_open_time_ms=lambda s: _bar(4)
-        ),
+        open_interest=OpenInterestRecoveryTrack(streams=(STREAM,), repair=oi_repair),
     )
-    signal = RecoveryRequired(
+    signal = signal or RecoveryRequired(
         STREAM,
         RecoveryReason.SEQUENCE_DISCONTINUITY,
         detected_at_ms=_bar(10),
-        suspected_start_time_ms=_bar(8),
+        suspected_start_time_ms=_bar(5),
     )
     return asyncio.run(coordinator.execute(RealtimeRecoveryRequest(signal, max_windows=2)))
 
@@ -333,6 +383,28 @@ def test_recovery_restores_only_when_open_interest_is_continuous(tmp_path: Path)
     request = complete.requests[0]
     assert (request.start_time_ms, request.end_time_ms) == (_bar(5), _bar(10))
     assert result.committed_bars == 3
+
+
+def test_recovery_window_starts_at_proven_open_interest_not_latest_stored(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "market.sqlite3"
+    _prepare(path, candle_bars=range(0, 10))
+    now = [_bar(10) + 1_000]
+    supervisor = _supervisor(now, candle=_bar(9), open_interest=_bar(4))
+    supervisor.observe_event(Disconnected(None, None, observed_at_ms=now[0]))
+    signals = supervisor.observe_event(
+        SubscriptionConfirmed((TOPIC, "kline.5.ETHUSDT"), observed_at_ms=now[0])
+    )
+    signal = next(item for item in signals if item.stream == STREAM)
+    assert signal.reason is RecoveryReason.DISCONNECT
+    assert signal.suspected_start_time_ms == _bar(5)
+
+    complete = FakeOpenInterestRepair(RepairStatus.COMPLETE)
+    result = _recover(path, complete, signal)
+    assert result.classification is RecoveryClassification.RESTORED
+    request = complete.requests[0]
+    assert (request.start_time_ms, request.end_time_ms) == (_bar(5), _bar(10))
 
 
 def test_recovery_is_not_restored_while_open_interest_has_gaps(tmp_path: Path) -> None:

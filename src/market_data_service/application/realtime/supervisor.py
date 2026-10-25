@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping, Sequence
+from dataclasses import replace
 
 from market_data_service.application.realtime.events import (
     CandleObserved,
@@ -17,6 +18,7 @@ from market_data_service.application.realtime.events import (
     SubscriptionConfirmed,
     TransportFailed,
 )
+from market_data_service.application.realtime.frontier import extend_frontier
 from market_data_service.application.realtime.outcomes import (
     RealtimeIngestionClassification,
     RealtimeIngestionOutcome,
@@ -100,7 +102,7 @@ class RealtimeSupervisor:
 
         previous = self._state.facts(stream).last_open_interest_open_time_ms
         self._state.update(
-            stream, last_open_interest_open_time_ms=max(previous or open_time_ms, open_time_ms)
+            stream, last_open_interest_open_time_ms=extend_frontier(previous, open_time_ms, stream)
         )
         step_ms = get_timeframe(stream.timeframe).duration_ms
         if previous is not None and open_time_ms > previous + step_ms:
@@ -118,9 +120,7 @@ class RealtimeSupervisor:
             if frontier_ms is None:
                 continue
             step_ms = get_timeframe(facts.stream.timeframe).duration_ms
-            expected_open_ms = (
-                align_to_grid(observed_now - self._stale_policy.grace_ms, step_ms) - step_ms
-            )
+            expected_open_ms = self._expected_open_ms(facts.stream, observed_now)
             if frontier_ms >= expected_open_ms:
                 continue
             checked = facts.last_checked_expected_open_ms
@@ -157,7 +157,7 @@ class RealtimeSupervisor:
         )
 
     def facts(self, stream: StreamKey) -> RealtimeStreamFacts:
-        return self._state.facts(stream)
+        return self._as_of_now(self._state.facts(stream))
 
     def synchronize_successful_open_time(self, stream: StreamKey, open_time_ms: int) -> None:
         self._state.synchronize_successful_open_time(stream, open_time_ms)
@@ -169,7 +169,18 @@ class RealtimeSupervisor:
         )
 
     def all_facts(self) -> tuple[RealtimeStreamFacts, ...]:
-        return self._state.all_facts()
+        return tuple(self._as_of_now(facts) for facts in self._state.all_facts())
+
+    def _as_of_now(self, facts: RealtimeStreamFacts) -> RealtimeStreamFacts:
+        """Readiness is judged against the bar expected now, not at the last stale check."""
+
+        return replace(
+            facts, expected_open_time_ms=self._expected_open_ms(facts.stream, self._now_ms())
+        )
+
+    def _expected_open_ms(self, stream: StreamKey, now_ms: int) -> int:
+        step_ms = get_timeframe(stream.timeframe).duration_ms
+        return align_to_grid(now_ms - self._stale_policy.grace_ms, step_ms) - step_ms
 
     def _subscriptions_confirmed(
         self, event: SubscriptionConfirmed
@@ -191,6 +202,11 @@ class RealtimeSupervisor:
         reason: RecoveryReason,
         suspected_start_time_ms: int | None,
     ) -> tuple[RecoveryRequired, ...]:
+        # Recovery starts no later than the bar after proven continuity of every track.
+        frontier_ms = self._state.facts(stream).continuity_frontier_ms
+        if frontier_ms is not None:
+            proven_next = frontier_ms + get_timeframe(stream.timeframe).duration_ms
+            suspected_start_time_ms = min(suspected_start_time_ms or proven_next, proven_next)
         return (
             RecoveryRequired(
                 stream=stream,

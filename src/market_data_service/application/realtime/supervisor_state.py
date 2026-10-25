@@ -6,6 +6,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import replace
 
 from market_data_service.application.realtime.events import CandleObserved
+from market_data_service.application.realtime.frontier import advance_frontier, extend_frontier
 from market_data_service.application.realtime.outcomes import RealtimeIngestionOutcome
 from market_data_service.application.realtime.supervisor_types import (
     RealtimeStreamFacts,
@@ -68,9 +69,8 @@ class RealtimeSupervisorState:
         self._facts[outcome.stream] = replace(
             facts,
             status=RealtimeStreamStatus.LIVE,
-            last_successful_open_time_ms=max(
-                previous or outcome.open_time_ms,
-                outcome.open_time_ms,
+            last_successful_open_time_ms=extend_frontier(
+                previous, outcome.open_time_ms, outcome.stream
             ),
             last_ingestion_classification=outcome.classification.value,
         )
@@ -159,12 +159,15 @@ class RealtimeSupervisorState:
             ),
             pending_expected_open_ms=(None if restored else facts.pending_expected_open_ms),
             last_successful_open_time_ms=(
-                _advance(facts.last_successful_open_time_ms, restored_through_open_time_ms) or 0
+                advance_frontier(facts.last_successful_open_time_ms, restored_through_open_time_ms)
+                or 0
                 if restored
                 else facts.last_successful_open_time_ms
             ),
             last_open_interest_open_time_ms=(
-                _advance(facts.last_open_interest_open_time_ms, restored_through_open_time_ms)
+                advance_frontier(
+                    facts.last_open_interest_open_time_ms, restored_through_open_time_ms
+                )
                 if restored and facts.open_interest_required
                 else facts.last_open_interest_open_time_ms
             ),
@@ -203,10 +206,6 @@ class RealtimeSupervisorState:
 
     def all_facts(self) -> tuple[RealtimeStreamFacts, ...]:
         return tuple(self._facts.values())
-
-
-def _advance(current: int | None, restored_through: int | None) -> int | None:
-    return restored_through if current is None else max(current, restored_through or current)
 
 
 def _commit_checked(facts: RealtimeStreamFacts) -> int | None:

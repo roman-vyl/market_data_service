@@ -22,6 +22,8 @@ def test_runtime_readiness_requires_durable_and_recovered_subscription() -> None
         status=RealtimeStreamStatus.SUBSCRIBED,
         subscription_active=True,
         recovery_restored=True,
+        last_successful_open_time_ms=0,
+        expected_open_time_ms=0,
         recovery_completed_at_ms=100,
     )
     store.update_stream(durable, realtime)
@@ -40,6 +42,8 @@ def test_runtime_reports_realtime_live_separately_from_data_readiness() -> None:
         status=RealtimeStreamStatus.LIVE,
         subscription_active=True,
         recovery_restored=True,
+        last_successful_open_time_ms=0,
+        expected_open_time_ms=0,
         recovery_completed_at_ms=100,
         last_confirmed_observed_at_ms=101,
     )
@@ -59,6 +63,8 @@ def test_runtime_readiness_is_strict_across_streams() -> None:
         status=RealtimeStreamStatus.SUBSCRIBED,
         subscription_active=True,
         recovery_restored=True,
+        last_successful_open_time_ms=0,
+        expected_open_time_ms=0,
         recovery_completed_at_ms=1,
     )
     store.update_stream(StreamStateSnapshot(btc, StreamLifecycleState.READY), ready_facts)
@@ -76,6 +82,8 @@ def test_runtime_logs_stream_and_aggregate_transitions_once(
         status=RealtimeStreamStatus.SUBSCRIBED,
         subscription_active=True,
         recovery_restored=True,
+        last_successful_open_time_ms=0,
+        expected_open_time_ms=0,
         recovery_completed_at_ms=100,
     )
     caplog.set_level(logging.INFO, logger="market_data_service.runtime.status")
@@ -101,6 +109,8 @@ def test_runtime_logs_readiness_loss_with_blocking_reason(
         status=RealtimeStreamStatus.SUBSCRIBED,
         subscription_active=True,
         recovery_restored=True,
+        last_successful_open_time_ms=0,
+        expected_open_time_ms=0,
         recovery_completed_at_ms=100,
     )
     store.update_stream(StreamStateSnapshot(stream, StreamLifecycleState.READY), realtime)
