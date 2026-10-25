@@ -7,16 +7,29 @@ import logging
 from collections import deque
 from collections.abc import Awaitable, Callable, Iterable
 from dataclasses import dataclass
+from typing import Protocol
 
 from market_data_service.domain.identity import StreamKey
-from market_data_service.runtime.startup import StartupCoordinator
 from market_data_service.runtime.startup_types import (
     HistoricalProgressMarker,
     ReconciliationWindow,
     StartupClassification,
     StartupStreamOutcome,
 )
-from market_data_service.runtime.status import RuntimeStatusStore
+
+
+class StreamPassExecutor(Protocol):
+    def execute_stream(
+        self,
+        stream: StreamKey,
+        window: ReconciliationWindow | None = None,
+    ) -> StartupStreamOutcome: ...
+
+
+class BlockingReasonSink(Protocol):
+    def set_blocking_reason(self, stream: StreamKey, reason: str) -> None: ...
+
+    def clear_blocking_reason(self, stream: StreamKey) -> None: ...
 
 
 @dataclass(slots=True)
@@ -33,14 +46,16 @@ class HistoricalReconciliationWorker:
     def __init__(
         self,
         *,
-        coordinator: StartupCoordinator,
+        coordinator: StreamPassExecutor,
         initial_outcomes: Iterable[StartupStreamOutcome],
-        status: RuntimeStatusStore,
+        status: BlockingReasonSink,
         operation_gate: asyncio.Lock,
         on_complete: Callable[[StreamKey], Awaitable[None]],
         base_backoff_seconds: float = 1.0,
         max_backoff_seconds: float = 60.0,
         idle_seconds: float = 0.1,
+        label: str = "historical",
+        yield_to_gate: bool = False,
     ) -> None:
         self._coordinator = coordinator
         self._status = status
@@ -49,7 +64,9 @@ class HistoricalReconciliationWorker:
         self._base_backoff = base_backoff_seconds
         self._max_backoff = max_backoff_seconds
         self._idle_seconds = idle_seconds
-        self._logger = logging.getLogger("market_data_service.runtime.historical")
+        self._label = label
+        self._yield_to_gate = yield_to_gate
+        self._logger = logging.getLogger(f"market_data_service.runtime.{label.replace(' ', '_')}")
         self._queue: deque[_PendingStream] = deque(
             _PendingStream(
                 outcome.stream,
@@ -73,8 +90,12 @@ class HistoricalReconciliationWorker:
                 self._queue.append(pending)
                 await self._wait(stop_event, min(self._idle_seconds, pending.due_at - now))
                 continue
+            if self._yield_to_gate and self._operation_gate.locked():
+                self._queue.appendleft(pending)
+                await self._wait(stop_event, self._idle_seconds)
+                continue
             self._status.set_blocking_reason(pending.stream, "historical_reconciliation")
-            self._logger.info("historical pass begin stream=%s", pending.stream.canonical_id)
+            self._logger.info("%s pass begin stream=%s", self._label, pending.stream.canonical_id)
             previous_marker = pending.progress_marker
             async with self._operation_gate:
                 outcome = await asyncio.to_thread(
@@ -83,10 +104,11 @@ class HistoricalReconciliationWorker:
                     pending.window,
                 )
             self._logger.info(
-                "historical pass end stream=%s classification=%s start_ms=%s end_ms=%s "
+                "%s pass end stream=%s classification=%s start_ms=%s end_ms=%s "
                 "before_marker=%s after_marker=%s next_cursor=%s remaining_gaps=%s "
                 "attempted=%s completed=%s committed=%s duplicates=%s corrected=%s "
                 "rejected=%s unexpected=%s error=%s",
+                self._label,
                 pending.stream.canonical_id,
                 outcome.classification.value,
                 None if outcome.window is None else outcome.window.start_time_ms,
@@ -121,7 +143,8 @@ class HistoricalReconciliationWorker:
                 pending.due_at = loop.time() + delay
                 self._status.set_blocking_reason(pending.stream, "historical_backoff")
                 self._logger.warning(
-                    "historical backoff stream=%s delay_seconds=%s error=%s",
+                    "%s backoff stream=%s delay_seconds=%s error=%s",
+                    self._label,
                     pending.stream.canonical_id,
                     delay,
                     outcome.error_code,
@@ -152,8 +175,9 @@ class HistoricalReconciliationWorker:
                         "historical_no_progress_backoff",
                     )
                     self._logger.warning(
-                        "historical no-progress backoff stream=%s delay_seconds=%s "
+                        "%s no-progress backoff stream=%s delay_seconds=%s "
                         "attempts=%s marker=%s error=%s",
+                        self._label,
                         pending.stream.canonical_id,
                         delay,
                         pending.no_progress_attempts,
@@ -161,6 +185,12 @@ class HistoricalReconciliationWorker:
                         outcome.error_code,
                     )
             self._queue.append(pending)
+
+    def schedule(self, stream: StreamKey, *, delay_seconds: float) -> None:
+        """Queue a new cycle with a fresh target for a stream after a delay."""
+
+        due_at = asyncio.get_running_loop().time() + max(0.0, delay_seconds)
+        self._queue.append(_PendingStream(stream, None, due_at=due_at))
 
     @staticmethod
     async def _wait(stop_event: asyncio.Event, seconds: float) -> None:

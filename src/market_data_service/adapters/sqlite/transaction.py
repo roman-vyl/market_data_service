@@ -8,11 +8,16 @@ from pathlib import Path
 from market_data_service.adapters.sqlite.candle_repository import SqliteCandleRepository
 from market_data_service.adapters.sqlite.catalog_repository import SqliteCatalogRepository
 from market_data_service.adapters.sqlite.connection import open_connection
+from market_data_service.adapters.sqlite.open_interest_repository import (
+    SqliteOpenInterestRepository,
+    SqliteTrackProgressRepository,
+)
 from market_data_service.adapters.sqlite.quarantine_repository import SqliteQuarantineRepository
 from market_data_service.adapters.sqlite.stream_state_repository import SqliteStreamStateRepository
 from market_data_service.domain.candles import CanonicalCandle
 from market_data_service.domain.identity import InstrumentKey, StreamKey
 from market_data_service.domain.instruments import InstrumentMetadata
+from market_data_service.domain.open_interest import CanonicalOpenInterest, TrackProgress
 from market_data_service.domain.stream_state import StreamStateSnapshot
 
 
@@ -28,6 +33,8 @@ class SqliteUnitOfWork:
         self._candles = SqliteCandleRepository(self._connection, self._catalog)
         self._states = SqliteStreamStateRepository(self._connection, self._catalog)
         self._quarantine = SqliteQuarantineRepository(self._connection, self._catalog)
+        self._open_interest = SqliteOpenInterestRepository(self._connection, self._catalog)
+        self._track_progress = SqliteTrackProgressRepository(self._connection, self._catalog)
         return self
 
     def __exit__(self, exc_type: object, exc: object, traceback: object) -> None:
@@ -130,6 +137,33 @@ class SqliteUnitOfWork:
             created_at_ms=created_at_ms,
         )
         return True
+
+    def get_open_interest(
+        self,
+        stream: StreamKey,
+        open_time_ms: int,
+    ) -> CanonicalOpenInterest | None:
+        return self._open_interest.get(stream, open_time_ms)
+
+    def save_open_interest(self, point: CanonicalOpenInterest) -> None:
+        self._open_interest.save(point)
+
+    def list_open_interest_times(
+        self,
+        stream: StreamKey,
+        *,
+        start_time_ms: int,
+        end_time_ms: int,
+    ) -> tuple[int, ...]:
+        return self._open_interest.list_times(
+            stream, start_time_ms=start_time_ms, end_time_ms=end_time_ms
+        )
+
+    def get_track_progress(self, stream: StreamKey, track: str) -> TrackProgress:
+        return self._track_progress.get(stream, track)
+
+    def save_track_progress(self, progress: TrackProgress) -> None:
+        self._track_progress.save(progress)
 
     def commit(self) -> None:
         self._connection_or_raise().commit()

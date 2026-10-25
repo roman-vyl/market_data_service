@@ -8,6 +8,7 @@ from typing import Protocol
 from market_data_service.domain.candles import ObservedCandle
 from market_data_service.domain.identity import InstrumentKey, StreamKey
 from market_data_service.domain.instruments import ExchangeInstrumentSpecification
+from market_data_service.domain.open_interest import ObservedOpenInterest
 from market_data_service.domain.windows import TimeWindow
 
 
@@ -31,3 +32,13 @@ class HistoricalCandleSource(Protocol):
         *,
         observed_at_ms: int,
     ) -> Sequence[ObservedCandle]: ...
+
+
+class OpenInterestSource(Protocol):
+    def fetch_open_interest(
+        self,
+        stream: StreamKey,
+        window: TimeWindow,
+        *,
+        observed_at_ms: int,
+    ) -> Sequence[ObservedOpenInterest]: ...

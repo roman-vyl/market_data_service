@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from types import SimpleNamespace
 
 import pytest
 
@@ -94,7 +95,7 @@ async def _fatal_runtime_scenario() -> None:
     http = FakeHttpServer()
     service = FailingRealtimeService(
         settings=RuntimeSettings(),
-        config=object(),  # type: ignore[arg-type]
+        config=SimpleNamespace(open_interest_streams=()),  # type: ignore[arg-type]
         wiring=object(),  # type: ignore[arg-type]
         status=status,
         http_server=http,  # type: ignore[arg-type]
@@ -123,7 +124,7 @@ async def _fatal_historical_worker_scenario() -> None:
     service = FailingHistoricalService(
         stream=stream,
         settings=RuntimeSettings(),
-        config=object(),  # type: ignore[arg-type]
+        config=SimpleNamespace(open_interest_streams=()),  # type: ignore[arg-type]
         wiring=object(),  # type: ignore[arg-type]
         status=status,
         http_server=http,  # type: ignore[arg-type]

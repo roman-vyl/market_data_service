@@ -41,6 +41,7 @@ class InstrumentCoverage:
     enabled: bool
     canonical_timeframes: tuple[str, ...]
     history_policy: HistoryPolicy
+    open_interest: bool = False
 
     def __post_init__(self) -> None:
         metadata = InstrumentMetadata(self.instrument, self.exchange_symbol)
@@ -53,12 +54,19 @@ class InstrumentCoverage:
         if len(set(normalized)) != len(normalized):
             raise ValueError("canonical_timeframes must not contain duplicates")
         object.__setattr__(self, "canonical_timeframes", normalized)
+        if self.open_interest and "5m" not in normalized:
+            raise ValueError("open_interest requires the 5m timeframe")
 
     @property
     def stream_keys(self) -> tuple[StreamKey, ...]:
         return tuple(
             StreamKey(self.instrument, timeframe) for timeframe in self.canonical_timeframes
         )
+
+
+    @property
+    def open_interest_streams(self) -> tuple[StreamKey, ...]:
+        return (StreamKey(self.instrument, "5m"),) if self.open_interest else ()
 
 
 @dataclass(frozen=True, slots=True)

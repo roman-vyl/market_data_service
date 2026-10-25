@@ -5,8 +5,9 @@ from __future__ import annotations
 import sqlite3
 from pathlib import Path
 
-SCHEMA_VERSION = "2"
+SCHEMA_VERSION = "3"
 _SCHEMA_PATH = Path(__file__).with_name("schema_v2.sql")
+_TRACKS_SCHEMA_PATH = Path(__file__).with_name("schema_v3_tracks.sql")
 
 
 class UnsupportedSchemaVersion(RuntimeError):
@@ -18,6 +19,7 @@ def create_schema(connection: sqlite3.Connection) -> None:
     connection.execute("PRAGMA synchronous = NORMAL")
     connection.executescript(_SCHEMA_PATH.read_text(encoding="utf-8"))
     connection.commit()
+    _migrate_v2_to_v3(connection)
 
 
 def migrate_schema(connection: sqlite3.Connection) -> None:
@@ -29,8 +31,38 @@ def migrate_schema(connection: sqlite3.Connection) -> None:
     actual = None if row is None else str(row["value"])
     if actual == SCHEMA_VERSION:
         return
-    if actual != "1":
-        raise UnsupportedSchemaVersion(f"expected schema 1 or {SCHEMA_VERSION}, found {actual}")
+    if actual not in {"1", "2"}:
+        raise UnsupportedSchemaVersion(
+            f"expected schema 1, 2 or {SCHEMA_VERSION}, found {actual}"
+        )
+    if actual == "1":
+        _migrate_v1_to_v2(connection)
+    _migrate_v2_to_v3(connection)
+
+
+def _migrate_v2_to_v3(connection: sqlite3.Connection) -> None:
+    """Add the open interest track tables; existing tables and rows stay unchanged."""
+
+    statements = [
+        item.strip()
+        for item in _TRACKS_SCHEMA_PATH.read_text(encoding="utf-8").split(";")
+        if item.strip()
+    ]
+    try:
+        connection.execute("BEGIN IMMEDIATE")
+        for statement in statements:
+            connection.execute(statement)
+        connection.execute(
+            "UPDATE schema_meta SET value = ? WHERE key = 'schema_version'",
+            (SCHEMA_VERSION,),
+        )
+        connection.commit()
+    except Exception:
+        connection.rollback()
+        raise
+
+
+def _migrate_v1_to_v2(connection: sqlite3.Connection) -> None:
 
     try:
         connection.execute("BEGIN IMMEDIATE")
@@ -103,10 +135,7 @@ def migrate_schema(connection: sqlite3.Connection) -> None:
         )
         connection.execute("DROP TABLE stream_state")
         connection.execute("ALTER TABLE stream_state_v2 RENAME TO stream_state")
-        connection.execute(
-            "UPDATE schema_meta SET value = ? WHERE key = 'schema_version'",
-            (SCHEMA_VERSION,),
-        )
+        connection.execute("UPDATE schema_meta SET value = '2' WHERE key = 'schema_version'")
         connection.commit()
     except Exception:
         connection.rollback()
@@ -127,6 +156,8 @@ def validate_schema(connection: sqlite3.Connection) -> None:
         "candles",
         "stream_state",
         "quarantine",
+        "open_interest",
+        "track_progress",
     }
     actual_tables = {
         str(item["name"])

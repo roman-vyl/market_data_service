@@ -321,6 +321,8 @@ MDS_STARTUP_REPAIR_WINDOWS_PER_STREAM
 MDS_REALTIME_RECOVERY_WINDOWS_PER_STREAM
 MDS_HISTORICAL_RETRY_BASE_SECONDS
 MDS_HISTORICAL_RETRY_MAX_SECONDS
+MDS_OI_TRACK_WINDOWS_PER_PASS
+MDS_OI_TRACK_REFRESH_SECONDS
 MDS_REALTIME_RECOVERY_BASE_SECONDS
 MDS_REALTIME_RECOVERY_MAX_SECONDS
 MDS_REALTIME_RECOVERY_IDLE_SECONDS
@@ -336,6 +338,14 @@ MDS_STRATEGY_RUNTIME_BASE_URL
 MDS_RUNTIME_WEBHOOK_TIMEOUT_SECONDS
 MDS_RUNTIME_WEBHOOK_QUEUE_CAPACITY
 ```
+
+An instrument with `open_interest = true` (5m only) also gets an open interest
+historical track: after candle startup the running service discovers the OI
+lower bound, loads and audits the whole OI history into the `open_interest`
+table, then keeps the tail up to date every `MDS_OI_TRACK_REFRESH_SECONDS`.
+It shares the REST operation gate, yields it to other REST work, and never
+changes stream lifecycle, readiness or notifications. Each completed cycle logs
+`oi track complete stream=... gaps=0` and stores the audit in `track_progress`.
 
 Startup processes every enabled `ticker × timeframe` stream in deterministic
 configuration order and performs one bounded full-window reconciliation pass.

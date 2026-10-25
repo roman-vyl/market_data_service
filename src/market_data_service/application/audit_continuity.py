@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
+from typing import Protocol
 
 from market_data_service.domain import (
     ContinuityReport,
@@ -33,28 +34,64 @@ class AuditStreamContinuityRequest:
             raise ValueError("audit range must be aligned to stream timeframe")
 
 
+class OpenTimeReader(Protocol):
+    def __call__(
+        self,
+        unit_of_work: CanonicalStorageUnitOfWork,
+        stream: StreamKey,
+        start_time_ms: int,
+        end_time_ms: int,
+    ) -> tuple[int, ...]: ...
+
+
+def candle_open_times(
+    unit_of_work: CanonicalStorageUnitOfWork,
+    stream: StreamKey,
+    start_time_ms: int,
+    end_time_ms: int,
+) -> tuple[int, ...]:
+    candles = unit_of_work.list_candles(
+        stream, start_time_ms=start_time_ms, end_time_ms=end_time_ms
+    )
+    return tuple(candle.open_time_ms for candle in candles)
+
+
+def open_interest_open_times(
+    unit_of_work: CanonicalStorageUnitOfWork,
+    stream: StreamKey,
+    start_time_ms: int,
+    end_time_ms: int,
+) -> tuple[int, ...]:
+    return unit_of_work.list_open_interest_times(
+        stream, start_time_ms=start_time_ms, end_time_ms=end_time_ms
+    )
+
+
 class AuditStreamContinuity:
-    """Audit one explicit stream/range without changing stream state."""
+    """Audit one explicit stream/range of one track without changing stream state."""
 
     def __init__(
         self,
         unit_of_work_factory: Callable[[], CanonicalStorageUnitOfWork],
+        open_times: OpenTimeReader = candle_open_times,
     ) -> None:
         self._unit_of_work_factory = unit_of_work_factory
+        self._open_times = open_times
 
     def execute(self, request: AuditStreamContinuityRequest) -> ContinuityReport:
         with self._unit_of_work_factory() as unit_of_work:
             if not unit_of_work.stream_exists(request.stream):
                 raise UnknownStreamError(f"stream is not registered: {request.stream.canonical_id}")
-            candles = unit_of_work.list_candles(
+            observed = self._open_times(
+                unit_of_work,
                 request.stream,
-                start_time_ms=request.start_time_ms,
-                end_time_ms=request.end_time_ms,
+                request.start_time_ms,
+                request.end_time_ms,
             )
 
         return build_continuity_report(
             stream=request.stream,
             audit_window=TimeWindow(request.start_time_ms, request.end_time_ms),
-            observed_open_times_ms=tuple(candle.open_time_ms for candle in candles),
+            observed_open_times_ms=observed,
             step_ms=get_timeframe(request.stream.timeframe).duration_ms,
         )
