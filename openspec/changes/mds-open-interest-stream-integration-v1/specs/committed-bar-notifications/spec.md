@@ -12,22 +12,22 @@ For a stream whose instrument has `open_interest = true`, the notification worke
 - **THEN** MDS stores it and sends the ordinary notification for T
 
 #### Scenario: Partial REST answer
-- **WHEN** a fetch stores newer points but leaves a hole inside the required range
-- **THEN** the notification is not sent
+- **WHEN** Bybit returns the points after L with one point missing before T
+- **THEN** only the points before the missing one are stored and the notification is not sent
 
 #### Scenario: Stream without the flag
 - **WHEN** the worker takes a notification of an unflagged stream
 - **THEN** it is sent exactly as before this change
 
-### Requirement: The required open interest range covers every bar since the last stored point
-The required range for bar T SHALL start at the later of the stream's open interest lower bound and the earlier of (the latest stored open interest point plus one step) and (T minus a configured lookback). Missing points SHALL be fetched from Bybit REST and stored by the existing open interest importer; points already stored SHALL NOT be fetched again. A stream without a resolved lower bound or stored points SHALL be held without fetching.
+### Requirement: Open interest continues from the last stored point
+For bar T the publication check SHALL continue open interest from the stream's latest stored point L: if L is at or after T it SHALL send without a REST request; otherwise it SHALL fetch the range from L plus one step to T through the existing open interest importer and SHALL store only the continuous run of points that starts right after L. A stream without stored open interest SHALL be held without fetching.
 
 #### Scenario: Restart after an outage
 - **WHEN** the latest stored open interest point is far behind T
-- **THEN** the range starts right after that point, and T is sent only after every point up to T is stored
+- **THEN** the check continues from that point, and T is sent only after every point up to T is stored
 
 #### Scenario: History not prepared
-- **WHEN** a flagged stream has no resolved open interest lower bound
+- **WHEN** a flagged stream has no stored open interest
 - **THEN** its notification is held and no open interest request is made
 
 ### Requirement: A failed open interest check holds only that notification

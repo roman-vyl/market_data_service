@@ -14,7 +14,8 @@
   short transaction; same value = `duplicate`, different value = `corrected`). `RepairStreamGaps`, wired as
   `RuntimeWiring.open_interest_repair()`, already audits OI continuity (`open_interest_open_times`), fetches only gap windows
   (`iter_fetch_windows`, 200 points), stops at the first REST failure and audits again (`complete` / `incomplete` / `failed`).
-- `track_progress.latest_committed_open_time_ms` of the OI track is the maximum stored point, not a proof of continuity.
+- `track_progress.latest_committed_open_time_ms` of the OI track is the maximum stored point. It is a valid continuation point
+  only while every writer keeps the stored OI continuous up to it (D3, D5).
 - The Bybit REST client retries 4 times with a 10 s timeout (worst case about 1 minute per call).
 - The OI history runner reschedules a full pass `[oi_lower_bound, now]` every `oi_track_refresh_seconds` (300 s) under the shared
   `operation_gate`.
@@ -28,29 +29,22 @@ the order and the delivery. The check has no queue, no task, no timer, no lifecy
 without the flag it answers yes without I/O, so those streams behave exactly as today. A no answer drops that notification with a
 warning log (stream, T, reason); WebSocket, ingestion and `COMMITTED` are not affected.
 
-### D2. Required range
-For bar T with step s the check covers `[start, T + s)` where
+### D2. Continue from the last stored point
+For bar T with step s let `L` be the latest stored OI point of the stream (track progress). The prepared history is continuous up
+to `L` (it is loaded and audited before the flag is used), and D3 keeps it that way, so `L` is the continuation point:
+- `L >= T`: OI(T) is stored, yes without REST (stored OI is never fetched again);
+- `L < T`: the missing range is `[L + s, T + s)`;
+- `L` unknown (history not prepared): no, `oi_history_not_prepared`, no fetch.
+No lookback window, no extra watermark, no new state.
 
-`start = max(oi_lower_bound, min(L + s, T - (N - 1) * s))`
-
-- `L` is the latest stored OI point of the stream (track progress). Starting no later than `L + s` covers every bar since the last
-  stored point, whatever its length (a long outage, a restart).
-- `N` is a fixed lookback (`MDS_OI_PUBLISH_LOOKBACK_BARS`, default 2016 = 7 days). It covers holes behind `L`, for example a partial
-  REST answer that stored the newest points but not one before them. Such a hole stays inside the range of every later bar for
-  `N` bars, so no later bar is published while it is open.
-- `oi_lower_bound` is the resolved OI lower bound of the stream. If it is not resolved, or `L` is unknown, the stream has no prepared
-  OI history: the check answers no (`oi_history_not_prepared`) and does not fetch.
-
-Holes older than `N` bars behind `L` belong to the history track (D5); in normal operation the prepared history has none.
-
-### D3. One check = existing OI repair over the range
-The check calls `RepairStreamGaps.execute(stream, start, T + s, max_windows=W)` wired like `open_interest_repair()`:
-1. audit OI over the range; continuous -> yes, no REST call (OI already stored is never fetched again);
-2. fetch only the gap windows, at most `W` (`MDS_OI_PUBLISH_WINDOWS_PER_CHECK`, default 2), each at most 200 points;
-3. audit again: `complete` -> yes; `incomplete` (partial answer, more gaps than `W` windows) -> no, `oi_incomplete`; `failed` -> no,
-   `oi_source_failed`.
-Values come only from Bybit points with exactly the bar's `open_time_ms`; the source already keeps only closed bars inside the
-requested window. Nothing is interpolated or copied from a neighbour.
+### D3. Fetch only a continuous continuation
+The check fetches `[L + s, T + s)` in windows of at most 200 points, oldest first, at most `W` windows per check
+(`MDS_OI_PUBLISH_WINDOWS_PER_CHECK`, default 2), through the existing `ImportOpenInterestWindow`, with one small addition: the window's points are cut at the first
+missing `open_time_ms` before they are stored. It stores only the continuous
+run of points that starts exactly at `L + s`; a point after the first missing one is not stored, and the check stops there. So `L`
+only ever moves over continuous data, and a partial Bybit answer can never leave a hole behind `L`.
+Result: stored through T -> yes; stopped earlier (missing point, more than `W` windows, REST failure) -> no with the reason.
+Values come only from Bybit points with exactly the bar's `open_time_ms`; nothing is interpolated or copied from a neighbour.
 
 ### D4. REST budget on the shared queue
 The check uses its own instance of the existing Bybit REST client with 1 attempt and a short timeout
@@ -75,7 +69,7 @@ come from one mechanism only, the publication check. Backfill of a newly flagged
 - Bybit OI late or down: OHLCV stays committed, no notification for flagged streams, warning per held bar. The next bar fetches
   the missing points with its own and is published.
 - Outage longer than `W` windows: notifications of that stream stay held while each new notification fills `W` more windows.
-- Crash after OI import, before send: next notification finds the range continuous.
+- Crash after OI import, before send: the next notification continues from the stored `L`.
 - History never prepared for a flagged stream: its notifications stay held until the startup pass completes. The flag is turned on
   only after the history is prepared (BTC and ETH stay off for now).
 
