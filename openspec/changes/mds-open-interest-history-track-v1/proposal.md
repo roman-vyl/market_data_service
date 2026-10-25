@@ -30,7 +30,7 @@ before its first MDS candle (2021-08-31).
 - History: OI lower-bound discovery, audit-driven repair over `[oi_lower_bound, last closed bar]` and restart reconstruction,
   using the existing algorithms with two small parametrizations (where the data comes from, where progress is written), not
   copies of the classes.
-- Runtime: the OI track runs automatically inside the service for flagged streams, in the background, under the existing
+- Runtime: the OI track runs automatically inside the running service for flagged streams, with no manual commands, in the background, under the existing
   REST operation gate, after candle startup, and keeps its tail up to date until step 2.
 
 ## Unchanged
