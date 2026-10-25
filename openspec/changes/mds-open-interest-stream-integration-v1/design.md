@@ -20,6 +20,30 @@
 - The OI history runner reschedules a full pass `[oi_lower_bound, now]` every `oi_track_refresh_seconds` (300 s) under the shared
   `operation_gate`.
 
+## Call chains: where each case enters the existing pipeline
+Names are files under `src/market_data_service/`. `T` is the bar in the notification, `L` the latest stored OI point, `s` = 5m.
+Every chain that publishes ends in the same place: `runtime/committed_bar_notification.py`
+`CommittedBarNotificationWorker.run` -> publication check -> `_send`. Chains that do not reach the worker publish nothing today
+and nothing changes for them.
+
+| # | Case | Existing chain up to the worker | T | OI the check needs |
+| --- | --- | --- | --- | --- |
+| 1 | Normal live bar | `application/realtime/connector.py` `_run_session` -> `runtime/admission.py` `AdmissionGatedCandleHandler.handle` -> `application/realtime/handler.py` `handle` -> `application/ingest.py` `IngestObservedCandle` = `COMMITTED` -> `runtime/realtime.py` `on_outcome` -> `enqueue(bar_notification(T))` | the live bar | `L = T - s`: one point, T |
+| 2 | Live bar after a held one (OI of T-1 failed) | same as 1 | the live bar | `L = T - 2s`: T-1 and T in one request |
+| 3 | Lost WS bar, next bar arrives | T2 as in 1 (sent at once, as today). `supervisor.py` `observe_outcome` -> `SEQUENCE_DISCONTINUITY` -> `runtime/realtime_recovery_worker.py` `enqueue` / `_execute` -> `application/realtime/recovery.py` `execute` (window from T1) -> `RESTORED` -> `_notify_restored(restored_through)` | first T2, then the last bar of the recovery window | for T2: T1..T2 (OI exists on Bybit even while candle T1 is missing); for the restored notification: from `L + s`, usually nothing left |
+| 4 | Silent WS (stale) | `runtime/realtime.py` `_stale_worker` -> `supervisor.detect_stale` -> `STALE` -> recovery as in 3 -> `_notify_restored` | last restored bar | `L + s` .. T = exactly the bars REST recovered |
+| 5 | Disconnect / resubscribe, rejected candle | `supervisor.observe_event` / `observe_outcome` -> `DISCONNECT` / `REJECTED_OBSERVATION` -> recovery as in 3 | last restored bar | as in 4 |
+| 6 | Restart, bars missed while down | `runtime/service.py` `run` -> `_startup` -> `runtime/historical_worker.py` -> `runtime/realtime.py` `admit` -> `STARTUP_RECONCILIATION` -> recovery window `[latest candle + s, now]` -> `_notify_restored` | last restored bar | `L + s` .. T: the downtime plus any bar whose OI was not stored before the stop |
+| 7 | Restart, nothing missed (crash between commit and send) | `admit` -> recovery commits nothing -> no notification (today too) | none until the next live bar | next live bar as in 1/2: `L + s` .. T+1 includes T |
+| 8 | Recovery `incomplete` or failed, fatal | `RealtimeRecoveryWorker._execute` retries or ends | none | none |
+| 9 | Duplicate, corrected, unconfirmed, admission-blocked candle | `on_outcome` does not enqueue | none | none |
+| 10 | Queue full | `enqueue` drops with an error log | none | the next notification continues from `L` |
+| 11 | Runtime POST fails after the check | `_send` logs | already stored | the next notification finds `L >= T` |
+| 12 | OI history backfill pass on start | `runtime/open_interest_runner.py` -> `OpenInterestTrackReconciler` -> OI `RepairStreamGaps` | never notifies | it only fills history and may move `L` forward |
+
+So the check never needs to know which chain brought T: in every case the bars still missing OI are exactly `(L, T]`, because
+OI is written only by the check (continuous runs, D3) and by the backfill pass, which completes before the flag is relied on.
+
 ## Decisions
 
 ### D1. Publication check in the notification worker
