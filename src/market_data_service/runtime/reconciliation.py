@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
+from typing import Protocol
 
 from market_data_service.application.lower_bound import ResolveHistoricalLowerBound
 from market_data_service.application.repair_gaps import RepairStreamGaps
@@ -25,6 +26,12 @@ from market_data_service.runtime.startup_types import (
 )
 
 
+class StreamPassExecutor(Protocol):
+    def execute_stream(
+        self, stream: StreamKey, window: ReconciliationWindow | None = None
+    ) -> StartupStreamOutcome: ...
+
+
 @dataclass(slots=True)
 class HistoricalStreamReconciler:
     lower_bound: ResolveHistoricalLowerBound
@@ -33,6 +40,8 @@ class HistoricalStreamReconciler:
     now_ms: Callable[[], int]
     discovery_windows_per_pass: int
     repair_windows_per_pass: int
+    open_interest: StreamPassExecutor | None = None
+    open_interest_streams: frozenset[StreamKey] = frozenset()
 
     def execute(
         self,
@@ -72,6 +81,9 @@ class HistoricalStreamReconciler:
                 )
             )
             if result.status is RepairStatus.COMPLETE:
+                held = self._open_interest_not_proven(stream, resolved_window)
+                if held is not None:
+                    return held
                 self.lifecycle.mark_connecting(stream)
                 return StartupStreamOutcome(
                     stream,
@@ -120,6 +132,18 @@ class HistoricalStreamReconciler:
                 error_code=type(exc).__name__,
                 error_detail=str(exc),
             )
+
+    def _open_interest_not_proven(
+        self, stream: StreamKey, candle_window: ReconciliationWindow
+    ) -> StartupStreamOutcome | None:
+        """A flagged stream connects only when its open interest track is proven too."""
+
+        if self.open_interest is None or stream not in self.open_interest_streams:
+            return None
+        outcome = self.open_interest.execute_stream(stream)
+        if outcome.classification is StartupClassification.CONNECTING:
+            return None
+        return replace(outcome, window=candle_window)
 
     def _record_failure_state(
         self,

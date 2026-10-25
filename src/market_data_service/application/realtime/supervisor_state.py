@@ -6,6 +6,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import replace
 
 from market_data_service.application.realtime.events import CandleObserved
+from market_data_service.application.realtime.frontier import advance_frontier, extend_frontier
 from market_data_service.application.realtime.outcomes import RealtimeIngestionOutcome
 from market_data_service.application.realtime.supervisor_types import (
     RealtimeStreamFacts,
@@ -19,18 +20,25 @@ class RealtimeSupervisorState:
         self,
         streams: Sequence[StreamKey],
         initial_latest_open_time_ms: Mapping[StreamKey, int | None] | None = None,
+        initial_open_interest_open_time_ms: Mapping[StreamKey, int | None] | None = None,
     ) -> None:
         expected = tuple(streams)
         if not expected:
             raise ValueError("at least one realtime stream is required")
         initial = initial_latest_open_time_ms or {}
+        initial_oi = initial_open_interest_open_time_ms or {}
         self._facts = {
             stream: RealtimeStreamFacts(
                 stream=stream,
                 last_successful_open_time_ms=initial.get(stream),
+                open_interest_required=stream in initial_oi,
+                last_open_interest_open_time_ms=initial_oi.get(stream),
             )
             for stream in expected
         }
+
+    def update(self, stream: StreamKey, **changes: object) -> None:
+        self._facts[stream] = replace(self._facts[stream], **changes)  # type: ignore[arg-type]
 
     def subscribe(self, stream: StreamKey, observed_at_ms: int) -> None:
         facts = self._facts[stream]
@@ -61,9 +69,8 @@ class RealtimeSupervisorState:
         self._facts[outcome.stream] = replace(
             facts,
             status=RealtimeStreamStatus.LIVE,
-            last_successful_open_time_ms=max(
-                previous or outcome.open_time_ms,
-                outcome.open_time_ms,
+            last_successful_open_time_ms=extend_frontier(
+                previous, outcome.open_time_ms, outcome.stream
             ),
             last_ingestion_classification=outcome.classification.value,
         )
@@ -152,12 +159,17 @@ class RealtimeSupervisorState:
             ),
             pending_expected_open_ms=(None if restored else facts.pending_expected_open_ms),
             last_successful_open_time_ms=(
-                max(
-                    facts.last_successful_open_time_ms or restored_through_open_time_ms or 0,
-                    restored_through_open_time_ms or 0,
-                )
+                advance_frontier(facts.last_successful_open_time_ms, restored_through_open_time_ms)
+                or 0
                 if restored
                 else facts.last_successful_open_time_ms
+            ),
+            last_open_interest_open_time_ms=(
+                advance_frontier(
+                    facts.last_open_interest_open_time_ms, restored_through_open_time_ms
+                )
+                if restored and facts.open_interest_required
+                else facts.last_open_interest_open_time_ms
             ),
         )
 

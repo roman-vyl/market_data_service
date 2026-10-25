@@ -166,6 +166,14 @@ class RuntimeRealtimeCoordinator:
         if self._notifier_worker is not None:
             await self._notifier_worker.enqueue(bar_notification(stream, open_time_ms))
 
+    @property
+    def supervisor(self) -> RealtimeSupervisor:
+        return self._supervisor
+
+    async def request_recovery(self, signal: RecoveryRequired) -> None:
+        if self._admission.allows(signal.stream):
+            await self._enqueue(signal)
+
     async def _enqueue(self, signal: RecoveryRequired) -> None:
         await self._recovery_worker.enqueue(signal)
 
@@ -195,12 +203,14 @@ class RuntimeRealtimeCoordinator:
                     durable = self._lifecycle.mark_ready(facts.stream)
             elif (
                 facts.recovery_pending
+                or not facts.current
                 or facts.status.value in {"disconnected", "stale", "recovery_required"}
             ) and durable.state in {
                 StreamLifecycleState.CONNECTING,
                 StreamLifecycleState.READY,
             }:
-                durable = self._lifecycle.mark_degraded(facts.stream, reason=facts.status.value)
+                reason = facts.status.value if facts.current else "stale"
+                durable = self._lifecycle.mark_degraded(facts.stream, reason=reason)
             self._status.update_stream(durable, facts)
 
     def _refresh_status(self) -> None:

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 from market_data_service.adapters.bybit import BybitOpenInterestSource, BybitRestCandleSource
@@ -27,12 +27,18 @@ from market_data_service.application.import_window import ImportHistoricalWindow
 from market_data_service.application.ingest import IngestObservedCandle
 from market_data_service.application.lower_bound import ResolveHistoricalLowerBound
 from market_data_service.application.lower_bound_probe import OpenInterestLowerBoundProbe
+from market_data_service.application.open_interest_live import AppendLiveOpenInterest
 from market_data_service.application.open_interest_track_state import OpenInterestTrackState
 from market_data_service.application.realtime.handler import RealtimeCandleHandler
 from market_data_service.application.realtime.recovery import RealtimeRecoveryCoordinator
+from market_data_service.application.realtime.recovery_open_interest import (
+    OpenInterestRecoveryTrack,
+)
 from market_data_service.application.repair_gaps import RepairStreamGaps
 from market_data_service.config import ValidatedMarketConfig
+from market_data_service.domain.identity import StreamKey
 from market_data_service.runtime.lifecycle import RuntimeLifecycleRecorder
+from market_data_service.runtime.open_interest_reconciliation import OpenInterestTrackReconciler
 
 
 @dataclass(frozen=True, slots=True)
@@ -118,10 +124,17 @@ class RuntimeWiring:
         )
 
     def recovery(self) -> RealtimeRecoveryCoordinator:
+        open_interest = None
+        if self.config.open_interest_streams:
+            open_interest = OpenInterestRecoveryTrack(
+                streams=self.config.open_interest_streams,
+                repair=self.open_interest_repair(),
+            )
         return RealtimeRecoveryCoordinator(
             repair=self.repair(),
             unit_of_work_factory=self.unit_of_work,
             now_ms=self.clock.now_ms,
+            open_interest=open_interest,
         )
 
     def candle_handler(self) -> RealtimeCandleHandler:
@@ -163,3 +176,25 @@ class RuntimeWiring:
             max_candles_per_window=MAX_POINTS_PER_WINDOW,
             state=self.open_interest_state(),
         )
+
+    def open_interest_latest(self, stream: StreamKey) -> int | None:
+        return self.open_interest_state().progress(stream).latest_committed_open_time_ms
+
+    def open_interest_reconciler(self, windows_per_pass: int) -> OpenInterestTrackReconciler:
+        return OpenInterestTrackReconciler(
+            lower_bound=self.open_interest_lower_bound(),
+            repair=self.open_interest_repair(),
+            state=self.open_interest_state(),
+            now_ms=self.clock.now_ms,
+            discovery_windows_per_pass=windows_per_pass,
+            repair_windows_per_pass=windows_per_pass,
+        )
+
+    def open_interest_live(self, timeout_seconds: float) -> AppendLiveOpenInterest:
+        """Live point fetch: one attempt and a short timeout, never the retry schedule."""
+
+        rest = replace(self.rest_source, retry_attempts=1, timeout_seconds=timeout_seconds)
+        importer = ImportOpenInterestWindow(
+            BybitOpenInterestSource(rest), self.unit_of_work, self.clock
+        )
+        return AppendLiveOpenInterest(importer, self.unit_of_work)

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from collections.abc import Awaitable, Callable
 
 from market_data_service.domain.identity import StreamKey
 from market_data_service.ports.committed_bar_notifier import (
@@ -29,9 +30,11 @@ class CommittedBarNotificationWorker:
         capacity: int,
         *,
         logger: logging.Logger | None = None,
+        prepare: Callable[[CommittedBarNotification], Awaitable[bool]] | None = None,
     ) -> None:
         self._notifier = notifier
         self._capacity = capacity
+        self._prepare = prepare
         self._queue: asyncio.Queue[CommittedBarNotification] = asyncio.Queue(maxsize=capacity)
         self._logger = logger or logging.getLogger(
             "market_data_service.runtime.committed_bar_notification"
@@ -62,6 +65,9 @@ class CommittedBarNotificationWorker:
             if stop_event.is_set():
                 self._queue.task_done()
                 return
+            if self._prepare is not None and not await self._prepare(notification):
+                self._queue.task_done()
+                continue
             await self._send(notification)
 
     async def _send(self, notification: CommittedBarNotification) -> None:

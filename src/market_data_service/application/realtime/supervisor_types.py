@@ -44,6 +44,36 @@ class RealtimeStreamFacts:
     recovery_restored: bool = False
     recovery_completed_at_ms: int | None = None
     fatal_error_code: str | None = None
+    open_interest_required: bool = False
+    last_open_interest_open_time_ms: int | None = None
+    expected_open_time_ms: int | None = None
+
+    @property
+    def continuity_frontier_ms(self) -> int | None:
+        """Lower of the data-track frontiers; both tracks gate a flagged stream."""
+
+        if not self.open_interest_required:
+            return self.last_successful_open_time_ms
+        if (
+            self.last_successful_open_time_ms is None
+            or self.last_open_interest_open_time_ms is None
+        ):
+            return None
+        return min(self.last_successful_open_time_ms, self.last_open_interest_open_time_ms)
+
+    def published_through(self, open_time_ms: int) -> bool:
+        """Stream is data-ready and every required track has reached the bar."""
+
+        frontier = self.continuity_frontier_ms
+        return self.data_ready and frontier is not None and frontier >= open_time_ms
+
+    @property
+    def current(self) -> bool:
+        """Every required track has reached the last closed bar expected after grace."""
+
+        frontier = self.continuity_frontier_ms
+        expected = self.expected_open_time_ms
+        return expected is not None and frontier is not None and frontier >= expected
 
     @property
     def data_ready(self) -> bool:
@@ -52,6 +82,7 @@ class RealtimeStreamFacts:
             and self.recovery_restored
             and not self.recovery_pending
             and self.fatal_error_code is None
+            and self.current
         )
 
     @property

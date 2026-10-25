@@ -95,3 +95,32 @@ A stream SHALL enter the runtime connecting phase only after its current histori
 #### Scenario: Continuous repaired range becomes connectable
 - **WHEN** bounded repair completes and post-repair audit proves the target historical window continuous
 - **THEN** the durable stream lifecycle advances to `connecting`.
+
+### Requirement: Open interest is an independent historical track
+For every stream with the open interest track enabled, MDS SHALL reconcile open interest history from Bybit `/v5/market/open-interest` (`intervalTime=5min`) with the same rules as candle history: observed lower bound, bounded and resumable discovery, bounded window import atomic per window, explicit grid audit, audit-driven bounded repair, restart reconstruction from stored data and progress, and classified source failures. Open interest windows SHALL hold at most 200 points.
+
+#### Scenario: Open interest history is loaded and proven
+- **WHEN** the track runs for a flagged stream until its fixed target
+- **THEN** its lower bound is resolved and an explicit audit of `[open interest lower bound, target]` reports no gaps
+
+#### Scenario: Restart in the middle of open interest history
+- **WHEN** the process restarts with part of the open interest history stored
+- **THEN** the next pass re-audits the full window and repairs only the remaining gaps, without a persisted job queue
+
+### Requirement: Open interest lower bound is independent of the candle lower bound
+The open interest lower bound SHALL be the earliest valid open interest point actually observed for the stream, discovered and persisted separately from the candle lower bound. Bars before the open interest lower bound SHALL NOT be open interest gaps, and candles before it SHALL be kept.
+
+#### Scenario: Candles start before open interest
+- **WHEN** a stream has candles from 2020-03-25 and its first open interest point is 2020-07-20
+- **THEN** the open interest audit starts at 2020-07-20, the earlier months are not reported as open interest gaps, and no candle is removed
+
+#### Scenario: Open interest starts before candles
+- **WHEN** a stream's first open interest point is earlier than its first stored candle
+- **THEN** the open interest track is complete on its own range and the candle track is unaffected
+
+### Requirement: An open-interest stream is handed off only after both tracks are proven
+For a stream with `open_interest = true`, startup reconciliation SHALL reconcile open interest over `[open interest lower bound, now)` with the same gap repair after the candle window is proven continuous, and the stream SHALL enter the connecting phase only when both audits report no gaps. Until then it SHALL stay in the existing auditing state with the existing blocking reason and backoff.
+
+#### Scenario: Open interest still has gaps at start
+- **WHEN** candles of a flagged stream are continuous but its open interest audit reports gaps
+- **THEN** the stream is not handed off to realtime and stays not ready

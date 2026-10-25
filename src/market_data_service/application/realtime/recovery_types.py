@@ -11,6 +11,7 @@ from market_data_service.application.repair_types import (
     RepairProgressMarker,
     RepairStreamGapsRequest,
     RepairStreamGapsResult,
+    RepairWindowResult,
 )
 from market_data_service.domain.continuity import ContinuityReport
 from market_data_service.domain.identity import StreamKey
@@ -42,6 +43,7 @@ class RealtimeRecoveryResult:
     recovery_window: TimeWindow | None
     audit: ContinuityReport | None = None
     repair: RepairStreamGapsResult | None = None
+    open_interest_repair: RepairStreamGapsResult | None = None
     post_audit: ContinuityReport | None = None
     next_recovery_window: TimeWindow | None = None
     restored_through_open_time_ms: int | None = None
@@ -60,18 +62,20 @@ class RealtimeRecoveryResult:
     def committed_bars(self) -> int:
         """Bars this single attempt newly committed over REST."""
 
-        if self.repair is None:
-            return 0
-        return sum(item.committed for item in self.repair.window_results)
+        return sum(item.committed for item in self._window_results())
 
     @property
     def made_progress(self) -> bool:
         if self.next_recovery_window is not None:
             return True
-        if self.repair is None:
-            return False
-        return any(
-            item.committed > 0 or item.corrected > 0 for item in self.repair.window_results
+        return any(item.committed > 0 or item.corrected > 0 for item in self._window_results())
+
+    def _window_results(self) -> tuple[RepairWindowResult, ...]:
+        """Window results of both data tracks repaired by this attempt."""
+
+        repairs = (self.repair, self.open_interest_repair)
+        return tuple(
+            item for repair in repairs if repair is not None for item in repair.window_results
         )
 
 
