@@ -1,100 +1,89 @@
 # Design
 
 ## Context (verified at main 85cdc4e)
-- Every committed-bar notification enters the single `CommittedBarNotificationWorker` (`runtime/committed_bar_notification.py`):
-  a bounded in-memory FIFO with one consumer task; `send` already runs in `asyncio.to_thread`, so the WebSocket loop never waits
-  for it. There are exactly two enqueue sites, both in `runtime/realtime.py`:
-  - `on_outcome`: a live `COMMITTED` outcome;
-  - `_notify_restored`: one notification for `restored_through_open_time_ms` after a restored recovery episode that committed
-    bars or was marked by a live commit.
-  Restart reaches the same worker: `admit` -> `STARTUP_RECONCILIATION` recovery -> `_notify_restored` when it committed bars.
-- Notifications are non-durable by spec. After a crash between commit and send, with nothing to recover at start, the next
-  notification is for T+1. The owner accepts this (2026-10-25).
-- OI is written only by `ImportOpenInterestWindow` (one REST window of at most 200 points, fetched outside the transaction, then one
-  short transaction; same value = `duplicate`, different value = `corrected`). `RepairStreamGaps`, wired as
-  `RuntimeWiring.open_interest_repair()`, already audits OI continuity (`open_interest_open_times`), fetches only gap windows
-  (`iter_fetch_windows`, 200 points), stops at the first REST failure and audits again (`complete` / `incomplete` / `failed`).
-- `track_progress.latest_committed_open_time_ms` of the OI track is the maximum stored point. It is a valid continuation point
-  the continuation point exactly as `stream_state.latest_committed_open_time_ms` is for candle recovery.
-- The Bybit REST client retries 4 times with a 10 s timeout (worst case about 1 minute per call).
-- The OI history runner reschedules a full pass `[oi_lower_bound, now]` every `oi_track_refresh_seconds` (300 s) under the shared
-  `operation_gate`.
+- Candle readiness is built from existing owners: startup reconciliation (`runtime/reconciliation.py`
+  `HistoricalStreamReconciler`: lower bound, `RepairStreamGaps` over `[lower bound, now)`, `AUDITING` -> `CONNECTING`), hand-off
+  (`runtime/historical_worker.py` -> `runtime/realtime.py` `admit`), the realtime supervisor (`application/realtime/supervisor.py`:
+  continuity frontier `last_successful_open_time_ms`, gap -> `SEQUENCE_DISCONTINUITY`, expected-bar rule with grace -> `STALE`),
+  realtime recovery (`runtime/realtime_recovery_worker.py`, `application/realtime/recovery.py`: `RepairStreamGaps` over the window,
+  `RESTORED` only when the post-audit is continuous and the target did not advance) and `_sync_lifecycle` (`data_ready` -> `READY`,
+  pending recovery -> `DEGRADED`).
+- The candle frontier is not "the latest stored point": it is set from an audited range (startup, recovery) or advanced by a live
+  commit, and a jump of more than one step raises a discontinuity.
+- OI already has the same building blocks: `ImportOpenInterestWindow`, OI lower bound resolution, `open_interest_open_times` audit
+  and `RepairStreamGaps` wired for OI (`RuntimeWiring.open_interest_repair()`), plus `OpenInterestTrackReconciler`. Today they run in
+  a separate background runner (`runtime/open_interest_runner.py`) that never touches readiness and re-scans the whole history every
+  300 s.
+- Every committed-bar notification goes through `CommittedBarNotificationWorker` (one consumer, off the event loop for I/O).
 
-## Call chains: where each case enters the existing pipeline
-Names are files under `src/market_data_service/`. `T` is the bar in the notification, `L` the latest stored OI point, `s` = 5m.
-Every chain that publishes ends in the same place: `runtime/committed_bar_notification.py`
-`CommittedBarNotificationWorker.run` -> publication check -> `_send`. Chains that do not reach the worker publish nothing today
-and nothing changes for them.
+## D1. One readiness contract
+For a flagged stream, `data_ready` (supervisor fact) and therefore durable `READY` require: both tracks proven continuous from their
+lower bounds, both frontiers at or after the expected bar (same `align(now - grace) - step` rule, same grace), and no pending or
+unfinished recovery of either track. Implemented by extending the existing owners only:
+- supervisor facts get a second frontier, `open_interest_frontier_ms`, for flagged streams;
+- `detect_stale` uses the lower of the two frontiers;
+- `recovery_pending` / `recovery_restored` keep covering the whole stream, so `_sync_lifecycle`, `RuntimeStatusStore` and
+  `/readiness` need no change.
+Unflagged streams: no OI frontier, today's behaviour.
 
-| # | Case | Existing chain up to the worker | T | OI the check needs |
-| --- | --- | --- | --- | --- |
-| 1 | Normal live bar | `application/realtime/connector.py` `_run_session` -> `runtime/admission.py` `AdmissionGatedCandleHandler.handle` -> `application/realtime/handler.py` `handle` -> `application/ingest.py` `IngestObservedCandle` = `COMMITTED` -> `runtime/realtime.py` `on_outcome` -> `enqueue(bar_notification(T))` | the live bar | `L = T - s`: one point, T |
-| 2 | Live bar after a held one (OI of T-1 failed) | same as 1 | the live bar | `L = T - 2s`: T-1 and T in one request |
-| 3 | Lost WS bar, next bar arrives | T2 as in 1 (sent at once, as today). `supervisor.py` `observe_outcome` -> `SEQUENCE_DISCONTINUITY` -> `runtime/realtime_recovery_worker.py` `enqueue` / `_execute` -> `application/realtime/recovery.py` `execute` (window from T1) -> `RESTORED` -> `_notify_restored(restored_through)` | first T2, then the last bar of the recovery window | for T2: T1..T2 (OI exists on Bybit even while candle T1 is missing); for the restored notification: from `L + s`, usually nothing left |
-| 4 | Silent WS (stale) | `runtime/realtime.py` `_stale_worker` -> `supervisor.detect_stale` -> `STALE` -> recovery as in 3 -> `_notify_restored` | last restored bar | `L + s` .. T = exactly the bars REST recovered |
-| 5 | Disconnect / resubscribe, rejected candle | `supervisor.observe_event` / `observe_outcome` -> `DISCONNECT` / `REJECTED_OBSERVATION` -> recovery as in 3 | last restored bar | as in 4 |
-| 6 | Restart, bars missed while down | `runtime/service.py` `run` -> `_startup` -> `runtime/historical_worker.py` -> `runtime/realtime.py` `admit` -> `STARTUP_RECONCILIATION` -> recovery window `[latest candle + s, now]` -> `_notify_restored` | last restored bar | `L + s` .. T: the downtime plus any bar whose OI was not stored before the stop |
-| 7 | Restart, nothing missed (crash between commit and send) | `admit` -> recovery commits nothing -> no notification (today too) | none until the next live bar | next live bar as in 1/2: `L + s` .. T+1 includes T |
-| 8 | Recovery `incomplete` or failed, fatal | `RealtimeRecoveryWorker._execute` retries or ends | none | none |
-| 9 | Duplicate, corrected, unconfirmed, admission-blocked candle | `on_outcome` does not enqueue | none | none |
-| 10 | Queue full | `enqueue` drops with an error log | none | the next notification continues from `L` |
-| 11 | Runtime POST fails after the check | `_send` logs | already stored | the next notification finds `L >= T` |
-| 12 | OI history backfill pass on start | `runtime/open_interest_runner.py` -> `OpenInterestTrackReconciler` -> OI `RepairStreamGaps` | never notifies | it only fills history and may move `L` forward |
+## D2. Proven continuity, not the latest point
+Each frontier moves only in two ways, identical for both tracks:
+1. set to the end of an audited continuous range (startup reconciliation, restored recovery);
+2. advanced by exactly one step by a live append (candle from WebSocket, OI from the live fetch, D4).
+A live append more than one step ahead raises `SEQUENCE_DISCONTINUITY` from frontier + step, as for candles today. A point stored
+beyond a hole (partial REST answer) never moves a frontier. `track_progress.latest_committed_open_time_ms` is not used for readiness.
 
-So the check never needs to know which chain brought T: in every case the bars still missing OI are exactly `(L, T]`, the same way
-candle recovery continues from its latest committed candle (D2).
+## D3. Startup: both tracks before hand-off
+`HistoricalStreamReconciler.execute` for a flagged stream runs, after the candle repair is `complete`, the OI reconciliation over
+`[OI lower bound, now)` with the same `RepairStreamGaps` (OI wiring) and budget rules, and only then `mark_connecting`. Until both
+are complete the stream stays `AUDITING`, the existing historical worker keeps it blocked (`historical_reconciliation`) and backs
+off on failure. `admit` sets the candle frontier as today and the OI frontier to the end of the audited OI range.
+`OpenInterestTrackRunner`, its timer and `MDS_OI_TRACK_REFRESH_SECONDS` are removed; `OpenInterestTrackReconciler` logic is reused
+inside startup reconciliation. A flagged stream whose OI history is not loaded is therefore not READY until it is.
 
-## Decisions
+## D4. Live: OI for bar T is fetched when candle T is committed
+WebSocket stays the only live candle source and never waits for REST. For a flagged stream, the existing notification worker,
+which already consumes every `COMMITTED` outcome off the event loop, first performs the live OI append for T: one REST window
+`[T, T + s)` through `ImportOpenInterestWindow` (dedicated Bybit client: 1 attempt, short timeout, no operation gate), then reports
+the result to the supervisor (frontier + 1 step, or a discontinuity, or nothing on failure). It then sends the notification only if
+D5 holds. A failed fetch is not retried there: if OI(T) is not stored by the end of the grace, `detect_stale` sees the OI
+frontier behind, the stream goes to recovery and `DEGRADED`, exactly as a missing WebSocket candle does.
 
-### D1. Publication check in the notification worker
-`CommittedBarNotificationWorker` gets one optional collaborator, the publication check, called in `asyncio.to_thread` right
-before `send`. It answers one question: may bar T of this stream be published now? The worker stays the only owner of the queue,
-the order and the delivery. The check has no queue, no task, no timer, no lifecycle and no stored state of its own. For a stream
-without the flag it answers yes without I/O, so those streams behave exactly as today. A no answer drops that notification with a
-warning log (stream, T, reason); WebSocket, ingestion and `COMMITTED` are not affected.
+## D5. Publication follows readiness
+A flagged bar T is sent only when the stream is `data_ready` and both frontiers are at or after T. Otherwise the notification is
+not sent; the live commit has already marked the active recovery episode (`mark_live_commit`), so the episode sends one
+notification for its last restored bar when it ends restored (existing rule). Unflagged streams are notified as today.
 
-### D2. Same REST repair as candles
-OI and candles already share one REST repair mechanism: `application/repair_gaps.py` `RepairStreamGaps` (audit -> import only the
-gap windows -> audit again), with the candle importer for candles and `ImportOpenInterestWindow` + `open_interest_open_times`
-for OI (`RuntimeWiring.open_interest_repair()`). The check calls exactly that, with the window chosen the same way candle
-recovery chooses it (`application/realtime/recovery_plan.py`: from the latest committed point plus one step to the bar):
+## D6. Recovery repairs both tracks over one window
+`RealtimeRecoveryCoordinator` for a flagged stream: the window starts at the earliest of candle latest + step, the signal hint
+(which carries the lower frontier + step) and ends at the last closed bar, as today. It runs the candle `RepairStreamGaps`, then the
+OI `RepairStreamGaps` over the same window. `RESTORED` only if both are `complete` with continuous post-audits and the target did
+not advance; `committed_bars` counts both tracks, so OI repaired by an episode also triggers its single notification.
+`record_recovery_result` sets both frontiers to `restored_through_open_time_ms`. Failure of either track = the existing
+`incomplete` / failed handling and backoff of the one intent of the stream.
 
-`RepairStreamGaps.execute(stream, start = L + s, end = T + s, max_windows = W)`, `L` = latest stored OI point.
+## D7. Concurrency and budgets
+- The live OI fetch runs in a worker thread; its SQLite write is the existing short import transaction, after the REST call.
+- Recovery and startup OI work run under the existing `operation_gate` with the existing per-pass budgets.
+- Normal live OI fetch: one point, well under a second. Bybit down: about one timeout per flagged bar on the shared queue.
 
-- `L >= T`: nothing to repair, yes without REST (stored OI is never fetched again);
-- result `complete` -> yes; `incomplete` (partial Bybit answer, more gaps than `W` windows) -> no, `oi_incomplete`;
-  `failed` -> no, `oi_source_failed` -- the same three outcomes candle recovery acts on;
-- `L` unknown (history not prepared) -> no, `oi_history_not_prepared`, no fetch.
-Windows of at most 200 points (`iter_fetch_windows`), at most `W` per check (`MDS_OI_PUBLISH_WINDOWS_PER_CHECK`, default 2).
-Validation, `duplicate` / `corrected` and quarantine are the importer's own. No lookback window, no extra watermark, no new state,
-no OI-specific continuity logic.
-
-### D4. REST budget on the shared queue
-The check uses its own instance of the existing Bybit REST client with 1 attempt and a short timeout
-(`MDS_OI_PUBLISH_TIMEOUT_SECONDS`, default 2 s). It never takes `operation_gate`, so a candle history pass or a candle recovery
-never delays it. Normal case: one request of one point, well under a second. Bybit down: the first failed request ends the check,
-so at most about 2 s per flagged notification (about 6 s per 5-minute boundary for 3 flagged coins). A long backlog after an
-outage is filled `W` windows per notification, so the queue is never held for more than `W` timeouts by one item.
-
-### D5. History track: one pass, no timer
-`OpenInterestTrackRunner` keeps the backfill and audit pass: after start each flagged stream is reconciled over
-`[oi_lower_bound, now]` until the pass completes, with the existing budget, backoff and gate yielding. After a completed pass the
-stream is not rescheduled. `oi_track_refresh_seconds` / `MDS_OI_TRACK_REFRESH_SECONDS` are removed. Regular new points therefore
-come from one mechanism only, the publication check. Backfill of a newly flagged coin and a full audit happen on the next start.
-
-### D6. Concurrency
-- WebSocket: unchanged path; the check runs in the worker task and a worker thread. Its SQLite writes are the existing short
-  import transactions after the REST fetch, the same as the history track writes today.
-- The startup history pass and the check may import the same points; the importer classifies them `duplicate`.
-- Order: the worker remains FIFO; a held notification is simply not sent.
+## Call chains
+| # | Case | Chain through existing owners | Result |
+| --- | --- | --- | --- |
+| 1 | Normal live bar | connector -> handler -> ingest `COMMITTED` -> `on_outcome` (frontier +1) -> worker: OI fetch T (OI frontier +1) -> D5 holds -> send | T sent with OI, stream READY |
+| 2 | OI(T) not available in time | as 1, fetch fails -> no send -> grace ends -> `detect_stale` (OI frontier behind) -> `STALE` -> recovery: candles nothing, OI repairs T -> `RESTORED` -> one send | READY -> DEGRADED -> READY, T sent once |
+| 3 | WebSocket lost bar T1, T2 arrives | `observe_outcome` gap -> `SEQUENCE_DISCONTINUITY` -> recovery from T1: both tracks -> `RESTORED` -> one send for the last bar; live T2 not sent (D5) | no bar published while either track has a hole |
+| 4 | WebSocket silent | `detect_stale` -> recovery of both tracks -> one send | as today, plus OI |
+| 5 | Restart | startup reconciliation: candles then OI -> `admit` (both frontiers) -> `STARTUP_RECONCILIATION` recovery of both -> one send if anything was committed | READY only after both are proven |
+| 6 | Crash between candle T and OI(T) | as 5: the window from the lower frontier includes T, OI(T) is repaired, one send | |
+| 7 | OI history has a hole at start | startup OI repair; unrecoverable -> stays `AUDITING`/backoff, not READY | manual fix procedure, then restart |
+| 8 | Duplicate, corrected, rejected candle | unchanged (`REJECTED` -> recovery of both tracks) | |
 
 ## Failure modes
-- Bybit OI late or down: OHLCV stays committed, no notification for flagged streams, warning per held bar. The next bar fetches
-  the missing points with its own and is published.
-- Outage longer than `W` windows: notifications of that stream stay held while each new notification fills `W` more windows.
-- Crash after OI import, before send: the next notification continues from the stored `L`.
-- History never prepared for a flagged stream: its notifications stay held until the startup pass completes. The flag is turned on
-  only after the history is prepared (BTC and ETH stay off for now).
+- Bybit OI REST down while WebSocket works: candles keep being committed (`COMMITTED` unchanged), flagged streams go `DEGRADED`
+  after the grace, no bar is published, recovery backs off as for candles; when REST returns, one recovery restores both and sends once.
+- Queue full or POST failure: unchanged best-effort delivery; data state is not affected.
 
 ## Rollout
-Deploy with SOL flagged (history complete). BTC and ETH are flagged after their history is loaded and checked.
+SOL flagged (history complete). BTC and ETH stay unflagged until their OI history is loaded; flagging them earlier keeps them not
+READY by design.

@@ -1,35 +1,40 @@
 # MDS open interest stream integration v1
 
 ## Status
-Draft for owner review (2026-10-25), rewritten to the owner's target model of 2026-10-25 15:09. No code.
+Draft for owner review (2026-10-25), rewritten after the owner's review of 15:38. No code.
 
 ## Why
-Step 1 (`mds-open-interest-history-track-v1`, archived) loads open interest (OI) history for flagged 5m streams. Runtime is
-still notified as soon as OHLCV is committed, with or without OI, and the history track re-scans the whole multi-year history
-every 300 s to follow the tail.
+For a stream whose instrument has `open_interest = true`, OHLCV and open interest (OI) are one mandatory data set for Strategy
+Runtime. Today OI lives in a side track that never affects READY, follows the tail with a 300 s re-scan of the whole history, and a
+bar is published to Runtime without its OI. A stream can be READY while its OI is missing or broken.
 
-For Strategy Runtime OI is a required part of market data. In normal operation the OI history is already prepared and
-continuous, so MDS only has to continue it bar by bar, driven by the bars it already publishes.
+## Main invariant
+For a flagged stream, READY (and the right to publish a bar to Runtime) means at the same time:
+- OHLCV continuity is proven (audited) from its lower bound;
+- OI continuity is proven (audited) from its lower bound;
+- both are current up to the last closed bar, under the same expected-bar rule and grace;
+- no recovery of either is pending or unfinished.
+One definition of readiness, used both by MDS state and by publication. Unflagged streams keep today's definition unchanged.
 
 ## What changes
-- **One publication check before send.** `CommittedBarNotificationWorker` keeps its queue, order and delivery. Before it sends
-  the notification for bar T of a stream with `open_interest = true`, it runs a small publication check: the same REST repair that
-  candles use (`RepairStreamGaps`, already wired for OI), from the last stored OI point up to T. Only a `complete` result publishes
-  the bar. Otherwise the notification is not sent and the reason is logged.
-- **One trigger for all three paths.** Live WebSocket commits, restored REST recovery episodes and the restart path already end in
-  this worker, so the check covers all of them. No other code path changes.
-- **No own retry.** A failed check is retried by the next notification of the same stream (normally the next bar, 5 minutes later),
-  whose range also covers the points missing before it.
-- **History track without the timer.** The OI history track stays as backfill and audit: one pass to completion per stream after
-  start, then it stops. The periodic re-scan of the whole history (`MDS_OI_TRACK_REFRESH_SECONDS`) is removed in this change, so
-  new OI points are fetched only by the publication check.
+- **Two tracks, one stream state.** The existing per-stream owners carry both tracks: startup reconciliation, the realtime
+  supervisor (continuity frontier and expected-bar rule), realtime recovery (`RepairStreamGaps` for each track over the same
+  window) and the lifecycle (`READY` / `DEGRADED` / ...). No new lifecycle states, tables or watermarks.
+- **Proven frontier, not latest point.** Each track has a continuity frontier owned by the supervisor: set only from an audited
+  range (startup or recovery) or advanced by exactly one step by a live append. A stored point beyond a hole never moves it.
+- **Different sources and triggers, same requirements.** Candles: WebSocket live, REST in recovery. OI: one REST window for bar T
+  fetched when candle T is committed (off the event loop), REST in recovery. Integrity, continuity, recovery and readiness rules are
+  the same for both.
+- **Startup hand-off needs both.** A flagged stream is handed to realtime only after both reconciliations are complete. The
+  separate background OI runner and its timer are removed; OI reconciliation runs inside startup reconciliation.
+- **Publication follows readiness.** A flagged bar is sent to Runtime only when the stream is data-ready through that bar.
+  Otherwise the existing recovery episode publishes it once when it ends restored.
 
 ## Unchanged
-WebSocket connector, candle handler, ingestion and `COMMITTED`; OHLCV validation; candle REST recovery and its single notification
-per restored episode; stream lifecycle states and READY; notification payload, queue and one-attempt HTTP delivery; Runtime webhook
-contract; separate OHLCV and OI tables; every stream without the flag.
+Notification payload, queue, worker and one-attempt delivery; Runtime webhook contract; WebSocket connector and candle ingestion;
+`COMMITTED` = OHLCV valid and stored; OHLCV validation; separate OHLCV and OI tables; the one-notification-per-restored-episode rule;
+every unflagged stream.
 
 ## Out of scope (next stage)
-OI in the candle read API, Strategy Engine, StrategySpec, Research, backtesting, data hashes, readiness diagnostics. Premium index.
-Synthetic OI values: never written by the live pipeline; unrecoverable historical holes are fixed once by a separate documented
-procedure (`OI_MANUAL_FIXES.md`).
+OI in the candle read API, Strategy Engine, StrategySpec, Research, backtesting, data hashes. Synthetic OI values are never written by
+the runtime; unrecoverable historical holes are fixed once by a separate documented procedure (`OI_MANUAL_FIXES.md`).
