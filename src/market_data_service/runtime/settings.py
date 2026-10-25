@@ -24,7 +24,7 @@ class RuntimeSettings:
     historical_retry_base_seconds: float = 1.0
     historical_retry_max_seconds: float = 60.0
     oi_track_windows_per_pass: int = 2
-    oi_track_refresh_seconds: float = 300.0
+    oi_live_timeout_seconds: float = 2.0
     realtime_recovery_base_seconds: float = 1.0
     realtime_recovery_max_seconds: float = 60.0
     realtime_recovery_idle_seconds: float = 0.1
@@ -60,8 +60,8 @@ class RuntimeSettings:
             raise ValueError("historical_retry_base_seconds must be non-negative")
         if self.historical_retry_max_seconds < self.historical_retry_base_seconds:
             raise ValueError("historical_retry_max_seconds must be >= base")
-        if self.oi_track_refresh_seconds <= 0:
-            raise ValueError("oi_track_refresh_seconds must be positive")
+        if not math.isfinite(self.oi_live_timeout_seconds) or self.oi_live_timeout_seconds <= 0:
+            raise ValueError("oi_live_timeout_seconds must be finite and positive")
         if self.realtime_recovery_base_seconds < 0:
             raise ValueError("realtime_recovery_base_seconds must be non-negative")
         if self.realtime_recovery_max_seconds < self.realtime_recovery_base_seconds:
@@ -124,7 +124,7 @@ class RuntimeSettings:
             ),
             historical_retry_max_seconds=float(env.get("MDS_HISTORICAL_RETRY_MAX_SECONDS", "60.0")),
             oi_track_windows_per_pass=int(env.get("MDS_OI_TRACK_WINDOWS_PER_PASS", "2")),
-            oi_track_refresh_seconds=float(env.get("MDS_OI_TRACK_REFRESH_SECONDS", "300")),
+            oi_live_timeout_seconds=float(env.get("MDS_OI_LIVE_TIMEOUT_SECONDS", "2.0")),
             realtime_recovery_base_seconds=float(
                 env.get("MDS_REALTIME_RECOVERY_BASE_SECONDS", "1.0")
             ),

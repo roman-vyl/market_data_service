@@ -19,18 +19,25 @@ class RealtimeSupervisorState:
         self,
         streams: Sequence[StreamKey],
         initial_latest_open_time_ms: Mapping[StreamKey, int | None] | None = None,
+        initial_open_interest_open_time_ms: Mapping[StreamKey, int | None] | None = None,
     ) -> None:
         expected = tuple(streams)
         if not expected:
             raise ValueError("at least one realtime stream is required")
         initial = initial_latest_open_time_ms or {}
+        initial_oi = initial_open_interest_open_time_ms or {}
         self._facts = {
             stream: RealtimeStreamFacts(
                 stream=stream,
                 last_successful_open_time_ms=initial.get(stream),
+                open_interest_required=stream in initial_oi,
+                last_open_interest_open_time_ms=initial_oi.get(stream),
             )
             for stream in expected
         }
+
+    def update(self, stream: StreamKey, **changes: object) -> None:
+        self._facts[stream] = replace(self._facts[stream], **changes)  # type: ignore[arg-type]
 
     def subscribe(self, stream: StreamKey, observed_at_ms: int) -> None:
         facts = self._facts[stream]
@@ -152,12 +159,14 @@ class RealtimeSupervisorState:
             ),
             pending_expected_open_ms=(None if restored else facts.pending_expected_open_ms),
             last_successful_open_time_ms=(
-                max(
-                    facts.last_successful_open_time_ms or restored_through_open_time_ms or 0,
-                    restored_through_open_time_ms or 0,
-                )
+                _advance(facts.last_successful_open_time_ms, restored_through_open_time_ms) or 0
                 if restored
                 else facts.last_successful_open_time_ms
+            ),
+            last_open_interest_open_time_ms=(
+                _advance(facts.last_open_interest_open_time_ms, restored_through_open_time_ms)
+                if restored and facts.open_interest_required
+                else facts.last_open_interest_open_time_ms
             ),
         )
 
@@ -194,6 +203,10 @@ class RealtimeSupervisorState:
 
     def all_facts(self) -> tuple[RealtimeStreamFacts, ...]:
         return tuple(self._facts.values())
+
+
+def _advance(current: int | None, restored_through: int | None) -> int | None:
+    return restored_through if current is None else max(current, restored_through or current)
 
 
 def _commit_checked(facts: RealtimeStreamFacts) -> int | None:

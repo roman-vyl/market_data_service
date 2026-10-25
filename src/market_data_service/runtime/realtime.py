@@ -166,6 +166,14 @@ class RuntimeRealtimeCoordinator:
         if self._notifier_worker is not None:
             await self._notifier_worker.enqueue(bar_notification(stream, open_time_ms))
 
+    @property
+    def supervisor(self) -> RealtimeSupervisor:
+        return self._supervisor
+
+    async def request_recovery(self, signal: RecoveryRequired) -> None:
+        if self._admission.allows(signal.stream):
+            await self._enqueue(signal)
+
     async def _enqueue(self, signal: RecoveryRequired) -> None:
         await self._recovery_worker.enqueue(signal)
 

@@ -23,12 +23,14 @@ from market_data_service.runtime.admission import (
     AdmissionGatedCandleHandler,
     RealtimeAdmissionGate,
 )
-from market_data_service.runtime.committed_bar_notification_factory import (
-    build_committed_bar_notifier_worker,
-)
 from market_data_service.runtime.event_loop_lag import EventLoopLagMonitor
 from market_data_service.runtime.historical_worker import HistoricalReconciliationWorker
-from market_data_service.runtime.open_interest_runner import OpenInterestTrackRunner
+from market_data_service.runtime.open_interest_composition import (
+    admit_with_open_interest,
+    initial_open_interest_frontiers,
+    open_interest_notification_worker,
+    open_interest_startup,
+)
 from market_data_service.runtime.realtime import RuntimeRealtimeCoordinator
 from market_data_service.runtime.reconciliation import HistoricalStreamReconciler
 from market_data_service.runtime.settings import RuntimeSettings
@@ -76,7 +78,7 @@ class RuntimeService:
                 initial_outcomes=outcomes,
                 status=self._status,
                 operation_gate=operation_gate,
-                on_complete=realtime.admit,
+                on_complete=admit_with_open_interest(self._wiring, self._config, realtime),
                 base_backoff_seconds=self._settings.historical_retry_base_seconds,
                 max_backoff_seconds=self._settings.historical_retry_max_seconds,
             )
@@ -84,14 +86,6 @@ class RuntimeService:
             async with asyncio.TaskGroup() as task_group:
                 task_group.create_task(realtime.run(stop_event))
                 task_group.create_task(worker.run(stop_event))
-                task_group.create_task(
-                    OpenInterestTrackRunner(
-                        streams=self._config.open_interest_streams,
-                        wiring=self._wiring,
-                        settings=self._settings,
-                        operation_gate=operation_gate,
-                    ).run(stop_event)
-                )
                 task_group.create_task(
                     EventLoopLagMonitor(
                         self._logger, warn_seconds=self._settings.event_loop_lag_warn_seconds
@@ -116,6 +110,7 @@ class RuntimeService:
             now_ms=self._wiring.clock.now_ms,
             discovery_windows_per_pass=(self._settings.startup_backfill_windows_per_stream),
             repair_windows_per_pass=self._settings.startup_repair_windows_per_stream,
+            **open_interest_startup(self._wiring, self._settings),
         )
         coordinator = StartupCoordinator(reconciler)
         outcomes = coordinator.execute(self._config.enabled_streams)
@@ -156,10 +151,16 @@ class RuntimeService:
                 grace_ms=self._settings.stale_grace_ms,
             ),
             initial_latest_open_time_ms=initial,
+            initial_open_interest_open_time_ms=initial_open_interest_frontiers(self._wiring),
         )
         admission = RealtimeAdmissionGate(admitted_streams)
-        notifier_worker = build_committed_bar_notifier_worker(self._settings, self._config)
         holder: dict[str, RuntimeRealtimeCoordinator] = {}
+        notifier_worker = open_interest_notification_worker(
+            self._wiring,
+            self._settings,
+            supervisor,
+            lambda s: holder["runtime"].request_recovery(s),
+        )
 
         async def on_event(event: object) -> None:
             await holder["runtime"].on_event(event)  # type: ignore[arg-type]

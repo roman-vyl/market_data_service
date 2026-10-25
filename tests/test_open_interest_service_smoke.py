@@ -166,7 +166,6 @@ def test_flag_alone_loads_open_interest_inside_the_running_service(tmp_path: Pat
             "MDS_HTTP_PORT": str(port),
             "MDS_REST_BASE_URL": api.base_url,
             "MDS_WEBSOCKET_URL": ws_url,
-            "MDS_OI_TRACK_REFRESH_SECONDS": "1",
         }
         process = _start(env, log_path)
         try:

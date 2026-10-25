@@ -5,6 +5,9 @@ from __future__ import annotations
 import asyncio
 from collections.abc import Callable
 
+from market_data_service.application.realtime.recovery_open_interest import (
+    OpenInterestRecoveryTrack,
+)
 from market_data_service.application.realtime.recovery_plan import RealtimeRecoveryPlanner
 from market_data_service.application.realtime.recovery_state import (
     RealtimeRecoveryStateRecorder,
@@ -35,8 +38,10 @@ class RealtimeRecoveryCoordinator:
         repair: StreamRepair,
         unit_of_work_factory: Callable[[], CanonicalStorageUnitOfWork],
         now_ms: Callable[[], int],
+        open_interest: OpenInterestRecoveryTrack | None = None,
     ) -> None:
         self._repair = repair
+        self._open_interest = open_interest
         self._unit_of_work_factory = unit_of_work_factory
         self._now_ms = now_ms
         self._state = RealtimeRecoveryStateRecorder(unit_of_work_factory, now_ms)
@@ -54,6 +59,8 @@ class RealtimeRecoveryCoordinator:
         self._state.mark_unavailable(stream, reason=request.signal.reason.value)
         try:
             recovery_window = request.recovery_window or self._planner.derive_window(request.signal)
+            if recovery_window is not None and self._open_interest is not None:
+                recovery_window = self._open_interest.widen(stream, recovery_window)
             if recovery_window is None:
                 return RealtimeRecoveryResult(
                     stream=stream,
@@ -103,6 +110,11 @@ class RealtimeRecoveryCoordinator:
                     error_code="post_recovery_continuity_incomplete",
                     error_detail="post-recovery audit still reports gaps",
                 )
+            oi_repair, oi_track = None, self._open_interest
+            if oi_track is not None and oi_track.required(stream):
+                oi_repair = oi_track.repair(stream, recovery_window, request.max_windows)
+                if oi_repair.status is not RepairStatus.COMPLETE:
+                    return oi_track.unfinished(stream, recovery_window, repair, oi_repair)
             step_ms = get_timeframe(stream.timeframe).duration_ms
             current_end_ms = align_to_grid(self._now_ms(), step_ms)
             if current_end_ms > recovery_window.end_ms:
@@ -112,6 +124,7 @@ class RealtimeRecoveryCoordinator:
                     recovery_window=recovery_window,
                     audit=repair.pre_repair_audit,
                     repair=repair,
+                    open_interest_repair=oi_repair,
                     post_audit=post_audit,
                     next_recovery_window=TimeWindow(recovery_window.end_ms, current_end_ms),
                     error_code="recovery_target_advanced",
@@ -124,10 +137,9 @@ class RealtimeRecoveryCoordinator:
                 recovery_window=recovery_window,
                 audit=repair.pre_repair_audit,
                 repair=repair,
+                open_interest_repair=oi_repair,
                 post_audit=post_audit,
-                restored_through_open_time_ms=(
-                    recovery_window.end_ms - step_ms
-                ),
+                restored_through_open_time_ms=(recovery_window.end_ms - step_ms),
             )
         except Exception as exc:
             decision = classify_source_failure(exc)
