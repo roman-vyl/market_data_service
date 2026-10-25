@@ -31,7 +31,7 @@
 - [ ] 5.4 Pass log lines
 
 ## 6. Proof
-- [ ] 6.1 Read-only `oi_audit` command
+- [ ] 6.1 Automatic cycle summary line and stored audit result (no manual command)
 - [ ] 6.2 Tests: BTC-like case (candles before OI) and TRX-like case (OI before candles); restart mid-history; fatal and recoverable OI failure while a stream is `ready`; realtime recovery waits at most one OI pass
 
 ## 7. Verification

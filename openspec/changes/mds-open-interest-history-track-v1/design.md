@@ -42,6 +42,7 @@ track_progress (
   discovery_next_open_time_ms       INTEGER,
   latest_committed_open_time_ms     INTEGER,
   last_audit_at_ms                  INTEGER,
+  last_audit_gap_count              INTEGER,
   last_success_at_ms                INTEGER,
   last_error_code                   TEXT,
   last_error_detail                 TEXT,
@@ -109,12 +110,14 @@ time at `observed_at_ms`), as for REST klines. A row whose timestamp is off the 
   `track_progress` and logged. Any exception of the OI worker is caught inside the worker: it must never end the service TaskGroup
   and never change any stream's lifecycle or readiness.
 
-### D7. Proof of completeness
+### D7. Proof of completeness (automatic, no manual commands)
 - Log lines per pass: `oi track pass begin|end stream=... lower_bound=... window=... remaining_gaps=... attempted=... committed=...
   duplicates=... corrected=... rejected=... error=...`.
-- A read-only administrative command `oi_audit` prints for every flagged stream: OI lower bound, latest OI point, expected grid
-  points from the lower bound to the last closed bar, stored points, gaps. Target: lower bound resolved and gaps = 0 on all flagged
-  coins; for BTC the audit starts at 2020-07-20, so March-July 2020 is not an OI gap.
+- After every completed cycle the worker itself writes one summary line per stream: `oi track complete stream=... lower_bound=...
+  latest=... expected_points=... stored_points=... gaps=0`, and stores the time and result of that audit in `track_progress`
+  (`last_audit_at_ms`, gap count). No administrative command is needed or added.
+- Target: lower bound resolved and gaps = 0 on all flagged coins; for BTC the audit starts at 2020-07-20, so March-July 2020 is
+  not an OI gap.
 
 ### D8. Volume
 About 105 000 5m points per year. BTC from 2020-07-20 is about 660 000 points, about 3 300 requests of 200; all 11 coins on the
