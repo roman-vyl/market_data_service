@@ -1,95 +1,83 @@
 # Design
 
 ## Context (verified at main 85cdc4e)
-- A bar is published to Runtime from exactly two places, both in `runtime/realtime.py` (`RuntimeRealtimeCoordinator`):
-  `on_outcome` enqueues `bar_notification(stream, T)` for a live `COMMITTED` outcome, and `_notify_restored` enqueues one
-  notification for `restored_through_open_time_ms` after a restored recovery episode. Both go to the single
-  `CommittedBarNotificationWorker` (bounded in-memory queue, one send in flight, one HTTP attempt). The historical reconciler never
-  notifies.
-- Notifications are non-durable by spec (no outbox, no retry loop). A crash between commit and send loses that notification today.
-- `/v1/candles` (`GetCandleRange`) serves a READY stream inside `[earliest_available, latest_committed + step)` and requires a
-  complete grid. `/v1/historical-candles` bypasses readiness but requires an exact `market_data_hash` match.
-- `market_data_hash` = SHA-256 of ticker, timeframe, range and the ordered OHLCV documents (`consumer_read/provenance.py`). Research
-  artifacts and Engine runs store these hashes and replay them through `/v1/historical-candles`.
-- Per-stream readiness = durable `READY` and realtime `data_ready`; the runtime status store also holds per-stream blocking reasons
-  that keep a stream not ready. The OI history runner currently reports into a log-only sink (`LogOnlyBlockingReasons`).
-- The shared `operation_gate` (asyncio lock) serializes candle REST recovery, candle history and OI history passes. An OI history
-  pass with `MDS_OI_TRACK_WINDOWS_PER_PASS=20` holds it for up to ~60 s on the owner's Mac. Live candle ingestion does not take it.
-- Engine reads MDS with pydantic models that use `extra="forbid"`: any new field in a candle document breaks the Engine client.
+- Every committed-bar notification enters the single `CommittedBarNotificationWorker` (`runtime/committed_bar_notification.py`):
+  a bounded in-memory FIFO with one consumer task; `send` already runs in `asyncio.to_thread`, so the WebSocket loop never waits
+  for it. There are exactly two enqueue sites, both in `runtime/realtime.py`:
+  - `on_outcome`: a live `COMMITTED` outcome;
+  - `_notify_restored`: one notification for `restored_through_open_time_ms` after a restored recovery episode that committed
+    bars or was marked by a live commit.
+  Restart reaches the same worker: `admit` -> `STARTUP_RECONCILIATION` recovery -> `_notify_restored` when it committed bars.
+- Notifications are non-durable by spec. After a crash between commit and send, with nothing to recover at start, the next
+  notification is for T+1. The owner accepts this (2026-10-25).
+- OI is written only by `ImportOpenInterestWindow` (one REST window of at most 200 points, fetched outside the transaction, then one
+  short transaction; same value = `duplicate`, different value = `corrected`). `RepairStreamGaps`, wired as
+  `RuntimeWiring.open_interest_repair()`, already audits OI continuity (`open_interest_open_times`), fetches only gap windows
+  (`iter_fetch_windows`, 200 points), stops at the first REST failure and audits again (`complete` / `incomplete` / `failed`).
+- `track_progress.latest_committed_open_time_ms` of the OI track is the maximum stored point, not a proof of continuity.
+- The Bybit REST client retries 4 times with a 10 s timeout (worst case about 1 minute per call).
+- The OI history runner reschedules a full pass `[oi_lower_bound, now]` every `oi_track_refresh_seconds` (300 s) under the shared
+  `operation_gate`.
 
 ## Decisions
 
-### D1. `COMMITTED` and `READY_TO_PUBLISH`
-`COMMITTED` is unchanged. `READY_TO_PUBLISH(stream, T)` is a derived condition, evaluated from storage, not a stored state:
-`COMMITTED(T)` and (`open_interest = false` or OI row `(stream, T)` exists). Ingestion, repair, realtime recovery and the stream
-lifecycle never look at it. Only the two notification sources and the read API use it.
+### D1. Publication check in the notification worker
+`CommittedBarNotificationWorker` gets one optional collaborator, the publication check, called in `asyncio.to_thread` right
+before `send`. It answers one question: may bar T of this stream be published now? The worker stays the only owner of the queue,
+the order and the delivery. The check has no queue, no task, no timer, no lifecycle and no stored state of its own. For a stream
+without the flag it answers yes without I/O, so those streams behave exactly as today. A no answer drops that notification with a
+warning log (stream, T, reason); WebSocket, ingestion and `COMMITTED` are not affected.
 
-### D2. Live completion without blocking the WebSocket
-`on_outcome` for a flagged stream hands `(stream, T)` to `OpenInterestCompleter` instead of enqueuing the notification. The completer:
-1. returns immediately to the caller (own bounded queue, one task, like the notification worker);
-2. if OI(T) is already stored, enqueues the notification at once;
-3. else fetches the OI window `[T, T+step)` in `asyncio.to_thread`, imports it with `ImportOpenInterestWindow`, and on success
-   enqueues the notification into the existing worker;
-4. if Bybit has no point yet, retries the same bar with a capped schedule (1, 2, 4, 8, 15, 30, 30, ... s), logging each retry. It never
-   publishes without OI(T) and never substitutes another value.
+### D2. Required range
+For bar T with step s the check covers `[start, T + s)` where
 
-Live priority: the completer does **not** take `operation_gate`. It writes like live candle ingestion does (its own short
-transaction), so a long OI or candle history pass never delays it. The OI history worker keeps yielding to the gate as today.
+`start = max(oi_lower_bound, min(L + s, T - (N - 1) * s))`
 
-### D3. Readiness of a flagged stream (owner choice)
-- **A (recommended):** a flagged stream is ready only when its OI history track is complete (last audit gaps = 0 over
-  `[oi_lower_bound, latest OI]`). The OI runner reports `open_interest_history` as a blocking reason through the existing status
-  store instead of the log-only sink. Turning the flag on for a coin with no OI history makes that stream not ready until the
-  history is loaded, so it is done only with Runtime off or on a coin Runtime does not trade.
-- **B:** readiness unchanged; only publication and reads are gated. Simpler, but `/readiness` can say ready while `/v1/candles`
-  rejects most ranges.
+- `L` is the latest stored OI point of the stream (track progress). Starting no later than `L + s` covers every bar since the last
+  stored point, whatever its length (a long outage, a restart).
+- `N` is a fixed lookback (`MDS_OI_PUBLISH_LOOKBACK_BARS`, default 2016 = 7 days). It covers holes behind `L`, for example a partial
+  REST answer that stored the newest points but not one before them. Such a hole stays inside the range of every later bar for
+  `N` bars, so no later bar is published while it is open.
+- `oi_lower_bound` is the resolved OI lower bound of the stream. If it is not resolved, or `L` is unknown, the stream has no prepared
+  OI history: the check answers no (`oi_history_not_prepared`) and does not fetch.
 
-A live bar waiting for OI(T) does not change readiness in either option: publication is delayed, the stream stays ready, and
-`/readiness` shows `open_interest_pending_open_time_ms` for diagnostics.
+Holes older than `N` bars behind `L` belong to the history track (D5); in normal operation the prepared history has none.
 
-### D4. Recovery and restart
-- Restored episode: `_notify_restored(stream, T_last)` for a flagged stream goes to the completer with the range
-  `(oi_watermark, T_last]`; the completer fills OI for every committed bar in it (windows of 200), then enqueues one notification
-  for `T_last`. Same rule as today: one notification per restored episode.
-- Startup: after a flagged stream is admitted to realtime, if its latest committed candle has no OI, the completer fills the tail
-  and enqueues one notification for the latest committed bar. This is how an interrupted publication is finished after a restart,
-  without a durable outbox.
-- The OI history track keeps owning holes before the tail; duplicates between the two writers are classified `duplicate` by the
-  existing importer.
+### D3. One check = existing OI repair over the range
+The check calls `RepairStreamGaps.execute(stream, start, T + s, max_windows=W)` wired like `open_interest_repair()`:
+1. audit OI over the range; continuous -> yes, no REST call (OI already stored is never fetched again);
+2. fetch only the gap windows, at most `W` (`MDS_OI_PUBLISH_WINDOWS_PER_CHECK`, default 2), each at most 200 points;
+3. audit again: `complete` -> yes; `incomplete` (partial answer, more gaps than `W` windows) -> no, `oi_incomplete`; `failed` -> no,
+   `oi_source_failed`.
+Values come only from Bybit points with exactly the bar's `open_time_ms`; the source already keeps only closed bars inside the
+requested window. Nothing is interpolated or copied from a neighbour.
 
-### D5. Read API shape (owner choice)
-- **A (recommended):** opt-in. `/v1/candles` and `/v1/historical-candles` accept `include_open_interest=true` for flagged streams;
-  then every candle has `open_interest` (decimal string) and the response has `open_interest_hash`. Without the parameter the
-  response is byte-identical to today. The Engine client opts in after its own change; nothing breaks on deploy.
-- **B:** always include `open_interest` for flagged streams. Breaks the current Engine client on SOL the moment MDS is deployed.
+### D4. REST budget on the shared queue
+The check uses its own instance of the existing Bybit REST client with 1 attempt and a short timeout
+(`MDS_OI_PUBLISH_TIMEOUT_SECONDS`, default 2 s). It never takes `operation_gate`, so a candle history pass or a candle recovery
+never delays it. Normal case: one request of one point, well under a second. Bybit down: the first failed request ends the check,
+so at most about 2 s per flagged notification (about 6 s per 5-minute boundary for 3 flagged coins). A long backlog after an
+outage is filled `W` windows per notification, so the queue is never held for more than `W` timeouts by one item.
 
-For flagged streams, with or without the parameter, the served window is the joint window (D7), so every bar a consumer receives
-is a published bar.
+### D5. History track: one pass, no timer
+`OpenInterestTrackRunner` keeps the backfill and audit pass: after start each flagged stream is reconciled over
+`[oi_lower_bound, now]` until the pass completes, with the existing budget, backoff and gate yielding. After a completed pass the
+stream is not rescheduled. `oi_track_refresh_seconds` / `MDS_OI_TRACK_REFRESH_SECONDS` are removed. Regular new points therefore
+come from one mechanism only, the publication check. Backfill of a newly flagged coin and a full audit happen on the next start.
 
-### D6. Hashes (owner choice)
-- **A (recommended):** `market_data_hash` stays OHLCV-only and unchanged for every stream; OI gets its own
-  `open_interest_hash` = SHA-256 of ticker, timeframe, range and ordered `(open_time_ms, open_interest)` pairs. All stored research and
-  Engine hashes keep replaying.
-- **B:** fold OI into `market_data_hash` for flagged streams. Every stored SOL hash becomes `coverage_stale`.
-
-`/v1/historical-candles` with `include_open_interest=true` also accepts `expected_open_interest_hash`.
-
-### D7. Joint window for flagged streams
-`available_from = max(candle earliest, OI lower bound)`, `available_to = min(latest committed candle, latest OI) + step`. Ranges
-outside it are rejected as today (`range_unavailable`); a hole in either track inside the range fails the complete-grid rule. Candles
-of a flagged stream older than its OI lower bound are not served on `/v1/candles` (e.g. BTC before 2020-08-04).
-
-### D8. Configuration
-No new key. `open_interest = true` now means both "maintain OI history" and "publish only with OI". With the flag off the stream
-behaves exactly as before this change, and stored OI rows stay untouched.
+### D6. Concurrency
+- WebSocket: unchanged path; the check runs in the worker task and a worker thread. Its SQLite writes are the existing short
+  import transactions after the REST fetch, the same as the history track writes today.
+- The startup history pass and the check may import the same points; the importer classifies them `duplicate`.
+- Order: the worker remains FIFO; a held notification is simply not sent.
 
 ## Failure modes
-- Bybit OI REST down for minutes: live bars of flagged streams are committed but not published; the completer retries; unflagged
-  streams are unaffected. Logged per retry; no timeout that publishes without OI.
-- Completer queue full: the item is dropped with an error log; the next restart or restored episode re-finds the tail (D4).
-- Crash after OI stored, before send: restart finds OI present for the latest bar; the notification is sent once on startup.
+- Bybit OI late or down: OHLCV stays committed, no notification for flagged streams, warning per held bar. The next bar fetches
+  the missing points with its own and is published.
+- Outage longer than `W` windows: notifications of that stream stay held while each new notification fills `W` more windows.
+- Crash after OI import, before send: next notification finds the range continuous.
+- History never prepared for a flagged stream: its notifications stay held until the startup pass completes. The flag is turned on
+  only after the history is prepared (BTC and ETH stay off for now).
 
 ## Rollout
-1. Engine client change to read `include_open_interest` (separate Engine OpenSpec, only if the owner wants OI in strategies).
-2. MDS with this change; SOL already has full OI history. BTC/ETH stay `open_interest = false` until their history is loaded with
-   Runtime off.
+Deploy with SOL flagged (history complete). BTC and ETH are flagged after their history is loaded and checked.

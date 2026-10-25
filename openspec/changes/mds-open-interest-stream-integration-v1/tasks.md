@@ -1,29 +1,20 @@
-## 0. Owner decisions before apply
-- [ ] 0.1 D3 readiness of a flagged stream: A (OI history complete) or B (unchanged)
-- [ ] 0.2 D5 read API: A (opt-in `include_open_interest`) or B (always)
-- [ ] 0.3 D6 hashes: A (separate `open_interest_hash`) or B (fold into `market_data_hash`)
+## 1. Publication check
+- [ ] 1.1 Publication check (application layer): flagged streams, range per D2, existing OI `RepairStreamGaps` with
+      `max_windows = MDS_OI_PUBLISH_WINDOWS_PER_CHECK`, yes/no + reason; unflagged -> yes without I/O
+- [ ] 1.2 Wiring: dedicated Bybit REST client instance (1 attempt, `MDS_OI_PUBLISH_TIMEOUT_SECONDS`), settings
+      `MDS_OI_PUBLISH_LOOKBACK_BARS`, `MDS_OI_PUBLISH_WINDOWS_PER_CHECK`, `MDS_OI_PUBLISH_TIMEOUT_SECONDS`
+- [ ] 1.3 `CommittedBarNotificationWorker`: optional check in `asyncio.to_thread` before `send`; no answer -> warning log, no send
+- [ ] 1.4 Tests: unflagged stream identical; OI stored -> no REST, sent; OI missing -> fetched, sent; REST failure -> held, next bar
+      fetches both points and is sent; partial answer -> held; restored episode T1..T10 -> range filled, one send for T10;
+      L far behind -> W windows per check; hole behind L inside lookback -> held; no prepared history -> held, no REST;
+      WebSocket keeps ingesting while a check waits
 
-## 1. Publication
-- [ ] 1.1 `READY_TO_PUBLISH` predicate (storage read: candle committed and, for flagged streams, OI at the same `open_time_ms`)
-- [ ] 1.2 `OpenInterestCompleter`: bounded queue, one task, REST off the loop, no operation gate, capped retry schedule, existing importer
-- [ ] 1.3 `on_outcome` and `_notify_restored` route flagged streams through the completer; unflagged path unchanged
-- [ ] 1.4 Startup tail: admitted flagged stream with latest candle lacking OI -> fill, one notification
-- [ ] 1.5 Tests: OI already present -> immediate notification; OI late -> held, then one notification; OI never -> no notification,
-      retries logged; WebSocket keeps ingesting while held; restored episode -> OI filled, one notification; restart tail -> one
-      notification; unflagged stream -> identical notifications to today
+## 2. History track without the timer
+- [ ] 2.1 `OpenInterestTrackRunner`: no reschedule after a completed pass; remove `oi_track_refresh_seconds` and
+      `MDS_OI_TRACK_REFRESH_SECONDS`
+- [ ] 2.2 Tests: completed stream is not reconciled again; incomplete stream keeps its existing backoff
 
-## 2. Readiness (if D3 = A)
-- [ ] 2.1 OI runner reports `open_interest_history` through the runtime status store for flagged streams
-- [ ] 2.2 `/readiness` diagnostic `open_interest_pending_open_time_ms`
-- [ ] 2.3 Tests: flagged stream not ready until OI audit gaps = 0; pending live OI does not revoke readiness
-
-## 3. Read API
-- [ ] 3.1 Joint window for flagged streams on `/v1/candles` and `/v1/historical-candles`
-- [ ] 3.2 `include_open_interest` (D5) and `open_interest_hash` / `expected_open_interest_hash` (D6); OpenAPI updated
-- [ ] 3.3 Tests: unflagged and non-opt-in responses byte-identical to today, including `market_data_hash`; OI hole inside range rejected;
-      range before OI lower bound rejected; stored SOL hashes still replay
-
-## 4. Verification
-- [ ] 4.1 `make verify`
-- [ ] 4.2 Smoke on a copy of the production database on the owner's Mac (SOL flagged, BTC/ETH off): live bars notified only with
-      OI, Runtime webhook unchanged, `/v1/candles` with and without opt-in
+## 3. Verification
+- [ ] 3.1 `make verify`, `openspec validate --strict`
+- [ ] 3.2 Smoke on a copy of the production database on the owner's Mac (SOL flagged, BTC/ETH off): live bars notified only with
+      OI, Runtime webhook unchanged, no history re-scan after the first pass

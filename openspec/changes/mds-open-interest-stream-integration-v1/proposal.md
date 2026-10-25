@@ -1,41 +1,35 @@
 # MDS open interest stream integration v1
 
 ## Status
-Draft for owner review (2026-10-25). No code. Three decisions below (D3, D5, D6) need the owner's choice before apply.
+Draft for owner review (2026-10-25), rewritten to the owner's target model of 2026-10-25 15:09. No code.
 
 ## Why
-Step 1 (`mds-open-interest-history-track-v1`, archived 2026-10-25) loads and maintains open interest (OI) history for flagged 5m
-streams as an independent track. Consumers still see candles only, and a bar is published to Runtime as soon as its OHLCV is
-committed, with or without OI.
+Step 1 (`mds-open-interest-history-track-v1`, archived) loads open interest (OI) history for flagged 5m streams. Runtime is
+still notified as soon as OHLCV is committed, with or without OI, and the history track re-scans the whole multi-year history
+every 300 s to follow the tail.
 
-This change makes OI a required part of a *published* bar of a flagged stream, by extending the existing publication contract
-(the `CommittedBarNotificationWorker` -> Runtime chain and the `/v1` read API), not by adding a second readiness mechanism or a
-second delivery channel.
-
-Smoke facts this design relies on (SOL, 2026-10-25): 528 918 / 528 918 points, 0 gaps, 100 % equal to the research CSV; Bybit
-publishes the OI point at T (snapshot at the bar's open) 3-17 s after T, so when bar T closes at T+5m, OI(T) is normally already
-available.
+For Strategy Runtime OI is a required part of market data. In normal operation the OI history is already prepared and
+continuous, so MDS only has to continue it bar by bar, driven by the bars it already publishes.
 
 ## What changes
-- **Two notions, one lifecycle.** `COMMITTED` keeps its meaning: OHLCV valid and stored. A new derived condition
-  `READY_TO_PUBLISH(stream, T)` = `COMMITTED(T)` and, only when the stream has `open_interest = true`, OI stored for exactly the same
-  `open_time_ms`. No new lifecycle state, no new table, no previous/next/nearest OI value.
-- **Live completion.** For flagged streams a live `COMMITTED` outcome does not enqueue the notification directly. A small
-  `OpenInterestCompleter` fetches OI(T) by REST (one window, off the event loop, without waiting for the shared operation gate),
-  stores it through the existing OI importer, then enqueues the same notification into the same worker. WebSocket never waits.
-- **Recovery and restart.** A restored recovery episode and the startup tail go through the same completer: OI is fetched for every
-  committed bar after the stream's OI watermark, then one ordinary notification for the latest bar (existing restored-episode rule).
-- **Read API.** For flagged streams `/v1/candles` and `/v1/historical-candles` serve only the joint window where every bar has both
-  OHLCV and OI. OI values are returned on request (D5) and carry their own hash (D6); unflagged streams are unchanged byte for byte.
-- **Readiness.** A flagged stream is ready only when its OI history track is complete (D3), using the existing blocking-reason
-  mechanism of the runtime status store.
+- **One publication check before send.** `CommittedBarNotificationWorker` keeps its queue, order and delivery. Before it sends
+  the notification for bar T of a stream with `open_interest = true`, it runs a small publication check: audit OI continuity over
+  the required range, fetch only the missing points through the existing OI repair (`RepairStreamGaps` + `ImportOpenInterestWindow`),
+  audit again. Only a continuous range ending at T is published. Otherwise the notification is not sent and the reason is logged.
+- **One trigger for all three paths.** Live WebSocket commits, restored REST recovery episodes and the restart path already end in
+  this worker, so the check covers all of them. No other code path changes.
+- **No own retry.** A failed check is retried by the next notification of the same stream (normally the next bar, 5 minutes later),
+  whose range also covers the points missing before it.
+- **History track without the timer.** The OI history track stays as backfill and audit: one pass to completion per stream after
+  start, then it stops. The periodic re-scan of the whole history (`MDS_OI_TRACK_REFRESH_SECONDS`) is removed in this change, so
+  new OI points are fetched only by the publication check.
 
 ## Unchanged
-WebSocket connector, candle handler, ingestion and `COMMITTED` semantics; candle repair and realtime recovery algorithms; the
-notification payload, single bounded worker and one-attempt HTTP delivery; Runtime's webhook; the OI history track; every stream and
-instrument without the flag; `market_data_hash` of OHLCV.
+WebSocket connector, candle handler, ingestion and `COMMITTED`; OHLCV validation; candle REST recovery and its single notification
+per restored episode; stream lifecycle states and READY; notification payload, queue and one-attempt HTTP delivery; Runtime webhook
+contract; separate OHLCV and OI tables; every stream without the flag.
 
-## Out of scope
-Engine/Runtime code (the Engine MDS client is strict, `extra="forbid"`: it needs its own change before it asks for OI);
-premium index; OI for timeframes other than 5m; automatic handling of OI holes that Bybit never fills (owner rule 2026-10-25: such
-holes are fixed once by hand and recorded in `OI_MANUAL_FIXES.md`).
+## Out of scope (next stage)
+OI in the candle read API, Strategy Engine, StrategySpec, Research, backtesting, data hashes, readiness diagnostics. Premium index.
+Synthetic OI values: never written by the live pipeline; unrecoverable historical holes are fixed once by a separate documented
+procedure (`OI_MANUAL_FIXES.md`).
