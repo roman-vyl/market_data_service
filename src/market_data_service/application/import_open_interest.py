@@ -100,8 +100,7 @@ class ImportOpenInterestWindow:
             end_ms=start_ms + 1,
             reason_code=reason_code,
             detail=(
-                f"observed_stream={point.stream.canonical_id} "
-                f"open_interest={point.open_interest!r}"
+                f"observed_stream={point.stream.canonical_id} open_interest={point.open_interest!r}"
             ),
             payload_json=None,
             created_at_ms=self._clock.now_ms(),

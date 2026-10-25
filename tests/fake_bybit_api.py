@@ -16,6 +16,8 @@ class FakeBybitState:
     transient_kline_failures: int = 0
     transient_failures_by_stream: dict[tuple[str, str], int] = field(default_factory=dict)
     calls: list[tuple[str, dict[str, list[str]]]] = field(default_factory=list)
+    open_interest: dict[str, dict[int, str]] = field(default_factory=dict)
+    transient_open_interest_failures: int = 0
 
     def seed_stream(
         self,
@@ -121,6 +123,8 @@ class FakeBybitApi(AbstractContextManager["FakeBybitApi"]):
                             "retMsg": "OK",
                             "result": {"list": rows},
                         }
+                elif parsed.path.endswith("/v5/market/open-interest"):
+                    payload = parent._open_interest_payload(query)
                 else:
                     self.send_error(404)
                     return
@@ -136,6 +140,22 @@ class FakeBybitApi(AbstractContextManager["FakeBybitApi"]):
 
         self._server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
         self._thread = threading.Thread(target=self._server.serve_forever, daemon=True)
+
+    def _open_interest_payload(self, query: dict[str, list[str]]) -> dict[str, Any]:
+        if self.state.transient_open_interest_failures > 0:
+            self.state.transient_open_interest_failures -= 1
+            return {"retCode": 10006, "retMsg": "Too many visits"}
+        start = int(query["startTime"][0])
+        end = int(query["endTime"][0])
+        limit = int(query["limit"][0])
+        points = self.state.open_interest.get(query["symbol"][0], {})
+        selected = sorted((ts for ts in points if start <= ts <= end), reverse=True)[:limit]
+        rows = [{"openInterest": points[ts], "timestamp": str(ts)} for ts in selected]
+        return {
+            "retCode": 0,
+            "retMsg": "OK",
+            "result": {"list": rows, "nextPageCursor": "lastid=1&lasttime=1"},
+        }
 
     @property
     def base_url(self) -> str:

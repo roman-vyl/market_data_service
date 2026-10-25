@@ -79,9 +79,7 @@ class OpenInterestTrackRunner:
         holder: dict[str, HistoricalReconciliationWorker] = {}
 
         async def on_complete(stream: StreamKey) -> None:
-            holder["worker"].schedule(
-                stream, delay_seconds=self._settings.oi_track_refresh_seconds
-            )
+            holder["worker"].schedule(stream, delay_seconds=self._settings.oi_track_refresh_seconds)
 
         worker = HistoricalReconciliationWorker(
             coordinator=reconciler,
