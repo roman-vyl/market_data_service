@@ -1,6 +1,8 @@
 # Versioned operator-declared coverage for Bybit USDT perpetual futures.
 # `ticker` is the canonical service/research symbol.
 # `exchange_symbol` is the exact symbol sent to Bybit REST/WebSocket APIs.
+# Optional `open_interest = true` (requires 5m) loads Bybit open interest history
+# for that instrument's 5m stream in the background; default false.
 
 # The nine instruments after BTC/ETH are paused (enabled = false) until realtime
 # ingestion copes with their concurrent backfill; their stored history is kept.
