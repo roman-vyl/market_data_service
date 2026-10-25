@@ -118,24 +118,9 @@ The open interest lower bound SHALL be the earliest valid open interest point ac
 - **WHEN** a stream's first open interest point is earlier than its first stored candle
 - **THEN** the open interest track is complete on its own range and the candle track is unaffected
 
-### Requirement: Open interest history does not touch the live candle pipeline
-Open interest history SHALL run in the background after candle startup, and SHALL NOT change stream lifecycle, stream readiness, runtime status blocking reasons, realtime admission, realtime supervision or recovery, committed-bar notifications, read contracts or candle rows. Any failure of the open interest track SHALL be contained in that track: a recoverable failure SHALL back off, a fatal failure SHALL stop the track for that stream until restart, and neither SHALL stop the service.
+### Requirement: An open-interest stream is handed off only after both tracks are proven
+For a stream with `open_interest = true`, startup reconciliation SHALL reconcile open interest over `[open interest lower bound, now)` with the same gap repair after the candle window is proven continuous, and the stream SHALL enter the connecting phase only when both audits report no gaps. Until then it SHALL stay in the existing auditing state with the existing blocking reason and backoff.
 
-#### Scenario: Open interest source fails while candles are live
-- **WHEN** open interest requests fail for a `ready` stream
-- **THEN** the stream stays `ready`, its candles and notifications continue, and only the open interest track backs off or stops
-
-#### Scenario: Candle startup does not wait for open interest
-- **WHEN** the service starts with flagged streams whose open interest history is incomplete
-- **THEN** candle startup, admission and readiness proceed as without the flag
-
-### Requirement: Open interest work shares REST serialization and keeps its tail
-Every open interest pass SHALL run under the same runtime operation gate as candle historical reconciliation and realtime REST recovery, with a finite per-pass window budget. After a completed cycle the track SHALL start a new cycle with a fresh target after a configured refresh period, so the stored open interest follows the closed bars.
-
-#### Scenario: Realtime recovery becomes due during open interest history
-- **WHEN** a realtime REST recovery becomes due while an open interest pass holds the operation gate
-- **THEN** the recovery runs after that one bounded pass, not after the whole open interest history
-
-#### Scenario: Tail after completion
-- **WHEN** the open interest history of a stream is complete and new bars close
-- **THEN** a later cycle extends the stored open interest to the new last closed bar
+#### Scenario: Open interest still has gaps at start
+- **WHEN** candles of a flagged stream are continuous but its open interest audit reports gaps
+- **THEN** the stream is not handed off to realtime and stays not ready
