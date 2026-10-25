@@ -6,8 +6,13 @@ from collections.abc import Callable
 from dataclasses import dataclass, replace
 from typing import Protocol
 
+from market_data_service.application.lower_bound_probe import (
+    CandleLowerBoundProbe,
+    HistoricalLowerBoundUnavailable,
+    LowerBoundProbe,
+    LowerBoundProgress,
+)
 from market_data_service.application.lower_bound_state import HistoricalLowerBoundState
-from market_data_service.domain.candle_validation import validate_observed_candle
 from market_data_service.domain.gaps import Gap, iter_fetch_windows
 from market_data_service.domain.identity import InstrumentKey, StreamKey
 from market_data_service.domain.instruments import InstrumentMetadata
@@ -22,9 +27,7 @@ from market_data_service.ports.market_data_source import (
 )
 from market_data_service.ports.storage import CanonicalStorageUnitOfWork
 
-
-class HistoricalLowerBoundUnavailable(RuntimeError):
-    """Raised when a stream has no observable closed candle in the searchable range."""
+__all__ = ["HistoricalLowerBoundResult", "HistoricalLowerBoundUnavailable"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -45,7 +48,8 @@ class ResolveHistoricalLowerBound:
     """Cache-aside lower-bound discovery for full-history bootstrap.
 
     Instrument launch time is metadata and only seeds the search. The persisted
-    lower bound is the first actually returned valid candle for this stream.
+    lower bound is the first actually returned valid point of the probed track
+    (candles by default) for this stream.
     """
 
     def __init__(
@@ -56,13 +60,16 @@ class ResolveHistoricalLowerBound:
         clock: Clock,
         *,
         max_candles_per_probe: int = 1000,
+        probe: LowerBoundProbe | None = None,
+        progress: LowerBoundProgress | None = None,
     ) -> None:
         self._metadata_source = metadata_source
-        self._historical_source = historical_source
         self._unit_of_work_factory = unit_of_work_factory
         self._clock = clock
-        self._max_candles_per_probe = max_candles_per_probe
-        self._state = HistoricalLowerBoundState(unit_of_work_factory, clock.now_ms)
+        self._probe = probe or CandleLowerBoundProbe(
+            historical_source, max_points_per_probe=max_candles_per_probe
+        )
+        self._state = progress or HistoricalLowerBoundState(unit_of_work_factory, clock.now_ms)
 
     def execute(self, stream: StreamKey, *, max_windows: int) -> HistoricalLowerBoundResult:
         if max_windows <= 0:
@@ -96,7 +103,7 @@ class ResolveHistoricalLowerBound:
         for window in iter_fetch_windows(
             Gap(search_start, search_end),
             step_ms=step_ms,
-            max_candles=self._max_candles_per_probe,
+            max_candles=self._probe.max_points_per_probe,
         ):
             if discovery_windows_used >= max_windows:
                 return HistoricalLowerBoundResult(
@@ -111,27 +118,13 @@ class ResolveHistoricalLowerBound:
                     unresolved_reason="discovery window budget exhausted",
                     next_search_start_time_ms=self._state.current_discovery_cursor(stream),
                 )
-            candles = self._historical_source.fetch_closed_candles(
-                stream,
-                window,
-                observed_at_ms=self._clock.now_ms(),
+            earliest = self._probe.earliest_valid(
+                stream, window, observed_at_ms=self._clock.now_ms()
             )
             discovery_windows_used += 1
-            candidates = [
-                candle
-                for candle in candles
-                if candle.stream == stream
-                and window.contains(candle.open_time_ms)
-                and not validate_observed_candle(candle)
-            ]
-            if not candidates:
-                if candles:
-                    raise HistoricalLowerBoundUnavailable(
-                        "historical probe returned observations but no valid candle"
-                    )
+            if earliest is None:
                 self._state.advance_discovery(stream, window.end_ms)
                 continue
-            earliest = min(candle.open_time_ms for candle in candidates)
             self._state.resolve(stream, earliest)
             return HistoricalLowerBoundResult(
                 stream=stream,
@@ -158,10 +151,10 @@ class ResolveHistoricalLowerBound:
         )
 
     def _cached_result(self, stream: StreamKey, step_ms: int) -> HistoricalLowerBoundResult | None:
+        earliest = self._state.cached_earliest(stream)
+        if earliest is None:
+            return None
         with self._unit_of_work_factory() as unit_of_work:
-            snapshot = unit_of_work.get_stream_state(stream)
-            if snapshot.earliest_available_open_time_ms is None:
-                return None
             metadata = unit_of_work.get_instrument_metadata(stream.instrument)
         if metadata.launch_time_ms is None:
             raise HistoricalLowerBoundUnavailable(
@@ -171,7 +164,7 @@ class ResolveHistoricalLowerBound:
             stream=stream,
             launch_time_ms=metadata.launch_time_ms,
             search_start_time_ms=ceil_to_grid(metadata.launch_time_ms, step_ms),
-            earliest_available_open_time_ms=snapshot.earliest_available_open_time_ms,
+            earliest_available_open_time_ms=earliest,
             metadata_cached=True,
             lower_bound_cached=True,
             resolved=True,

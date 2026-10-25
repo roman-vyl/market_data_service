@@ -18,6 +18,10 @@ class HistoricalLowerBoundState:
         self._unit_of_work_factory = unit_of_work_factory
         self._now_ms = now_ms
 
+    def cached_earliest(self, stream: StreamKey) -> int | None:
+        with self._unit_of_work_factory() as unit_of_work:
+            return unit_of_work.get_stream_state(stream).earliest_available_open_time_ms
+
     def discovery_start(self, stream: StreamKey, launch_search_start: int) -> int:
         cursor = self.current_discovery_cursor(stream)
         return launch_search_start if cursor is None else max(launch_search_start, cursor)
