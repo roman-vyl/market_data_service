@@ -17,5 +17,5 @@
 
 ## 4. Verification
 - [x] 4.1 `make verify`, `openspec validate --strict`
-- [ ] 4.2 Smoke on a copy of the production database on the owner's Mac (SOL flagged): READY only with OI, OI outage -> DEGRADED ->
+- [x] 4.2 Smoke on a copy of the production database on the owner's Mac (SOL flagged): READY only with OI, OI outage -> DEGRADED ->
       restored with one notification, Runtime webhook unchanged
