@@ -89,7 +89,7 @@ class RuntimeWiring:
         )
 
     def stream_bounds(self) -> GetStreamBounds:
-        return GetStreamBounds(self.unit_of_work)
+        return GetStreamBounds(self.unit_of_work, self.config.open_interest_streams)
 
     def continuity_audit_read(self) -> AuditStreamRange:
         return AuditStreamRange(
