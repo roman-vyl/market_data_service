@@ -57,7 +57,7 @@ class Reader:
                 1,
             ),
         )
-        return ConsumerReadSnapshot(state, candles)
+        return ConsumerReadSnapshot(state, candles, (None,) * len(candles))
 
 
 def get(url: str):
@@ -85,6 +85,7 @@ def test_http_contract_decimal_text_and_errors() -> None:
         assert code == 200
         assert payload["candles"][0]["open"] == "1.23"
         assert payload["candles"][0]["volume"] == "10.5"
+        assert payload["candles"][0]["open_interest"] is None
         assert isinstance(payload["candles"][0]["open"], str)
         code, payload = get(f"http://{host}:{port}/v1/candles?ticker=BTCUSDT.P")
         assert code == 422

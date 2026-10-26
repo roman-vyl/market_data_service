@@ -73,4 +73,5 @@ class GetHistoricalCandleRange:
             to_ms=request.to_ms,
             market_data_hash=actual_hash,
             candles=candles,
+            open_interest=snapshot.open_interest,
         )

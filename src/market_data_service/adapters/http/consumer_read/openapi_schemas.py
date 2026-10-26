@@ -42,7 +42,7 @@ def candle_response_schema() -> dict[str, object]:
     }
     candle_schema = {
         "type": "object",
-        "required": ["open_time_ms", "open", "high", "low", "close", "volume"],
+        "required": ["open_time_ms", "open", "high", "low", "close", "volume", "open_interest"],
         "properties": {
             "open_time_ms": {"type": "integer"},
             "open": decimal_schema,
@@ -50,6 +50,7 @@ def candle_response_schema() -> dict[str, object]:
             "low": decimal_schema,
             "close": decimal_schema,
             "volume": decimal_schema,
+            "open_interest": {**decimal_schema, "type": ["string", "null"]},
         },
     }
     return {

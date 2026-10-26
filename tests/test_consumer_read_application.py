@@ -70,7 +70,7 @@ class Reader:
     def read_snapshot(self, stream: StreamKey, *, start_time_ms: int, end_time_ms: int):
         assert stream == STREAM
         candles = tuple(c for c in self.candles if start_time_ms <= c.open_time_ms < end_time_ms)
-        return ConsumerReadSnapshot(self.state, candles)
+        return ConsumerReadSnapshot(self.state, candles, (None,) * len(candles))
 
 
 def test_reads_complete_ready_half_open_range() -> None:

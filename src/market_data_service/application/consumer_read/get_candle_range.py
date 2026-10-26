@@ -77,4 +77,5 @@ class GetCandleRange:
                 candles=candles,
             ),
             candles=candles,
+            open_interest=snapshot.open_interest,
         )
