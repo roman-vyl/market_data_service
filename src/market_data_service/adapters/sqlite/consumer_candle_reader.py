@@ -28,9 +28,13 @@ class SqliteConsumerCandleReader:
             connection.execute("BEGIN")
             catalog = SqliteCatalogRepository(connection)
             state = SqliteStreamStateRepository(connection, catalog).get(stream)
-            candles = SqliteCandleRepository(connection, catalog).list_range(
+            candles, open_interest = SqliteCandleRepository(
+                connection, catalog
+            ).list_range_with_open_interest(
                 stream,
                 start_time_ms=start_time_ms,
                 end_time_ms=end_time_ms,
             )
-            return ConsumerReadSnapshot(state=state, candles=candles)
+            return ConsumerReadSnapshot(
+                state=state, candles=candles, open_interest=open_interest
+            )

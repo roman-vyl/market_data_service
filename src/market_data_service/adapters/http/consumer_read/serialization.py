@@ -6,7 +6,7 @@ from market_data_service.application.consumer_read.models import CandleRangeResu
 from market_data_service.domain.candles import CanonicalCandle
 
 
-def _candle_document(candle: CanonicalCandle) -> dict[str, object]:
+def _candle_document(candle: CanonicalCandle, open_interest: str | None) -> dict[str, object]:
     # ohlcv_text recomputes all five decimal->text conversions on every
     # access (it is a plain @property); accessing it once per candle here
     # instead of once per field avoids 5x redundant conversions per candle.
@@ -18,6 +18,7 @@ def _candle_document(candle: CanonicalCandle) -> dict[str, object]:
         "low": low_text,
         "close": close_text,
         "volume": volume_text,
+        "open_interest": open_interest,
     }
 
 
@@ -28,5 +29,8 @@ def serialize_result(result: CandleRangeResult) -> dict[str, object]:
         "from_ms": result.from_ms,
         "to_ms": result.to_ms,
         "market_data_hash": result.market_data_hash,
-        "candles": [_candle_document(candle) for candle in result.candles],
+        "candles": [
+            _candle_document(candle, open_interest)
+            for candle, open_interest in zip(result.candles, result.open_interest, strict=True)
+        ],
     }

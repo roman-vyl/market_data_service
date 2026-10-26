@@ -32,3 +32,6 @@ class CandleRangeResult:
     to_ms: int
     market_data_hash: str
     candles: tuple[CanonicalCandle, ...]
+    # Stored open interest per candle (same order), None where absent.
+    # Not part of market_data_hash.
+    open_interest: tuple[str | None, ...]

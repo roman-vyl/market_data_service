@@ -12,10 +12,15 @@ from market_data_service.domain.stream_state import StreamStateSnapshot
 
 @dataclass(frozen=True, slots=True)
 class ConsumerReadSnapshot:
-    """One SQLite-consistent lifecycle and candle-range snapshot."""
+    """One SQLite-consistent lifecycle and candle-range snapshot.
+
+    ``open_interest`` holds the stored open interest of each candle, in the
+    same order, or ``None`` where the bar has none.
+    """
 
     state: StreamStateSnapshot
     candles: tuple[CanonicalCandle, ...]
+    open_interest: tuple[str | None, ...]
 
 
 class ConsumerCandleReader(Protocol):

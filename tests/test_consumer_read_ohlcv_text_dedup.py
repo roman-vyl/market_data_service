@@ -83,8 +83,9 @@ def _reference_serialize(result: CandleRangeResult) -> dict[str, object]:
                 "low": candle.ohlcv_text[2],
                 "close": candle.ohlcv_text[3],
                 "volume": candle.ohlcv_text[4],
+                "open_interest": open_interest,
             }
-            for candle in result.candles
+            for candle, open_interest in zip(result.candles, result.open_interest, strict=True)
         ],
     }
 
@@ -123,7 +124,8 @@ def test_serialize_result_exact_parity_empty() -> None:
     stream = _stream()
     candles = _candles(stream, 0)
     result = CandleRangeResult(
-        stream=stream, from_ms=0, to_ms=0, market_data_hash="fixture-hash", candles=candles
+        stream=stream, from_ms=0, to_ms=0, market_data_hash="fixture-hash", candles=candles,
+        open_interest=(),
     )
     assert serialize_result(result) == _reference_serialize(result)
 
@@ -137,6 +139,7 @@ def test_serialize_result_exact_parity_multiple_candles() -> None:
         to_ms=25 * 300_000,
         market_data_hash="fixture-hash",
         candles=candles,
+        open_interest=tuple(None if i % 2 else str(i) for i in range(len(candles))),
     )
     expected = _reference_serialize(result)
     actual = serialize_result(result)
@@ -189,6 +192,7 @@ def test_serialization_accesses_ohlcv_text_exactly_once_per_candle() -> None:
         to_ms=10 * 300_000,
         market_data_hash="fixture-hash",
         candles=fakes,  # type: ignore[arg-type]
+        open_interest=(None,) * len(fakes),
     )
     serialize_result(result)
     assert all(fake.access_count == 1 for fake in fakes)
