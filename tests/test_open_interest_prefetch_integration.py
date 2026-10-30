@@ -22,6 +22,7 @@ from tests.test_open_interest_track import (
     _prepare,
 )
 
+from market_data_service.adapters.bybit import BybitOpenInterestSource, BybitRestCandleSource
 from market_data_service.application.import_open_interest import ImportOpenInterestWindow
 from market_data_service.application.open_interest_live import AppendLiveOpenInterest
 from market_data_service.domain.windows import TimeWindow
@@ -117,3 +118,42 @@ def test_prefetched_point_is_published_once_without_rest_and_moves_the_frontier(
     assert len(source.calls) == 1  # publication made no REST request
     assert [n.open_time_ms for n in notifier.sent] == [_bar(5)]
     assert supervisor.facts(STREAM).last_open_interest_open_time_ms == _bar(5)
+
+
+class _BybitTransport:
+    """Bybit answers with the point of the running bar, as measured on 2026-10-30."""
+
+    def __init__(self, timestamp: int) -> None:
+        self.timestamp = timestamp
+        self.calls = 0
+
+    def get_json(self, url, params, timeout_seconds):  # type: ignore[no-untyped-def]
+        self.calls += 1
+        row = {"openInterest": "67602.119", "timestamp": str(self.timestamp)}
+        return {"retCode": 0, "retMsg": "OK", "result": {"list": [row]}}
+
+
+def test_real_parser_prefetch_stores_the_running_bar_and_commit_makes_no_request(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "market.sqlite3"
+    _prepare(path, candle_bars=range(0, 5))
+    transport = _BybitTransport(_bar(5))
+    rest = BybitRestCandleSource(exchange_symbols={"BTCUSDT.P": "BTCUSDT"}, transport=transport)
+    factory = _factory(path)
+    now = [_bar(5) + 20_000]
+
+    def append(include_current: bool) -> AppendLiveOpenInterest:
+        importer = ImportOpenInterestWindow(
+            BybitOpenInterestSource(rest, include_current=include_current),
+            factory,
+            FakeClock(now[0]),
+        )
+        return AppendLiveOpenInterest(importer, factory)
+
+    assert not append(False).execute(STREAM, _bar(5))  # closed-only: the running bar is dropped
+    assert append(True).execute(STREAM, _bar(5))  # prefetch policy stores it
+    calls = transport.calls
+    now[0] = _bar(6) + 500
+    assert append(False).execute(STREAM, _bar(5))  # commit-time path finds it stored
+    assert transport.calls == calls  # and sends no request

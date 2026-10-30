@@ -8,7 +8,7 @@
 - A future point (label later than the open bar by the MDS clock) is rejected even in `include_current`.
 - The requested window is still checked first, so a point outside it is never stored.
 - The prefetch asks for exactly `[T, T+step)` of the open bar, so only that point can be accepted by it.
-- Bybit's snapshot T does not change after publication (measured 2026-10-25). If it ever did, the importer classifies `CORRECTED` as before.
+- Bybit's snapshot T does not change after publication (measured 2026-10-25 and again 2026-10-30, BTCUSDT polled every 15 s from 16:21 to 16:33Z: labels 16:10-16:30 held one value for 11-40 readings; 16:25 appeared at +21 s, 16:30 at +30 s). Stored points are not re-requested, so this matters; after deploy the prefetched values are compared with a late historical request. If it ever did, the importer classifies `CORRECTED` as before.
 - Historical, recovery and commit-time paths cannot reach the new policy: it is a constructor argument of one separate instance.
 
 ## Acceptance (after deploy, a day of logs)

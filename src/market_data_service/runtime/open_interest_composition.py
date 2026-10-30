@@ -75,7 +75,9 @@ def open_interest_prefetch(
         return None
     return OpenInterestPrefetch(
         streams=streams,
-        append=wiring.open_interest_live(settings.oi_live_timeout_seconds).execute,
+        append=wiring.open_interest_live(
+            settings.oi_live_timeout_seconds, include_current=True
+        ).execute,
         facts=supervisor.facts,
         admitted=admission.allows,
         now_ms=wiring.clock.now_ms,

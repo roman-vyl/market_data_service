@@ -300,11 +300,16 @@ def test_prefetch_never_reports_to_the_supervisor() -> None:
     assert set(touched) == {"facts"}  # read-only access; no observe_* call exists on it
 
 
-def _wiring(streams):
+def _wiring(streams, requested=None):
+    def live(_timeout, **kw):
+        if requested is not None:
+            requested.append(kw)
+        return SimpleNamespace(execute=Source([]))
+
     return SimpleNamespace(
         config=SimpleNamespace(open_interest_streams=streams),
         clock=SimpleNamespace(now_ms=lambda: T0),
-        open_interest_live=lambda _timeout: SimpleNamespace(execute=Source([])),
+        open_interest_live=live,
     )
 
 
@@ -324,3 +329,11 @@ def test_delay_zero_or_no_flagged_streams_builds_nothing() -> None:
     assert open_interest_prefetch(_wiring(()), _settings(20), supervisor, admission) is None
     built = open_interest_prefetch(_wiring((STREAM,)), _settings(20), supervisor, admission)
     assert isinstance(built, OpenInterestPrefetch)
+
+
+def test_only_the_prefetch_asks_for_the_current_bar_policy() -> None:
+    requested: list[dict] = []
+    supervisor = SimpleNamespace(facts=_facts())
+    admission = SimpleNamespace(allows=lambda _s: True)
+    open_interest_prefetch(_wiring((STREAM,), requested), _settings(20), supervisor, admission)
+    assert requested == [{"include_current": True}]

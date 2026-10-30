@@ -190,11 +190,18 @@ class RuntimeWiring:
             repair_windows_per_pass=windows_per_pass,
         )
 
-    def open_interest_live(self, timeout_seconds: float) -> AppendLiveOpenInterest:
-        """Live point fetch: one attempt and a short timeout, never the retry schedule."""
+    def open_interest_live(
+        self, timeout_seconds: float, *, include_current: bool = False
+    ) -> AppendLiveOpenInterest:
+        """Live point fetch: one attempt and a short timeout, never the retry schedule.
+
+        ``include_current`` lets the prefetch take the point of the bar still open.
+        """
 
         rest = replace(self.rest_source, retry_attempts=1, timeout_seconds=timeout_seconds)
         importer = ImportOpenInterestWindow(
-            BybitOpenInterestSource(rest), self.unit_of_work, self.clock
+            BybitOpenInterestSource(rest, include_current=include_current),
+            self.unit_of_work,
+            self.clock,
         )
         return AppendLiveOpenInterest(importer, self.unit_of_work)
