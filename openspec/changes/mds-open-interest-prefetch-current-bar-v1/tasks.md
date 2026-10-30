@@ -1,6 +1,6 @@
 ## 1. Implementation
 - [x] 1.1 `parse_open_interest_rows(..., include_current=False)` and `BybitOpenInterestSource.include_current`; newest admissible time per D1
-- [x] 1.2 `RuntimeWiring.open_interest_prefetch_live` (D2) and use it in `open_interest_composition.open_interest_prefetch`; `open_interest_live` unchanged
+- [x] 1.2 `RuntimeWiring.open_interest_live(timeout, include_current=...)` (D2) and use it in `open_interest_composition.open_interest_prefetch`; `open_interest_live` unchanged
 
 ## 2. Tests
 - [x] 2.1 Parser, closed-only: the open bar's point is dropped (as today)

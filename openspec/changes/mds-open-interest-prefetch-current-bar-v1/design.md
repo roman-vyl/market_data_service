@@ -2,7 +2,7 @@
 `BybitOpenInterestSource` gets one field `include_current: bool = False`. `parse_open_interest_rows` gets the same keyword, default `False`, and computes the newest admissible open time: `last_closed` for `closed_only`, `last_closed + step` for `include_current` (the bar open at `observed_at_ms`). Points above it are dropped exactly as now. No other layer (importer, port, supervisor, publication) learns about the policy.
 
 ## D2. Only the prefetch uses it
-`RuntimeWiring.open_interest_live(timeout)` keeps building the closed-only source for the publication step. A second factory, `open_interest_prefetch_live(timeout)`, builds the same chain (one attempt, short timeout, `ImportOpenInterestWindow`, `AppendLiveOpenInterest`) with `include_current=True`; `open_interest_composition.open_interest_prefetch` uses it. The two instances share the REST client class and all code; they differ only by the field.
+`RuntimeWiring.open_interest_live(timeout, *, include_current=False)` builds the closed-only chain by default for the publication step. `open_interest_composition.open_interest_prefetch` calls it with `include_current=True`, which sets the field of the source instance (one attempt, short timeout, `ImportOpenInterestWindow`, `AppendLiveOpenInterest` as before). The two instances share all code and differ only by the field.
 
 ## D3. Safety
 - A future point (label later than the open bar by the MDS clock) is rejected even in `include_current`.
