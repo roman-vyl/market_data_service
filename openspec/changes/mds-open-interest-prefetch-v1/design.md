@@ -16,7 +16,7 @@ Attempts run via `asyncio.to_thread` under a semaphore (default 4). They do not 
 At commit the publication step runs unchanged. If the point is stored it sends at once; if not (Bybit down during the whole interval, prefetch off, restart in the middle of the bar) it performs its existing single attempt and, on failure, leaves the bar to the recovery episode. No new failure mode.
 
 ## D6. Observability
-One INFO line when a point is stored by prefetch: stream, open time, seconds after bar open, attempts. One WARNING when bar T closes with the point still missing: stream, open time, attempts, last error. This gives the before/after measurement without extra tooling.
+One INFO line when a point is stored by prefetch: stream, open time, seconds after bar open, attempts. One WARNING when bar T closes with the point still missing after at least one attempt (a stream that was in recovery all interval made none): stream, open time, attempts, last error. This gives the before/after measurement without extra tooling.
 
 ## Risks and checks
 - **Point beyond the candle frontier.** The stored point may sit one step ahead of the committed candle for up to five minutes. To check in tasks: historical and recovery open interest audits and the track progress (`latest_committed_open_time_ms`) tolerate a point beyond the candle frontier; read paths expose open interest only up to the candle bounds.

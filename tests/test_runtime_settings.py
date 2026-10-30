@@ -165,3 +165,21 @@ def test_stale_defaults_and_retry_schedule_validation() -> None:
     assert settings.realtime_recovery_max_seconds == 60.0
     with pytest.raises(ValueError, match="stale_recovery_next_retry_seconds"):
         RuntimeSettings(stale_recovery_first_retry_seconds=60, stale_recovery_next_retry_seconds=30)
+
+
+def test_open_interest_prefetch_settings(monkeypatch: pytest.MonkeyPatch) -> None:
+    defaults = RuntimeSettings.from_environment()
+    assert (defaults.oi_prefetch_delay_seconds, defaults.oi_prefetch_retry_seconds) == (20.0, 15.0)
+    assert defaults.oi_prefetch_concurrency == 4
+    monkeypatch.setenv("MDS_OI_PREFETCH_DELAY_SECONDS", "0")
+    monkeypatch.setenv("MDS_OI_PREFETCH_RETRY_SECONDS", "5")
+    monkeypatch.setenv("MDS_OI_PREFETCH_CONCURRENCY", "2")
+    settings = RuntimeSettings.from_environment()
+    assert (settings.oi_prefetch_delay_seconds, settings.oi_prefetch_concurrency) == (0.0, 2)
+    for field, value in (
+        ("oi_prefetch_delay_seconds", -1.0),
+        ("oi_prefetch_retry_seconds", 0.0),
+        ("oi_prefetch_concurrency", 0),
+    ):
+        with pytest.raises(ValueError, match=field):
+            RuntimeSettings(**{field: value})

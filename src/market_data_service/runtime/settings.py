@@ -25,6 +25,9 @@ class RuntimeSettings:
     historical_retry_max_seconds: float = 60.0
     oi_track_windows_per_pass: int = 2
     oi_live_timeout_seconds: float = 2.0
+    oi_prefetch_delay_seconds: float = 20.0
+    oi_prefetch_retry_seconds: float = 15.0
+    oi_prefetch_concurrency: int = 4
     realtime_recovery_base_seconds: float = 1.0
     realtime_recovery_max_seconds: float = 60.0
     realtime_recovery_idle_seconds: float = 0.1
@@ -53,6 +56,7 @@ class RuntimeSettings:
             "realtime_recovery_windows_per_stream",
             "reconnect_max_attempts",
             "oi_track_windows_per_pass",
+            "oi_prefetch_concurrency",
         ):
             if getattr(self, name) <= 0:
                 raise ValueError(f"{name} must be positive")
@@ -62,6 +66,10 @@ class RuntimeSettings:
             raise ValueError("historical_retry_max_seconds must be >= base")
         if not math.isfinite(self.oi_live_timeout_seconds) or self.oi_live_timeout_seconds <= 0:
             raise ValueError("oi_live_timeout_seconds must be finite and positive")
+        if not math.isfinite(self.oi_prefetch_delay_seconds) or self.oi_prefetch_delay_seconds < 0:
+            raise ValueError("oi_prefetch_delay_seconds must be finite and non-negative")
+        if not math.isfinite(self.oi_prefetch_retry_seconds) or self.oi_prefetch_retry_seconds <= 0:
+            raise ValueError("oi_prefetch_retry_seconds must be finite and positive")
         if self.realtime_recovery_base_seconds < 0:
             raise ValueError("realtime_recovery_base_seconds must be non-negative")
         if self.realtime_recovery_max_seconds < self.realtime_recovery_base_seconds:
@@ -125,6 +133,9 @@ class RuntimeSettings:
             historical_retry_max_seconds=float(env.get("MDS_HISTORICAL_RETRY_MAX_SECONDS", "60.0")),
             oi_track_windows_per_pass=int(env.get("MDS_OI_TRACK_WINDOWS_PER_PASS", "2")),
             oi_live_timeout_seconds=float(env.get("MDS_OI_LIVE_TIMEOUT_SECONDS", "2.0")),
+            oi_prefetch_delay_seconds=float(env.get("MDS_OI_PREFETCH_DELAY_SECONDS", "20.0")),
+            oi_prefetch_retry_seconds=float(env.get("MDS_OI_PREFETCH_RETRY_SECONDS", "15.0")),
+            oi_prefetch_concurrency=int(env.get("MDS_OI_PREFETCH_CONCURRENCY", "4")),
             realtime_recovery_base_seconds=float(
                 env.get("MDS_REALTIME_RECOVERY_BASE_SECONDS", "1.0")
             ),

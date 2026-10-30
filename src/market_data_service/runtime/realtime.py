@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Coroutine, Sequence
 
 from market_data_service.application.realtime.connector import RealtimeConnector
 from market_data_service.application.realtime.events import (
@@ -53,6 +53,7 @@ class RuntimeRealtimeCoordinator:
         stale_next_retry_seconds: float = 360.0,
         recovery_idle_seconds: float = 0.1,
         notifier_worker: CommittedBarNotificationWorker | None = None,
+        extra_workers: Sequence[Callable[[asyncio.Event], Coroutine[object, object, None]]] = (),
     ) -> None:
         self._streams = tuple(streams)
         self._connector = connector
@@ -63,6 +64,7 @@ class RuntimeRealtimeCoordinator:
         self._now_ms = now_ms
         self._stale_check_seconds = stale_check_seconds
         self._notifier_worker = notifier_worker
+        self._extra_workers = tuple(extra_workers)
         self._recovery_worker = RealtimeRecoveryWorker(
             recovery=recovery,
             supervisor=supervisor,
@@ -86,6 +88,7 @@ class RuntimeRealtimeCoordinator:
                 task_group.create_task(self._stale_worker(stop_event))
                 if self._notifier_worker is not None:
                     task_group.create_task(self._notifier_worker.run(stop_event))
+                tuple(task_group.create_task(w(stop_event)) for w in self._extra_workers)
         finally:
             stop_event.set()
             self._refresh_status()
@@ -162,7 +165,6 @@ class RuntimeRealtimeCoordinator:
 
     async def _notify_restored(self, stream: StreamKey, open_time_ms: int) -> None:
         """One ordinary notification for the latest bar a restored episode made complete."""
-
         if self._notifier_worker is not None:
             await self._notifier_worker.enqueue(bar_notification(stream, open_time_ms))
 
