@@ -14,7 +14,7 @@ For a flagged stream, when candle T is committed and open interest T is not yet 
 ## ADDED Requirements
 
 ### Requirement: Open interest is prefetched during the bar's interval
-For a stream with the open interest flag that is admitted, has an active subscription and no pending recovery, MDS SHALL, once a configurable delay (default 20 s; 0 disables) has passed since bar T opened, fetch open interest for exactly T by REST off the event loop and store it through the existing open interest importer, if it is not stored. While it is not stored, MDS SHALL repeat the attempt at a configurable interval (default 15 s) until it is stored or bar T closes. Attempts SHALL be bounded in concurrency (default 4), SHALL use the live open interest timeout, SHALL NOT take the shared operation gate, SHALL NOT run on the WebSocket receive path and SHALL NOT report to the supervisor; the open interest continuity frontier SHALL keep moving only through the live append at commit and through recovery. A prefetched point SHALL NOT be fetched again and SHALL NOT change candle ingestion, readiness or the notification contract. MDS SHALL log each prefetch stored (stream, open time, seconds after bar open, attempts) and each bar that closed without its open interest stored (stream, open time, attempts, last error).
+For a stream with the open interest flag that is admitted, has an active subscription and no pending recovery, MDS SHALL, once a configurable delay (default 20 s; 0 disables) has passed since bar T opened, fetch open interest for exactly T by REST off the event loop and store it through the existing open interest importer, if it is not stored. While it is not stored, MDS SHALL repeat the attempt at a configurable interval (default 15 s) until it is stored or bar T closes. Attempts SHALL be bounded in concurrency (default 4), and an attempt that waited for a free slot SHALL re-check, immediately before its request starts, that bar T has not closed, that the point is still not stored and that the stream has no pending recovery, and SHALL NOT send the request otherwise; a request already started SHALL be allowed to finish. Attempts also SHALL use the live open interest timeout, SHALL NOT take the shared operation gate, SHALL NOT run on the WebSocket receive path and SHALL NOT report to the supervisor; the open interest continuity frontier SHALL keep moving only through the live append at commit and through recovery. A prefetched point SHALL NOT be fetched again and SHALL NOT change candle ingestion, readiness or the notification contract. MDS SHALL log each prefetch stored (stream, open time, seconds after bar open, attempts) and each bar that closed without its open interest stored (stream, open time, attempts, last error).
 
 #### Scenario: Normal live bar
 - **WHEN** Bybit publishes open interest T 15 s after bar T opens
@@ -27,6 +27,10 @@ For a stream with the open interest flag that is admitted, has an active subscri
 #### Scenario: Never available during the interval
 - **WHEN** bar T closes with open interest T still missing
 - **THEN** one warning is logged and the commit-time fetch and the existing recovery handle the bar exactly as without prefetch
+
+#### Scenario: Slot frees after the bar closed
+- **WHEN** an attempt for bar T waits for a free concurrency slot at 12:04:59, bar T closes at 12:05:00 and the slot frees at 12:05:01
+- **THEN** no request is sent for it, and a request that had started before 12:05:00 is allowed to finish
 
 #### Scenario: Stream under recovery
 - **WHEN** a flagged stream has a pending recovery
