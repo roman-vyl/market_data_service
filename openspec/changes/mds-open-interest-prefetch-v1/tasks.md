@@ -15,6 +15,8 @@
 - [x] 2.7 Delay 0 disables the task; behaviour identical to before
 - [x] 2.8 The prefetch has no supervisor reference (only read-only `facts`), so it cannot move the frontier; publication still does, by one step (existing publication tests)
 - [x] 2.9 Shutdown: no new attempts, in-flight attempt finishes
+- [x] 2.10 Real SQLite: no write lock is held while the REST request runs (a second connection starts `BEGIN IMMEDIATE` inside the fetch; fails if the request moves into the transaction)
+- [x] 2.11 Real SQLite, full path: prefetched point, confirmed candle, publication makes no REST request, the frontier moves to T, exactly one notification
 
 ## 3. Verification
 - [x] 3.1 `ruff check .`, `mypy`, `pytest` (393 passed) and `openspec validate --strict` green; `make verify` equivalents run directly
