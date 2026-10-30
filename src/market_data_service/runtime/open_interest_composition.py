@@ -2,17 +2,20 @@
 
 from __future__ import annotations
 
-from collections.abc import Awaitable, Callable, Collection
+import asyncio
+from collections.abc import Awaitable, Callable, Collection, Coroutine
 from typing import Any
 
 from market_data_service.application.realtime.events import RecoveryRequired
 from market_data_service.application.realtime.supervisor import RealtimeSupervisor
 from market_data_service.config import ValidatedMarketConfig
 from market_data_service.domain.identity import StreamKey
+from market_data_service.runtime.admission import RealtimeAdmissionGate
 from market_data_service.runtime.committed_bar_notification import CommittedBarNotificationWorker
 from market_data_service.runtime.committed_bar_notification_factory import (
     build_committed_bar_notifier_worker,
 )
+from market_data_service.runtime.open_interest_prefetch import OpenInterestPrefetch
 from market_data_service.runtime.open_interest_publication import OpenInterestPublication
 from market_data_service.runtime.realtime import RuntimeRealtimeCoordinator
 from market_data_service.runtime.settings import RuntimeSettings
@@ -57,6 +60,39 @@ def open_interest_notification_worker(
     return build_committed_bar_notifier_worker(
         settings, wiring.config, prepare=None if publication is None else publication.prepare
     )
+
+
+def open_interest_prefetch(
+    wiring: RuntimeWiring,
+    settings: RuntimeSettings,
+    supervisor: RealtimeSupervisor,
+    admission: RealtimeAdmissionGate,
+) -> OpenInterestPrefetch | None:
+    """Prefetch of open interest T during bar T; absent without flagged streams or when off."""
+
+    streams = wiring.config.open_interest_streams
+    if not streams or settings.oi_prefetch_delay_seconds == 0:
+        return None
+    return OpenInterestPrefetch(
+        streams=streams,
+        append=wiring.open_interest_live(settings.oi_live_timeout_seconds).execute,
+        facts=supervisor.facts,
+        admitted=admission.allows,
+        now_ms=wiring.clock.now_ms,
+        delay_seconds=settings.oi_prefetch_delay_seconds,
+        retry_seconds=settings.oi_prefetch_retry_seconds,
+        concurrency=settings.oi_prefetch_concurrency,
+    )
+
+
+def open_interest_workers(
+    wiring: RuntimeWiring,
+    settings: RuntimeSettings,
+    supervisor: RealtimeSupervisor,
+    admission: RealtimeAdmissionGate,
+) -> tuple[Callable[[asyncio.Event], Coroutine[Any, Any, None]], ...]:
+    prefetch = open_interest_prefetch(wiring, settings, supervisor, admission)
+    return () if prefetch is None else (prefetch.run,)
 
 
 def open_interest_startup(wiring: RuntimeWiring, settings: RuntimeSettings) -> dict[str, Any]:

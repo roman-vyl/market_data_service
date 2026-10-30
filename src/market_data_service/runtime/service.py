@@ -24,12 +24,14 @@ from market_data_service.runtime.admission import (
     RealtimeAdmissionGate,
 )
 from market_data_service.runtime.event_loop_lag import EventLoopLagMonitor
+from market_data_service.runtime.exception_groups import root_exception
 from market_data_service.runtime.historical_worker import HistoricalReconciliationWorker
 from market_data_service.runtime.open_interest_composition import (
     admit_with_open_interest,
     initial_open_interest_frontiers,
     open_interest_notification_worker,
     open_interest_startup,
+    open_interest_workers,
 )
 from market_data_service.runtime.realtime import RuntimeRealtimeCoordinator
 from market_data_service.runtime.reconciliation import HistoricalStreamReconciler
@@ -92,7 +94,7 @@ class RuntimeService:
                     ).run(stop_event)
                 )
         except ExceptionGroup as exc:
-            root = _root_exception(exc)
+            root = root_exception(exc)
             self._mark_fatal(root)
             raise root from exc
         except Exception as exc:
@@ -205,6 +207,9 @@ class RuntimeService:
             stale_next_retry_seconds=self._settings.stale_recovery_next_retry_seconds,
             recovery_idle_seconds=self._settings.realtime_recovery_idle_seconds,
             notifier_worker=notifier_worker,
+            extra_workers=open_interest_workers(
+                self._wiring, self._settings, supervisor, admission
+            ),
         )
         holder["runtime"] = runtime
         return runtime
@@ -212,9 +217,3 @@ class RuntimeService:
     def _mark_fatal(self, exc: BaseException) -> None:
         self._status.mark_fatal(f"{type(exc).__name__}: {exc}")
         self._logger.exception("runtime failed")
-
-
-def _root_exception(exc: BaseException) -> BaseException:
-    if isinstance(exc, BaseExceptionGroup) and exc.exceptions:
-        return _root_exception(exc.exceptions[0])
-    return exc
