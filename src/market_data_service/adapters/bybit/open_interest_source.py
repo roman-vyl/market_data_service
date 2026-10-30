@@ -22,10 +22,13 @@ class BybitOpenInterestSource:
 
     Bybit includes both ``startTime`` and ``endTime`` and returns rows newest
     first; ``nextPageCursor`` is set even for a complete window, so windows are
-    bounded to 200 grid points and the cursor is not used.
+    bounded to 200 grid points and the cursor is not used. With
+    ``include_current`` the point of the bar open at the observation time is
+    accepted too (the prefetch); later points are never accepted.
     """
 
     rest: BybitRestCandleSource
+    include_current: bool = False
 
     def fetch_open_interest(
         self,
@@ -60,6 +63,7 @@ class BybitOpenInterestSource:
             stream=stream,
             requested_window=window,
             observed_at_ms=observed_at_ms,
+            include_current=self.include_current,
         )
 
 
@@ -69,16 +73,20 @@ def parse_open_interest_rows(
     stream: StreamKey,
     requested_window: TimeWindow,
     observed_at_ms: int,
+    include_current: bool = False,
 ) -> tuple[ObservedOpenInterest, ...]:
-    """Parse, keep closed bars inside the window, de-duplicate and sort ascending."""
+    """Parse, keep admissible bars inside the window, de-duplicate and sort ascending.
 
-    last_closed = last_closed_open_time_ms(
-        observed_at_ms, get_timeframe(stream.timeframe).duration_ms
-    )
+    Admissible: closed bars; with ``include_current`` also the bar open now.
+    """
+
+    step_ms = get_timeframe(stream.timeframe).duration_ms
+    last_closed = last_closed_open_time_ms(observed_at_ms, step_ms)
+    newest = last_closed + step_ms if include_current else last_closed
     by_open_time: dict[int, ObservedOpenInterest] = {}
     for row in rows:
         point = _parse_row(row, stream=stream, observed_at_ms=observed_at_ms)
-        if requested_window.contains(point.open_time_ms) and point.open_time_ms <= last_closed:
+        if requested_window.contains(point.open_time_ms) and point.open_time_ms <= newest:
             by_open_time[point.open_time_ms] = point
     return tuple(by_open_time[key] for key in sorted(by_open_time))
 

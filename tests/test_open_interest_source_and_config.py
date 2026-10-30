@@ -90,6 +90,34 @@ def test_running_interval_and_out_of_window_rows_are_dropped_and_sorted() -> Non
     ]
 
 
+def _observed(include_current: bool, observed_at_ms: int):  # type: ignore[no-untyped-def]
+    rows = [_row(5), _row(4), _row(3)]
+    transport = FakeTransport(rows)
+    rest = BybitRestCandleSource(exchange_symbols={"BTCUSDT.P": "BTCUSDT"}, transport=transport)
+    source = BybitOpenInterestSource(rest, include_current=include_current)
+    points = source.fetch_open_interest(
+        STREAM, TimeWindow(T0 + 3 * STEP, T0 + 6 * STEP), observed_at_ms=observed_at_ms
+    )
+    return [p.open_time_ms for p in points], transport.calls
+
+
+def test_closed_only_drops_the_point_of_the_open_bar() -> None:
+    # 20 s into bar 4: bar 3 is closed, bar 4 is running, bar 5 is the future
+    times, _ = _observed(False, T0 + 4 * STEP + 20_000)
+    assert times == [T0 + 3 * STEP]
+
+
+def test_include_current_takes_the_open_bar_but_never_a_later_one() -> None:
+    times, _ = _observed(True, T0 + 4 * STEP + 20_000)
+    assert times == [T0 + 3 * STEP, T0 + 4 * STEP]  # bar 5 is later than the open bar
+
+
+def test_both_policies_send_the_same_request() -> None:
+    _, closed = _observed(False, T0 + 4 * STEP + 20_000)
+    _, current = _observed(True, T0 + 4 * STEP + 20_000)
+    assert closed == current
+
+
 def test_non_5m_stream_is_rejected() -> None:
     source, _ = _source([])
     with pytest.raises(ValueError, match="5m"):
