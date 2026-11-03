@@ -11,6 +11,7 @@ from market_data_service.adapters.sqlite import (
     initialize_database,
     register_stream,
 )
+from market_data_service.adapters.sqlite.stream_state_reader import SqliteStreamStateReader
 from market_data_service.application.lower_bound import HistoricalLowerBoundResult
 from market_data_service.application.repair_types import (
     RepairStatus,
@@ -95,7 +96,9 @@ def test_startup_routes_full_fixed_window_through_existing_repair(tmp_path: Path
     def factory() -> SqliteUnitOfWork:
         return SqliteUnitOfWork(database)
 
-    lifecycle = RuntimeLifecycleRecorder(factory, clock.now_ms)
+    lifecycle = RuntimeLifecycleRecorder(
+        factory, clock.now_ms, state_reader=SqliteStreamStateReader(database)
+    )
     repair = FakeRepair(stream)
     reconciler = HistoricalStreamReconciler(
         lower_bound=FakeLowerBound(stream),  # type: ignore[arg-type]

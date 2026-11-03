@@ -12,6 +12,7 @@ from market_data_service.adapters.sqlite import SqliteUnitOfWork
 from market_data_service.adapters.sqlite.consumer_candle_reader import (
     SqliteConsumerCandleReader,
 )
+from market_data_service.adapters.sqlite.stream_state_reader import SqliteStreamStateReader
 from market_data_service.application.audit_continuity import (
     AuditStreamContinuity,
     open_interest_open_times,
@@ -144,7 +145,11 @@ class RuntimeWiring:
         )
 
     def lifecycle(self) -> RuntimeLifecycleRecorder:
-        return RuntimeLifecycleRecorder(self.unit_of_work, self.clock.now_ms)
+        return RuntimeLifecycleRecorder(
+            self.unit_of_work,
+            self.clock.now_ms,
+            state_reader=SqliteStreamStateReader(self.database),
+        )
 
     def open_interest_state(self) -> OpenInterestTrackState:
         return OpenInterestTrackState(self.unit_of_work, self.clock)

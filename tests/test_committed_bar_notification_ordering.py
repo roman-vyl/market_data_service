@@ -19,6 +19,7 @@ from market_data_service.adapters.sqlite import (
     initialize_database,
     register_stream,
 )
+from market_data_service.adapters.sqlite.stream_state_reader import SqliteStreamStateReader
 from market_data_service.application.ingest import IngestObservedCandle
 from market_data_service.application.realtime.events import CandleObserved
 from market_data_service.application.realtime.handler import RealtimeCandleHandler
@@ -124,7 +125,9 @@ async def _commit_precedes_send_scenario(tmp_path: Path) -> None:
     # A separate, non-recording UoW factory for lifecycle bookkeeping, so
     # stream-lifecycle-state commits (unrelated to the canonical candle
     # commit under test) cannot pollute `order`.
-    lifecycle = RuntimeLifecycleRecorder(lambda: SqliteUnitOfWork(path), lambda: 10)
+    lifecycle = RuntimeLifecycleRecorder(
+        lambda: SqliteUnitOfWork(path), lambda: 10, state_reader=SqliteStreamStateReader(path)
+    )
     runtime = RuntimeRealtimeCoordinator(
         streams=(stream,),
         connector=_IdleConnector(),  # type: ignore[arg-type]

@@ -9,6 +9,7 @@ from market_data_service.adapters.sqlite import (
     initialize_database,
     register_stream,
 )
+from market_data_service.adapters.sqlite.stream_state_reader import SqliteStreamStateReader
 from market_data_service.application.audit_continuity import (
     AuditStreamContinuity,
     AuditStreamContinuityRequest,
@@ -108,7 +109,9 @@ async def _scenario(tmp_path: Path) -> None:
         clock,
         max_candles_per_window=2,
     )
-    lifecycle = RuntimeLifecycleRecorder(uow_factory, clock.now_ms)
+    lifecycle = RuntimeLifecycleRecorder(
+        uow_factory, clock.now_ms, state_reader=SqliteStreamStateReader(database)
+    )
 
     # BTC is already complete before runtime startup; ETH is empty.
     lifecycle.prepare_for_bootstrap(btc)
