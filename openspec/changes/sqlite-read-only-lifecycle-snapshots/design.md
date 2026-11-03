@@ -53,4 +53,4 @@ After commit, a fresh call must see the committed change; after rollback, it mus
 
 ## Migration Plan
 
-This is a review-only proposal. After approval, implement the reader and explicit wiring, run focused tests and `make verify`, and review the diff for scope. No schema/data migration or deployment is included. A later release may roll back to the prior code without converting data; the previous writer contention would return.
+No schema or data migration is required. Deployment is outside this change. A later release may roll back to the prior code without converting data; the previous writer contention would return.

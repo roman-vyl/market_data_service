@@ -9,6 +9,7 @@ from market_data_service.adapters.sqlite import (
     initialize_database,
     register_stream,
 )
+from market_data_service.adapters.sqlite.stream_state_reader import SqliteStreamStateReader
 from market_data_service.application.audit_continuity import AuditStreamContinuity
 from market_data_service.application.import_window import ImportHistoricalWindow
 from market_data_service.application.ingest import IngestObservedCandle
@@ -121,7 +122,9 @@ def _reconciler(
     return HistoricalStreamReconciler(
         lower_bound=FixedLowerBound(0),  # type: ignore[arg-type]
         repair=repair,
-        lifecycle=RuntimeLifecycleRecorder(factory, clock.now_ms),
+        lifecycle=RuntimeLifecycleRecorder(
+            factory, clock.now_ms, state_reader=SqliteStreamStateReader(path)
+        ),
         now_ms=clock.now_ms,
         discovery_windows_per_pass=1,
         repair_windows_per_pass=repair_windows_per_pass,

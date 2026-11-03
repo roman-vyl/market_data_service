@@ -8,7 +8,6 @@
 - Route `RuntimeLifecycleRecorder.snapshot()` through that reader, preserving synchronous calls, returned domain values, and missing-stream errors.
 - Keep every mutation on the existing `SqliteUnitOfWork` with `BEGIN IMMEDIATE`, including re-reading current state inside lifecycle transition transactions.
 - Prove that a snapshot completes while another connection holds an uncommitted write transaction, returns only committed state, and releases its connection.
-- This proposal is for review only. Implementation starts after explicit approval.
 
 ## Capabilities
 

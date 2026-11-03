@@ -17,6 +17,7 @@ from market_data_service.adapters.sqlite import (
 from market_data_service.adapters.sqlite.consumer_candle_reader import (
     SqliteConsumerCandleReader,
 )
+from market_data_service.adapters.sqlite.stream_state_reader import SqliteStreamStateReader
 from market_data_service.application.consumer_read import CandleRangeRequest, GetCandleRange
 from market_data_service.application.realtime.events import SubscriptionConfirmed
 from market_data_service.application.realtime.outcomes import (
@@ -186,7 +187,9 @@ def _runtime(
         connector=IdleConnector(),  # type: ignore[arg-type]
         supervisor=RealtimeSupervisor(streams, topics, clock.now_ms),
         recovery=recovery,  # type: ignore[arg-type]
-        lifecycle=RuntimeLifecycleRecorder(_factory(path), clock.now_ms),
+        lifecycle=RuntimeLifecycleRecorder(
+            _factory(path), clock.now_ms, state_reader=SqliteStreamStateReader(path)
+        ),
         status=status,
         admission=RealtimeAdmissionGate(streams),
         operation_gate=asyncio.Lock(),
@@ -543,7 +546,9 @@ async def _late_admission_scenario(tmp_path: Path) -> None:
         connector=IdleConnector(),  # type: ignore[arg-type]
         supervisor=supervisor,
         recovery=FakeRecovery({stream: (RecoveryClassification.RESTORED,)}),  # type: ignore[arg-type]
-        lifecycle=RuntimeLifecycleRecorder(_factory(path), clock.now_ms),
+        lifecycle=RuntimeLifecycleRecorder(
+            _factory(path), clock.now_ms, state_reader=SqliteStreamStateReader(path)
+        ),
         status=RuntimeStatusStore((stream,)),
         admission=gate,
         operation_gate=asyncio.Lock(),
@@ -585,7 +590,9 @@ async def _missing_admission_anchor_scenario(tmp_path: Path) -> None:
             clock.now_ms,
         ),
         recovery=FakeRecovery({stream: (RecoveryClassification.RESTORED,)}),  # type: ignore[arg-type]
-        lifecycle=RuntimeLifecycleRecorder(_factory(path), clock.now_ms),
+        lifecycle=RuntimeLifecycleRecorder(
+            _factory(path), clock.now_ms, state_reader=SqliteStreamStateReader(path)
+        ),
         status=RuntimeStatusStore((stream,)),
         admission=gate,
         operation_gate=asyncio.Lock(),
@@ -623,7 +630,9 @@ def _coordinator_with_notifier(
             clock.now_ms,
         ),
         recovery=FakeRecovery({stream: (RecoveryClassification.RESTORED,)}),  # type: ignore[arg-type]
-        lifecycle=RuntimeLifecycleRecorder(_factory(path), clock.now_ms),
+        lifecycle=RuntimeLifecycleRecorder(
+            _factory(path), clock.now_ms, state_reader=SqliteStreamStateReader(path)
+        ),
         status=RuntimeStatusStore((stream,)),
         admission=RealtimeAdmissionGate((stream,) if admitted else ()),
         operation_gate=asyncio.Lock(),
@@ -704,7 +713,9 @@ async def _no_notifier_worker_scenario(tmp_path: Path) -> None:
         connector=IdleConnector(),  # type: ignore[arg-type]
         supervisor=RealtimeSupervisor((stream,), {"kline.1.BTCUSDT": stream}, clock.now_ms),
         recovery=FakeRecovery({stream: (RecoveryClassification.RESTORED,)}),  # type: ignore[arg-type]
-        lifecycle=RuntimeLifecycleRecorder(_factory(path), clock.now_ms),
+        lifecycle=RuntimeLifecycleRecorder(
+            _factory(path), clock.now_ms, state_reader=SqliteStreamStateReader(path)
+        ),
         status=RuntimeStatusStore((stream,)),
         admission=RealtimeAdmissionGate((stream,)),
         operation_gate=asyncio.Lock(),
