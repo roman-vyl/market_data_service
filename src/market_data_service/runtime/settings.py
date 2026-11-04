@@ -36,6 +36,7 @@ class RuntimeSettings:
     reconnect_delay_seconds: float = 1.0
     websocket_ping_timeout_seconds: float = 60.0
     event_loop_lag_warn_seconds: float = 1.0
+    loop_diagnostics_enabled: bool = False
     stale_grace_ms: int = 15_000
     stale_recovery_first_retry_seconds: float = 60.0
     stale_recovery_next_retry_seconds: float = 360.0
@@ -150,6 +151,7 @@ class RuntimeSettings:
             reconnect_delay_seconds=float(env.get("MDS_RECONNECT_DELAY_SECONDS", "1.0")),
             websocket_ping_timeout_seconds=float(env.get("MDS_WS_PING_TIMEOUT_SECONDS", "60.0")),
             event_loop_lag_warn_seconds=float(env.get("MDS_EVENT_LOOP_LAG_WARN_SECONDS", "1.0")),
+            loop_diagnostics_enabled=_parse_bool(env.get("MDS_LOOP_DIAGNOSTICS_ENABLED", "false")),
             stale_grace_ms=int(env.get("MDS_STALE_GRACE_MS", "15000")),
             stale_recovery_first_retry_seconds=float(
                 env.get("MDS_STALE_RECOVERY_FIRST_RETRY_SECONDS", "60.0")

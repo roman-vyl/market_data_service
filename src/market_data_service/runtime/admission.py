@@ -9,6 +9,7 @@ from typing import Protocol
 from market_data_service.application.realtime.events import CandleObserved
 from market_data_service.application.realtime.outcomes import RealtimeIngestionOutcome
 from market_data_service.domain.identity import StreamKey
+from market_data_service.ports.operation_timing import measure_operation
 
 
 class RealtimeEventHandler(Protocol):
@@ -41,4 +42,7 @@ class AdmissionGatedCandleHandler:
     def handle(self, event: CandleObserved) -> RealtimeIngestionOutcome | None:
         if not self._gate.allows(event.stream):
             return None
-        return self._handler.handle(event)
+        if not event.candle.confirmed:
+            return self._handler.handle(event)
+        with measure_operation("ws.ingest", event.stream):
+            return self._handler.handle(event)

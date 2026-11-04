@@ -23,7 +23,7 @@ from market_data_service.runtime.admission import (
     AdmissionGatedCandleHandler,
     RealtimeAdmissionGate,
 )
-from market_data_service.runtime.event_loop_lag import EventLoopLagMonitor
+from market_data_service.runtime.event_loop_lag import runtime_tasks
 from market_data_service.runtime.exception_groups import root_exception
 from market_data_service.runtime.historical_worker import HistoricalReconciliationWorker
 from market_data_service.runtime.open_interest_composition import (
@@ -85,14 +85,9 @@ class RuntimeService:
                 max_backoff_seconds=self._settings.historical_retry_max_seconds,
             )
             self._status.mark_healthy()
-            async with asyncio.TaskGroup() as task_group:
+            async with runtime_tasks(stop_event, self._logger, self._settings) as task_group:
                 task_group.create_task(realtime.run(stop_event))
                 task_group.create_task(worker.run(stop_event))
-                task_group.create_task(
-                    EventLoopLagMonitor(
-                        self._logger, warn_seconds=self._settings.event_loop_lag_warn_seconds
-                    ).run(stop_event)
-                )
         except ExceptionGroup as exc:
             root = root_exception(exc)
             self._mark_fatal(root)

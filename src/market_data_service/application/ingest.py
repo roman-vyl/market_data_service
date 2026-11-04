@@ -9,6 +9,7 @@ from market_data_service.domain.candle_comparison import classify_against_existi
 from market_data_service.domain.candle_validation import validate_observed_candle
 from market_data_service.domain.candles import CanonicalCandle, ObservationSource, ObservedCandle
 from market_data_service.domain.classification import IngestionClassification
+from market_data_service.ports.operation_timing import measure_phase
 from market_data_service.ports.storage import CanonicalStorageUnitOfWork
 
 
@@ -29,11 +30,12 @@ class IngestObservedCandle:
 
     def execute(self, candle: ObservedCandle, *, committed_at_ms: int) -> IngestionResult:
         with self._unit_of_work_factory() as unit_of_work:
-            result = self.execute_in_unit_of_work(
-                unit_of_work,
-                candle,
-                committed_at_ms=committed_at_ms,
-            )
+            with measure_phase("transaction_body"):
+                result = self.execute_in_unit_of_work(
+                    unit_of_work,
+                    candle,
+                    committed_at_ms=committed_at_ms,
+                )
             unit_of_work.commit()
             return result
 
