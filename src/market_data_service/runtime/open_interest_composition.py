@@ -10,6 +10,7 @@ from market_data_service.application.realtime.events import RecoveryRequired
 from market_data_service.application.realtime.supervisor import RealtimeSupervisor
 from market_data_service.config import ValidatedMarketConfig
 from market_data_service.domain.identity import StreamKey
+from market_data_service.ports.operation_timing import measure_operation
 from market_data_service.runtime.admission import RealtimeAdmissionGate
 from market_data_service.runtime.committed_bar_notification import CommittedBarNotificationWorker
 from market_data_service.runtime.committed_bar_notification_factory import (
@@ -117,7 +118,8 @@ def admit_with_open_interest(
 
     async def handoff(stream: StreamKey) -> None:
         if stream in flagged:
-            latest = wiring.open_interest_latest(stream)
+            with measure_operation("oi.handoff", stream):
+                latest = wiring.open_interest_latest(stream)
             if latest is not None:
                 realtime.supervisor.synchronize_open_interest_open_time(stream, latest)
         await realtime.admit(stream)

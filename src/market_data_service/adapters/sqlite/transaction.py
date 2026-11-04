@@ -19,6 +19,7 @@ from market_data_service.domain.identity import InstrumentKey, StreamKey
 from market_data_service.domain.instruments import InstrumentMetadata
 from market_data_service.domain.open_interest import CanonicalOpenInterest, TrackProgress
 from market_data_service.domain.stream_state import StreamStateSnapshot
+from market_data_service.ports.operation_timing import measure_phase
 
 
 class SqliteUnitOfWork:
@@ -27,8 +28,10 @@ class SqliteUnitOfWork:
         self._connection: sqlite3.Connection | None = None
 
     def __enter__(self) -> SqliteUnitOfWork:
-        self._connection = open_connection(self._database_path)
-        self._connection.execute("BEGIN IMMEDIATE")
+        with measure_phase("sqlite.open"):
+            self._connection = open_connection(self._database_path)
+        with measure_phase("sqlite.begin_immediate"):
+            self._connection.execute("BEGIN IMMEDIATE")
         self._catalog = SqliteCatalogRepository(self._connection)
         self._candles = SqliteCandleRepository(self._connection, self._catalog)
         self._states = SqliteStreamStateRepository(self._connection, self._catalog)
@@ -166,7 +169,8 @@ class SqliteUnitOfWork:
         self._track_progress.save(progress)
 
     def commit(self) -> None:
-        self._connection_or_raise().commit()
+        with measure_phase("sqlite.commit"):
+            self._connection_or_raise().commit()
 
     def rollback(self) -> None:
         self._connection_or_raise().rollback()

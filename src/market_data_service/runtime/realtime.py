@@ -21,11 +21,9 @@ from market_data_service.application.realtime.recovery import RealtimeRecoveryCo
 from market_data_service.application.realtime.supervisor import RealtimeSupervisor
 from market_data_service.domain.identity import StreamKey
 from market_data_service.domain.stream_state import StreamLifecycleState
+from market_data_service.ports.operation_timing import measure_operation
+from market_data_service.runtime import committed_bar_notification as notification
 from market_data_service.runtime.admission import RealtimeAdmissionGate
-from market_data_service.runtime.committed_bar_notification import (
-    CommittedBarNotificationWorker,
-    bar_notification,
-)
 from market_data_service.runtime.lifecycle import RuntimeLifecycleRecorder
 from market_data_service.runtime.realtime_connection_log import log_connection_event
 from market_data_service.runtime.realtime_recovery_worker import RealtimeRecoveryWorker
@@ -52,7 +50,7 @@ class RuntimeRealtimeCoordinator:
         stale_first_retry_seconds: float = 60.0,
         stale_next_retry_seconds: float = 360.0,
         recovery_idle_seconds: float = 0.1,
-        notifier_worker: CommittedBarNotificationWorker | None = None,
+        notifier_worker: notification.CommittedBarNotificationWorker | None = None,
         extra_workers: Sequence[Callable[[asyncio.Event], Coroutine[object, object, None]]] = (),
     ) -> None:
         self._streams = tuple(streams)
@@ -154,19 +152,19 @@ class RuntimeRealtimeCoordinator:
             and outcome.classification is RealtimeIngestionClassification.COMMITTED
         ):
             await self._notifier_worker.enqueue(
-                bar_notification(outcome.stream, outcome.open_time_ms)
+                notification.bar_notification(outcome.stream, outcome.open_time_ms)
             )
         for signal in self._supervisor.observe_outcome(outcome):
             await self._enqueue(signal)
         if outcome.classification is RealtimeIngestionClassification.COMMITTED:
-            # Same step as the enqueue above: the episode active now, or created by this outcome.
+            # Mark the episode active now, including one created by the outcome above.
             self._recovery_worker.mark_live_commit(outcome.stream)
         self._sync_lifecycle()
 
     async def _notify_restored(self, stream: StreamKey, open_time_ms: int) -> None:
         """One ordinary notification for the latest bar a restored episode made complete."""
         if self._notifier_worker is not None:
-            await self._notifier_worker.enqueue(bar_notification(stream, open_time_ms))
+            await self._notifier_worker.enqueue(notification.bar_notification(stream, open_time_ms))
 
     @property
     def supervisor(self) -> RealtimeSupervisor:
@@ -190,6 +188,7 @@ class RuntimeRealtimeCoordinator:
             except TimeoutError:
                 continue
 
+    @measure_operation("lifecycle.sync")
     def _sync_lifecycle(self) -> None:
         for facts in self._supervisor.all_facts():
             durable = self._lifecycle.snapshot(facts.stream)

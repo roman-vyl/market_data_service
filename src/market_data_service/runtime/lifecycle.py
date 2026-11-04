@@ -10,6 +10,7 @@ from market_data_service.domain.stream_state import (
     StreamStateSnapshot,
     transition_stream_state,
 )
+from market_data_service.ports.operation_timing import measure_phase
 from market_data_service.ports.storage import CanonicalStorageUnitOfWork
 from market_data_service.ports.stream_state_reader import StreamStateReader
 
@@ -27,7 +28,8 @@ class RuntimeLifecycleRecorder:
         self._state_reader = state_reader
 
     def snapshot(self, stream: StreamKey) -> StreamStateSnapshot:
-        return self._state_reader.get_stream_state(stream)
+        with measure_phase("snapshot", stream):
+            return self._state_reader.get_stream_state(stream)
 
     def prepare_for_bootstrap(self, stream: StreamKey) -> StreamStateSnapshot:
         snapshot = self.snapshot(stream)
@@ -106,7 +108,7 @@ class RuntimeLifecycleRecorder:
         error_code: str | None = None,
         error_detail: str | None = None,
     ) -> StreamStateSnapshot:
-        with self._unit_of_work_factory() as unit_of_work:
+        with measure_phase("transition", stream), self._unit_of_work_factory() as unit_of_work:
             snapshot = unit_of_work.get_stream_state(stream)
             snapshot = transition_stream_state(
                 snapshot,
