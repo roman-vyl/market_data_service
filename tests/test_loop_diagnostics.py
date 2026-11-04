@@ -96,7 +96,7 @@ def test_lag_accounts_for_nested_work_and_short_lifecycle_reads() -> None:
     assert uncovered["unexplained_ms"] == 1200
     name, aggregate = diagnostics._output.get_nowait()
     assert name == "event loop diagnostics"
-    assert aggregate["coverage"] == {"full": 0, "partial": 1, "zero": 1}
+    assert aggregate["coverage"] == {"full": 0, "partial": 1, "zero": 1, "incomplete": 0}
     assert {
         "operation": "lifecycle.sync",
         "phase": "snapshot",
@@ -107,19 +107,42 @@ def test_lag_accounts_for_nested_work_and_short_lifecycle_reads() -> None:
     } in aggregate["phases"]
 
 
+def test_consecutive_short_operations_cover_lag_without_retaining_short_phases() -> None:
+    diagnostics = LoopDiagnostics(logging.getLogger(__name__), capacity=40, now_ns=0)
+    for i in range(40):
+        start = i * 30 * _MS
+        end = start + 30 * _MS
+        operation = "ws.ingest" if i % 2 else "oi.handoff"
+        diagnostics.spans.record(
+            OperationSpan(operation, "sqlite.begin_immediate", None, start, end)
+        )
+        diagnostics.spans.record(OperationSpan(operation, "total", None, start, end))
+    diagnostics.tick(0, 1200 * _MS, warn=True)
+    _, fields = diagnostics._output.get_nowait()
+    assert fields["coverage"] == "full"
+    assert fields["covered_ms"] == 1200
+    assert fields["unexplained_ms"] == 0
+    assert fields["lost_measurements"] == 0
+
+
 def test_overflow_marks_measurements_and_output_loss() -> None:
     diagnostics = LoopDiagnostics(logging.getLogger(__name__), capacity=1, now_ns=0)
-    for i in range(2):
-        diagnostics.spans.record(OperationSpan("ws.ingest", "total", None, i * _MS, 100 * _MS))
+    diagnostics.spans.record(OperationSpan("ws.ingest", "sqlite.open", None, 0, 100 * _MS))
+    diagnostics.spans.record(OperationSpan("ws.ingest", "total", None, 0, 200 * _MS))
     diagnostics.tick(0, 200 * _MS, warn=True)
     diagnostics.tick(200 * _MS, 300 * _MS, warn=True)
     _, first = diagnostics._output.get_nowait()
+    assert first["covered_ms"] == 200
+    assert first["coverage"] == "incomplete"
     assert first["incomplete"] is True
     assert first["lost_measurements"] == 1
     diagnostics.tick(300 * _MS, 400 * _MS, warn=True)
     _, next_event = diagnostics._output.get_nowait()
     assert next_event["lost_output_events"] == 1
     assert next_event["incomplete"] is False
+    diagnostics.tick(_HOUR, _HOUR, warn=False)
+    _, aggregate = diagnostics._output.get_nowait()
+    assert aggregate["coverage"] == {"full": 0, "partial": 0, "zero": 2, "incomplete": 1}
 
 
 def test_disabled_diagnostics_do_not_read_clock(monkeypatch: pytest.MonkeyPatch) -> None:

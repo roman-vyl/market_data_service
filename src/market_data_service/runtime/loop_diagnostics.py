@@ -24,7 +24,7 @@ class LoopDiagnostics:
         self._logger = logger
         self._output: asyncio.Queue[tuple[str, dict[str, object]]] = asyncio.Queue(capacity)
         self._dropped = 0
-        self._coverage = dict(full=0, partial=0, zero=0)
+        self._coverage = dict(full=0, partial=0, zero=0, incomplete=0)
         self._period_start = perf_counter_ns() if now_ns is None else now_ns
 
     def tick(self, deadline_ns: int, end_ns: int, *, warn: bool) -> None:
@@ -32,6 +32,8 @@ class LoopDiagnostics:
             lag_ns = max(0, end_ns - deadline_ns)
             covered, operations, evicted = self.spans.overlap(deadline_ns, end_ns)
             kind = "zero" if not covered else "full" if covered == lag_ns else "partial"
+            if evicted:
+                kind = "incomplete"
             self._coverage[kind] += 1
             self._offer(
                 "event loop lag",
@@ -40,6 +42,7 @@ class LoopDiagnostics:
                     "covered_ms": milliseconds(covered),
                     "unexplained_ms": milliseconds(lag_ns - covered),
                     "operations": operations,
+                    "coverage": kind,
                     "lost_measurements": evicted,
                     "incomplete": bool(evicted),
                 },
@@ -56,7 +59,7 @@ class LoopDiagnostics:
                     "lost_measurements": evicted,
                 },
             )
-            self._coverage = dict(full=0, partial=0, zero=0)
+            self._coverage = dict(full=0, partial=0, zero=0, incomplete=0)
             self._period_start = end_ns
 
     def _offer(self, name: str, fields: dict[str, object]) -> None:

@@ -38,7 +38,7 @@ class PhaseStats:
 
 
 @dataclass(frozen=True, slots=True)
-class SlowSpan:
+class TimingSample:
     span: OperationSpan
     reads: dict[str, int | float] | None = None
 
@@ -58,7 +58,7 @@ class SlowSpan:
 
 class LoopDiagnosticSpans:
     def __init__(self, capacity: int = 128) -> None:
-        self._recent: deque[SlowSpan] = deque(maxlen=capacity)
+        self._recent: deque[TimingSample] = deque(maxlen=capacity)
         self._stats: dict[tuple[str, str], PhaseStats] = {}
         self._reads = PhaseStats()
         self._evicted = 0
@@ -75,14 +75,14 @@ class LoopDiagnosticSpans:
             if span.phase == "snapshot":
                 self._reads.add(span.duration_ns)
             elif span.phase == "total":
-                if span.duration_ns >= _SLOW_NS:
-                    reads = self._reads.fields()
+                reads = self._reads.fields()
                 self._reads = PhaseStats()
-        if span.duration_ns >= _SLOW_NS:
+        # Keep every parent interval so consecutive short calls contribute to coverage.
+        if span.phase == "total" or span.duration_ns >= _SLOW_NS:
             if len(self._recent) == self._recent.maxlen:
                 self._evicted += 1
                 self._evicted_since_tick += 1
-            self._recent.append(SlowSpan(span, reads))
+            self._recent.append(TimingSample(span, reads))
 
     def overlap(self, start_ns: int, end_ns: int) -> tuple[int, list[dict[str, object]], int]:
         intersections = []
