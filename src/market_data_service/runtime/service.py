@@ -158,6 +158,7 @@ class RuntimeService:
             self._settings,
             supervisor,
             lambda s: holder["runtime"].request_recovery(s),
+            lambda s: holder["runtime"].on_open_interest_changed(s),
         )
 
         async def on_event(event: object) -> None:
