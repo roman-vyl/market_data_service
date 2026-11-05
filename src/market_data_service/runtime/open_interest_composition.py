@@ -44,6 +44,7 @@ def open_interest_notification_worker(
     settings: RuntimeSettings,
     supervisor: RealtimeSupervisor,
     request_recovery: Callable[[RecoveryRequired], Awaitable[None]],
+    on_open_interest_changed: Callable[[StreamKey], None],
 ) -> CommittedBarNotificationWorker | None:
     """The notification worker, with the live open interest step for flagged streams."""
 
@@ -54,6 +55,7 @@ def open_interest_notification_worker(
             append=wiring.open_interest_live(settings.oi_live_timeout_seconds).execute,
             supervisor=supervisor,
             request_recovery=request_recovery,
+            on_open_interest_changed=on_open_interest_changed,
         )
         if streams
         else None

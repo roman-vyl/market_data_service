@@ -209,6 +209,7 @@ def _publication(
         append=append,
         supervisor=supervisor,
         request_recovery=recorder,
+        on_open_interest_changed=lambda stream: None,
         logger=logging.getLogger("test.oi_publication"),
     )
 

@@ -39,6 +39,7 @@ class OpenInterestPublication:
         append: Callable[[StreamKey, int], bool],
         supervisor: OpenInterestSupervisor,
         request_recovery: Callable[[RecoveryRequired], Awaitable[None]],
+        on_open_interest_changed: Callable[[StreamKey], None],
         logger: logging.Logger | None = None,
     ) -> None:
         self._streams = {
@@ -47,6 +48,7 @@ class OpenInterestPublication:
         self._append = append
         self._supervisor = supervisor
         self._request_recovery = request_recovery
+        self._on_open_interest_changed = on_open_interest_changed
         self._logger = logger or logging.getLogger("market_data_service.runtime.oi_publication")
 
     async def prepare(self, notification: CommittedBarNotification) -> bool:
@@ -66,8 +68,22 @@ class OpenInterestPublication:
                 exc,
             )
         if stored:
+            before = self._supervisor.facts(stream)
             for signal in self._supervisor.observe_open_interest(stream, open_time_ms):
                 await self._request_recovery(signal)
+            after = self._supervisor.facts(stream)
+            if (
+                before.last_open_interest_open_time_ms,
+                before.status,
+                before.recovery_pending,
+                before.recovery_restored,
+            ) != (
+                after.last_open_interest_open_time_ms,
+                after.status,
+                after.recovery_pending,
+                after.recovery_restored,
+            ):
+                self._on_open_interest_changed(stream)
         facts = self._supervisor.facts(stream)
         if facts.published_through(open_time_ms):
             return True

@@ -8,6 +8,8 @@ from collections.abc import Callable, Coroutine, Sequence
 from market_data_service.application.realtime.connector import RealtimeConnector
 from market_data_service.application.realtime.events import (
     CandleObserved,
+    Connected,
+    HeartbeatObserved,
     RealtimeEvent,
     RecoveryReason,
     RecoveryRequired,
@@ -20,12 +22,12 @@ from market_data_service.application.realtime.outcomes import (
 from market_data_service.application.realtime.recovery import RealtimeRecoveryCoordinator
 from market_data_service.application.realtime.supervisor import RealtimeSupervisor
 from market_data_service.domain.identity import StreamKey
-from market_data_service.domain.stream_state import StreamLifecycleState
 from market_data_service.ports.operation_timing import measure_operation
 from market_data_service.runtime import committed_bar_notification as notification
 from market_data_service.runtime.admission import RealtimeAdmissionGate
 from market_data_service.runtime.lifecycle import RuntimeLifecycleRecorder
 from market_data_service.runtime.realtime_connection_log import log_connection_event
+from market_data_service.runtime.realtime_lifecycle import synchronize_stream_lifecycle
 from market_data_service.runtime.realtime_recovery_worker import RealtimeRecoveryWorker
 from market_data_service.runtime.status import RuntimeStatusStore
 
@@ -142,6 +144,12 @@ class RuntimeRealtimeCoordinator:
                     )
         for signal in signals:
             await self._enqueue(signal)
+        if isinstance(event, (Connected, HeartbeatObserved)) or (
+            isinstance(event, CandleObserved) and not event.candle.confirmed
+        ):
+            # Transport activity does not change readiness facts. The periodic
+            # full sweep refreshes projections that change only with time.
+            return
         self._sync_lifecycle()
 
     async def on_outcome(self, outcome: RealtimeIngestionOutcome) -> None:
@@ -174,6 +182,10 @@ class RuntimeRealtimeCoordinator:
         if self._admission.allows(signal.stream):
             await self._enqueue(signal)
 
+    def on_open_interest_changed(self, stream: StreamKey) -> None:
+        """Refresh the OI observation's projection before publication is evaluated."""
+        self._sync_lifecycle(stream)
+
     async def _enqueue(self, signal: RecoveryRequired) -> None:
         await self._recovery_worker.enqueue(signal)
 
@@ -189,30 +201,14 @@ class RuntimeRealtimeCoordinator:
                 continue
 
     @measure_operation("lifecycle.sync")
-    def _sync_lifecycle(self) -> None:
-        for facts in self._supervisor.all_facts():
-            durable = self._lifecycle.snapshot(facts.stream)
-            if not self._admission.allows(facts.stream):
-                self._status.update_stream(durable, facts)
-                continue
-            if facts.fatal_error_code and durable.state is not StreamLifecycleState.FAILED:
-                durable = self._lifecycle.mark_failed(facts.stream, reason=facts.fatal_error_code)
-            elif facts.data_ready:
-                if durable.state is StreamLifecycleState.DEGRADED:
-                    durable = self._lifecycle.mark_connecting(facts.stream)
-                if durable.state is StreamLifecycleState.CONNECTING:
-                    durable = self._lifecycle.mark_ready(facts.stream)
-            elif (
-                facts.recovery_pending
-                or not facts.current
-                or facts.status.value in {"disconnected", "stale", "recovery_required"}
-            ) and durable.state in {
-                StreamLifecycleState.CONNECTING,
-                StreamLifecycleState.READY,
-            }:
-                reason = facts.status.value if facts.current else "stale"
-                durable = self._lifecycle.mark_degraded(facts.stream, reason=reason)
-            self._status.update_stream(durable, facts)
+    def _sync_lifecycle(self, stream: StreamKey | None = None) -> None:
+        selected = (
+            self._supervisor.all_facts() if stream is None else (self._supervisor.facts(stream),)
+        )
+        for facts in selected:
+            synchronize_stream_lifecycle(
+                facts, self._lifecycle, self._status, admitted=self._admission.allows(facts.stream)
+            )
 
     def _refresh_status(self) -> None:
         for facts in self._supervisor.all_facts():
