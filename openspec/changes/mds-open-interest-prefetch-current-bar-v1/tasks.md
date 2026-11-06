@@ -11,4 +11,6 @@
 
 ## 3. Verification
 - [x] 3.1 `ruff check .`, `mypy`, `pytest`, `openspec validate --all --strict`
-- [ ] 3.2 After deploy: one day of logs against the 2026-10-30 baseline (design, Acceptance); compare prefetched values with a late historical request
+- [x] 3.2 After deploy: one day of logs against the 2026-10-30 baseline (design, Acceptance); compare prefetched values with a late historical request
+
+Evidence and observation limits: [verification.md](verification.md).
