@@ -24,3 +24,10 @@
 - `openspec validate batch-lifecycle-read-v1 --strict` and `git diff --check` passed.
 - Full preliminary sweeps use one read-only connection/transaction/SELECT; scoped refreshes and transactional state rereads remain unchanged. The existing `snapshot` diagnostic count now counts one batch read operation per full sweep, not one per decoded stream row.
 - No production, configuration, recovery, ingestion, publication, merge or deployment actions.
+
+## Review follow-up: concurrent lifecycle state change (2026-11-14)
+
+- Added a deterministic characterization test: batch captures CONNECTING with ready facts, then the real recovery recorder commits DEGRADED before lifecycle processing resumes.
+- Confirmed: mark_ready raises InvalidStreamTransition (`degraded -> ready`) through the full synchronization call; its transaction does not overwrite the committed recovery state. The stale worker has no handler for this exception, so the failure can propagate to its TaskGroup. No conflict-handling behavior has been changed.
+- Merge remains pending a separate decision on safe stale-transition handling; the new test documents the defect, rather than asserting it is fixed.
+- Focused regressions: 35 passed. Follow-up make verify: Ruff and mypy passed; 439 tests passed, with the two previously known HTTP notifier ConnectionResetError failures.

@@ -14,7 +14,7 @@ from market_data_service.adapters.sqlite.stream_state_reader import SqliteStream
 from market_data_service.application.realtime.events import Disconnected
 from market_data_service.application.realtime.recovery_state import RealtimeRecoveryStateRecorder
 from market_data_service.domain.identity import InstrumentKey, StreamKey
-from market_data_service.domain.stream_state import StreamLifecycleState
+from market_data_service.domain.stream_state import InvalidStreamTransition, StreamLifecycleState
 
 
 def test_batch_is_one_connection_select_and_preserves_order_duplicates(tmp_path, monkeypatch):
@@ -182,3 +182,33 @@ def test_transition_keeps_progress_committed_after_batch(tmp_path, monkeypatch):
     state = h.lifecycle.snapshot(stream)
     assert state.state is StreamLifecycleState.READY
     assert state.latest_committed_open_time_ms == 300000
+
+
+def test_concurrent_lifecycle_change_after_batch_rejects_stale_ready(tmp_path, monkeypatch):
+    h = _harness(tmp_path)
+    path = tmp_path / "market.sqlite3"
+    stream = h.streams[0]
+    with SqliteUnitOfWork(path) as u:
+        u.save_stream_state(
+            replace(u.get_stream_state(stream), state=StreamLifecycleState.CONNECTING)
+        )
+        u.commit()
+    recovery = RealtimeRecoveryStateRecorder(lambda: SqliteUnitOfWork(path), lambda: h.now[0])
+    original = h.reader.get_stream_states
+    committed = []
+
+    def batch(streams):
+        result = original(streams)
+        assert result[0].state is StreamLifecycleState.CONNECTING
+        assert h.supervisor.facts(stream).data_ready
+        recovery.mark_unavailable(stream, reason="concurrent_recovery")
+        committed.append(h.lifecycle.snapshot(stream))
+        return result
+
+    monkeypatch.setattr(h.reader, "get_stream_states", batch)
+    with pytest.raises(
+        InvalidStreamTransition, match="illegal stream transition degraded -> ready"
+    ):
+        h.runtime._sync_lifecycle()
+    assert committed[0].state is StreamLifecycleState.DEGRADED
+    assert h.lifecycle.snapshot(stream) == committed[0]
