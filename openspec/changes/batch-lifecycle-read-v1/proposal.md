@@ -7,9 +7,9 @@ A full realtime lifecycle synchronization currently opens one read-only SQLite c
 - Add a batch lifecycle-snapshot read for a complete synchronization pass: one read-only SQLite connection, one read transaction and one SELECT returning all requested stream states.
 - Preserve the configured stream order and the existing missing-stream failure semantics when the batch result is projected back to the requested streams.
 - Use the batch snapshot only for full lifecycle sweeps; a synchronization explicitly scoped to one stream keeps the existing single-stream read.
-- Preserve all READY/DEGRADED/FAILED decisions, full-sweep processing order, status updates and time-boundary behavior.
+- Preserve READY/DEGRADED/FAILED predicates and processing order. Capture realtime facts before batch I/O. Public durable-state projection uses the batch read view and may briefly lag concurrent commits until a subsequent sweep; exact equivalence to sequential point-read projections is not promised.
 - Preserve the write-safety rule: any lifecycle transition re-reads the current durable state inside its own write transaction before validating and saving it, so a concurrent recovery or ingestion commit is not overwritten by the preliminary batch snapshot.
-- Add regression coverage for one-connection/one-SELECT full sweeps, concurrent recovery during a sweep, and readiness transitions immediately before, at and after the existing time boundary.
+- Add regression coverage for one-connection/one-SELECT full sweeps, concurrent recovery including the no-write path, stale projection isolation from candle admission/publication, and a readiness boundary crossed during batch I/O.
 - Do not change REST recovery, WebSocket behavior, open-interest ingestion, public APIs or unexplained-pause diagnostics.
 
 ## Capabilities

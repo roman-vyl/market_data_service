@@ -6,12 +6,13 @@
 
 ## 2. Full-sweep integration
 
-- [ ] 2.1 Change complete runtime lifecycle synchronization to obtain one preliminary batch and process the existing realtime facts in configured order; keep explicitly scoped one-stream synchronization on the point-read path.
+- [ ] 2.1 Change complete runtime lifecycle synchronization to capture realtime facts before storage I/O, obtain one preliminary batch and process those captured facts in configured order; keep explicitly scoped one-stream synchronization on the point-read path.
 - [ ] 2.2 Adapt lifecycle synchronization to consume a supplied preliminary snapshot without changing READY/DEGRADED/FAILED decisions, status updates or the mandatory current-state read inside transition write transactions.
 - [ ] 2.3 Add a concurrency integration test in which recovery commits newer progress after the batch read and before a lifecycle transition, proving the transition validates current state and preserves that progress.
+- [ ] 2.4 Test the no-write DEGRADED/AUDITING interleaving without re-reading. Force stale public READY and verify that current SQLite range admission and supervisor-based OI publication still reject; normal recovery-pending facts must project ready=false even with an old durable READY.
 
 ## 3. Semantic regression and verification
 
 - [ ] 3.1 Update lifecycle sweep tests to assert one batch read per complete pass, unchanged stream processing order, and a point read for a scoped refresh.
-- [ ] 3.2 Run the existing READY/DEGRADED/FAILED cases and close-plus-grace boundary matrix at `-1 ms`, `0`, and `+1 ms` through the batch path and assert unchanged lifecycle/status outcomes.
+- [ ] 3.2 Run the existing READY/DEGRADED/FAILED cases and close-plus-grace boundary matrix at `-1 ms`, `0`, and `+1 ms` through the batch path and assert existing predicates. Add a test that advances the clock across close plus grace during batch I/O: this pass uses pre-read facts and the next sweep uses the new time.
 - [ ] 3.3 Run focused SQLite and lifecycle tests, `make verify`, and `openspec validate batch-lifecycle-read-v1 --strict`; confirm no REST recovery, WebSocket, open-interest ingestion, public API or pause-diagnostics code changed.

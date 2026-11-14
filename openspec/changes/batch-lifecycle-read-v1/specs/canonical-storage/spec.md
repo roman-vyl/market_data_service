@@ -24,13 +24,13 @@ Reading a standalone per-stream lifecycle snapshot SHALL use read-only database 
 - **AND** validates the transition against that current state
 - **AND** preserves the concurrently committed progress fields rather than replacing them with values from the preliminary batch snapshot.
 
-#### Scenario: READY DEGRADED and FAILED projection remains unchanged
+#### Scenario: READY DEGRADED and FAILED predicates remain unchanged
 - **WHEN** the same realtime facts and durable lifecycle states are synchronized through the batch-read path
-- **THEN** the READY, DEGRADED or FAILED decisions and status projections are the same as before the batch-read change.
+- **THEN** the READY, DEGRADED or FAILED decisions and readiness predicates are unchanged; public durable-state values reflect the committed batch read view and can temporarily differ from sequential point reads.
 
 #### Scenario: Time-boundary projection remains unchanged
 - **WHEN** a complete synchronization runs immediately before, exactly at, or immediately after an existing readiness time boundary
-- **THEN** each stream receives the same lifecycle decision and status projection as the existing per-stream read path.
+- **THEN** each stream is evaluated using realtime facts captured before batch I/O, preserving the existing time-evaluation order.
 
 #### Scenario: Snapshot completes while a writer holds uncommitted state
 - **GIVEN** an initialized WAL database with committed state for a stream
@@ -62,3 +62,18 @@ Reading a standalone per-stream lifecycle snapshot SHALL use read-only database 
 #### Scenario: Snapshot resources are released
 - **WHEN** a standalone or batch lifecycle snapshot call succeeds or fails
 - **THEN** its database connection and read transaction are closed before control returns to the caller.
+
+#### Scenario: Recovery changes durable state on a no-write projection path
+- **GIVEN** a batch contains DEGRADED and recovery commits AUDITING before that stream is projected
+- **WHEN** the captured realtime facts require no lifecycle write
+- **THEN** runtime uses the batch state without another read and may publish durable_state=degraded for this pass
+- **AND** a subsequent sweep reads the newer committed state
+- **AND** an old public READY cannot bypass current SQLite range admission or current supervisor-based OI publication
+- **AND** recovery-pending realtime facts combined with a stale durable READY do not project ready=true.
+
+#### Scenario: Time crosses close plus grace during the batch read
+- **GIVEN** realtime facts are captured immediately before close plus grace
+- **AND** the clock advances past that boundary while SQLite is batch-read
+- **WHEN** the current pass projects the streams
+- **THEN** it uses those captured facts without collecting them again after I/O
+- **AND** the next periodic sweep evaluates the new time and applies the existing stale/readiness rules.
