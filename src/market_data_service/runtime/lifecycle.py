@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 
 from market_data_service.domain.identity import StreamKey
 from market_data_service.domain.stream_state import (
@@ -30,6 +30,11 @@ class RuntimeLifecycleRecorder:
     def snapshot(self, stream: StreamKey) -> StreamStateSnapshot:
         with measure_phase("snapshot", stream):
             return self._state_reader.get_stream_state(stream)
+
+    def snapshots(self, streams: Sequence[StreamKey]) -> tuple[StreamStateSnapshot, ...]:
+        # Counts read operations, not decoded rows, in existing diagnostics.
+        with measure_phase("snapshot"):
+            return self._state_reader.get_stream_states(streams)
 
     def prepare_for_bootstrap(self, stream: StreamKey) -> StreamStateSnapshot:
         snapshot = self.snapshot(stream)
@@ -110,13 +115,46 @@ class RuntimeLifecycleRecorder:
     ) -> StreamStateSnapshot:
         with measure_phase("transition", stream), self._unit_of_work_factory() as unit_of_work:
             snapshot = unit_of_work.get_stream_state(stream)
-            snapshot = transition_stream_state(
-                snapshot,
-                target,
-                changed_at_ms=max(self._now_ms(), snapshot.updated_at_ms),
-                error_code=error_code,
-                error_detail=error_detail,
+            return self._save_transition(
+                unit_of_work, snapshot, target, error_code=error_code, error_detail=error_detail
             )
-            unit_of_work.save_stream_state(snapshot)
-            unit_of_work.commit()
-            return snapshot
+
+    def transition_if_current(
+        self,
+        expected: StreamStateSnapshot,
+        target: StreamLifecycleState,
+        *,
+        reason: str | None = None,
+    ) -> tuple[StreamStateSnapshot, bool]:
+        """Apply a realtime decision only while its source lifecycle state still matches."""
+        with measure_phase("transition", expected.stream), self._unit_of_work_factory() as uow:
+            current = uow.get_stream_state(expected.stream)
+            if current.state is not expected.state:
+                return current, False
+            return self._save_transition(
+                uow,
+                current,
+                target,
+                error_code=f"runtime_{target.value}" if reason is not None else None,
+                error_detail=reason,
+            ), True
+
+    def _save_transition(
+        self,
+        unit_of_work: CanonicalStorageUnitOfWork,
+        snapshot: StreamStateSnapshot,
+        target: StreamLifecycleState,
+        *,
+        error_code: str | None,
+        error_detail: str | None,
+    ) -> StreamStateSnapshot:
+        snapshot = transition_stream_state(
+            snapshot,
+            target,
+            changed_at_ms=max(self._now_ms(), snapshot.updated_at_ms),
+            error_code=error_code,
+            error_detail=error_detail,
+        )
+        unit_of_work.save_stream_state(snapshot)
+        unit_of_work.commit()
+        return snapshot

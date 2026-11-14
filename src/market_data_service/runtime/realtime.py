@@ -147,8 +147,6 @@ class RuntimeRealtimeCoordinator:
         if isinstance(event, (Connected, HeartbeatObserved)) or (
             isinstance(event, CandleObserved) and not event.candle.confirmed
         ):
-            # Transport activity does not change readiness facts. The periodic
-            # full sweep refreshes projections that change only with time.
             return
         self._sync_lifecycle()
 
@@ -170,7 +168,6 @@ class RuntimeRealtimeCoordinator:
         self._sync_lifecycle()
 
     async def _notify_restored(self, stream: StreamKey, open_time_ms: int) -> None:
-        """One ordinary notification for the latest bar a restored episode made complete."""
         if self._notifier_worker is not None:
             await self._notifier_worker.enqueue(notification.bar_notification(stream, open_time_ms))
 
@@ -202,12 +199,20 @@ class RuntimeRealtimeCoordinator:
 
     @measure_operation("lifecycle.sync")
     def _sync_lifecycle(self, stream: StreamKey | None = None) -> None:
-        selected = (
-            self._supervisor.all_facts() if stream is None else (self._supervisor.facts(stream),)
+        supervisor = self._supervisor
+        selected = supervisor.all_facts() if stream is None else (supervisor.facts(stream),)
+        snapshots = (
+            self._lifecycle.snapshots(tuple(f.stream for f in selected))
+            if stream is None
+            else (self._lifecycle.snapshot(stream),)
         )
-        for facts in selected:
+        for facts, durable in zip(selected, snapshots, strict=True):
             synchronize_stream_lifecycle(
-                facts, self._lifecycle, self._status, admitted=self._admission.allows(facts.stream)
+                facts,
+                self._lifecycle,
+                self._status,
+                admitted=self._admission.allows(facts.stream),
+                durable=durable,
             )
 
     def _refresh_status(self) -> None:
