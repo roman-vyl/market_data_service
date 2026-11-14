@@ -31,3 +31,15 @@
 - Confirmed: mark_ready raises InvalidStreamTransition (`degraded -> ready`) through the full synchronization call; its transaction does not overwrite the committed recovery state. The stale worker has no handler for this exception, so the failure can propagate to its TaskGroup. No conflict-handling behavior has been changed.
 - Merge remains pending a separate decision on safe stale-transition handling; the new test documents the defect, rather than asserting it is fixed.
 - Focused regressions: 35 passed. Follow-up make verify: Ruff and mypy passed; 439 tests passed, with the two previously known HTTP notifier ConnectionResetError failures.
+
+## 4. Approved state-conflict follow-up
+
+- [x] 4.1 Compare the expected source state inside the existing write transaction only for realtime synchronization. Return current state without mutation on mismatch, and stop the remaining per-stream transition chain. Keep other recorder callers unchanged.
+- [x] 4.2 Replace the characterization assertion with a nonfatal recovery-preservation regression. Cover forward recovery, degradation/failure branches, inter-transition conflicts, other-stream continuation, no extra batch/point reads and unsuppressed matching-source domain errors.
+- [x] 4.3 Run focused tests, make verify and strict OpenSpec validation; publish the updated review branch without merge or deployment.
+
+### State-conflict fix validation
+
+- 62 focused tests passed. Final `make verify`: Ruff passed, strict mypy passed (162 source files), all 452 tests passed.
+- Strict OpenSpec validation and diff whitespace checks passed. The earlier characterization failure is now a preservation/continuation regression; no blanket exception handler was added.
+- Startup/unconditional recorder methods keep their existing semantics. Only realtime synchronization uses the guarded source-state comparison. No merge, production changes or deployment.

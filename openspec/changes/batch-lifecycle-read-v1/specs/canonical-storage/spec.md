@@ -77,3 +77,31 @@ Reading a standalone per-stream lifecycle snapshot SHALL use read-only database 
 - **WHEN** the current pass projects the streams
 - **THEN** it uses those captured facts without collecting them again after I/O
 - **AND** the next periodic sweep evaluates the new time and applies the existing stale/readiness rules.
+
+### Requirement: Realtime lifecycle decisions reject stale source states
+Realtime lifecycle transitions SHALL compare their preliminary source lifecycle state with the current state inside the existing write transaction. A mismatch SHALL return the current durable row without applying the stale transition and SHALL stop any remaining transition chain for that stream in the current pass. Other streams SHALL continue to synchronize. A later pass SHALL reevaluate the stream normally. Progress-only changes SHALL be preserved and SHALL NOT suppress an otherwise valid transition. Domain transition errors from a matching source state SHALL remain visible.
+
+#### Scenario: Recovery degrades a connecting stream after the batch
+- **GIVEN** the batch contains CONNECTING and captured realtime facts are ready
+- **AND** recovery commits DEGRADED before the guarded write
+- **WHEN** synchronization attempts READY
+- **THEN** it preserves and projects the current DEGRADED row without an exception or mutation
+- **AND** continues with other streams.
+
+#### Scenario: Recovery advances a degraded stream after the batch
+- **GIVEN** the batch contains DEGRADED and captured realtime facts are ready
+- **AND** recovery commits CONNECTING or READY before synchronization applies its decision
+- **WHEN** synchronization attempts CONNECTING from the old DEGRADED snapshot
+- **THEN** it preserves and projects the current row
+- **AND** does not continue to READY from a conflicting returned CONNECTING row during this pass.
+
+#### Scenario: Conflict occurs between connecting and ready transitions
+- **GIVEN** synchronization successfully changes DEGRADED to CONNECTING
+- **AND** recovery changes the state before the subsequent READY write
+- **WHEN** the READY decision checks its source state inside the transaction
+- **THEN** the newer recovery state remains unchanged and is projected.
+
+#### Scenario: Unchanged source does not hide invalid decisions
+- **GIVEN** the preliminary and current lifecycle states match
+- **WHEN** an illegal transition is requested
+- **THEN** existing domain validation raises InvalidStreamTransition without suppressing it.

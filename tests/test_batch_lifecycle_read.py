@@ -14,7 +14,7 @@ from market_data_service.adapters.sqlite.stream_state_reader import SqliteStream
 from market_data_service.application.realtime.events import Disconnected
 from market_data_service.application.realtime.recovery_state import RealtimeRecoveryStateRecorder
 from market_data_service.domain.identity import InstrumentKey, StreamKey
-from market_data_service.domain.stream_state import InvalidStreamTransition, StreamLifecycleState
+from market_data_service.domain.stream_state import StreamLifecycleState
 
 
 def test_batch_is_one_connection_select_and_preserves_order_duplicates(tmp_path, monkeypatch):
@@ -184,7 +184,7 @@ def test_transition_keeps_progress_committed_after_batch(tmp_path, monkeypatch):
     assert state.latest_committed_open_time_ms == 300000
 
 
-def test_concurrent_lifecycle_change_after_batch_rejects_stale_ready(tmp_path, monkeypatch):
+def test_concurrent_lifecycle_change_after_batch_skips_stale_ready(tmp_path, monkeypatch):
     h = _harness(tmp_path)
     path = tmp_path / "market.sqlite3"
     stream = h.streams[0]
@@ -206,9 +206,7 @@ def test_concurrent_lifecycle_change_after_batch_rejects_stale_ready(tmp_path, m
         return result
 
     monkeypatch.setattr(h.reader, "get_stream_states", batch)
-    with pytest.raises(
-        InvalidStreamTransition, match="illegal stream transition degraded -> ready"
-    ):
-        h.runtime._sync_lifecycle()
+    h.runtime._sync_lifecycle()
     assert committed[0].state is StreamLifecycleState.DEGRADED
     assert h.lifecycle.snapshot(stream) == committed[0]
+    assert _ready(h) == [False, True]
