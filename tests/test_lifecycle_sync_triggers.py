@@ -48,6 +48,11 @@ class CountingReader(SqliteStreamStateReader):
         self.on_read()
         return super().get_stream_state(stream)
 
+    def get_stream_states(self, streams):
+        self.reads.extend(streams)
+        self.on_read()
+        return super().get_stream_states(streams)
+
 
 @dataclass
 class Harness:

@@ -1,7 +1,7 @@
 """Project one stream's realtime facts into its existing durable lifecycle."""
 
 from market_data_service.application.realtime.supervisor_types import RealtimeStreamFacts
-from market_data_service.domain.stream_state import StreamLifecycleState
+from market_data_service.domain.stream_state import StreamLifecycleState, StreamStateSnapshot
 from market_data_service.runtime.lifecycle import RuntimeLifecycleRecorder
 from market_data_service.runtime.status import RuntimeStatusStore
 
@@ -12,8 +12,8 @@ def synchronize_stream_lifecycle(
     status: RuntimeStatusStore,
     *,
     admitted: bool,
+    durable: StreamStateSnapshot,
 ) -> None:
-    durable = lifecycle.snapshot(facts.stream)
     if not admitted:
         status.update_stream(durable, facts)
         return

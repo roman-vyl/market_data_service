@@ -21,22 +21,7 @@ class SqliteStreamStateRepository:
         ).fetchone()
         if row is None:
             raise KeyError(stream.canonical_id)
-        return StreamStateSnapshot(
-            stream=stream,
-            state=StreamLifecycleState(row["state"]),
-            earliest_available_open_time_ms=row["earliest_available_open_time_ms"],
-            lower_bound_discovery_next_open_time_ms=(
-                row["lower_bound_discovery_next_open_time_ms"]
-            ),
-            latest_committed_open_time_ms=row["latest_committed_open_time_ms"],
-            last_audit_at_ms=row["last_audit_at_ms"],
-            last_rest_success_at_ms=row["last_rest_success_at_ms"],
-            last_ws_message_at_ms=row["last_ws_message_at_ms"],
-            last_error_code=row["last_error_code"],
-            last_error_detail=row["last_error_detail"],
-            state_changed_at_ms=row["state_changed_at_ms"],
-            updated_at_ms=row["updated_at_ms"],
-        )
+        return decode_stream_state(stream, row)
 
     def save(self, snapshot: StreamStateSnapshot) -> None:
         self._connection.execute(
@@ -65,3 +50,20 @@ class SqliteStreamStateRepository:
                 self._catalog.stream_id(snapshot.stream),
             ),
         )
+
+
+def decode_stream_state(stream: StreamKey, row: sqlite3.Row) -> StreamStateSnapshot:
+    return StreamStateSnapshot(
+        stream=stream,
+        state=StreamLifecycleState(row["state"]),
+        earliest_available_open_time_ms=row["earliest_available_open_time_ms"],
+        lower_bound_discovery_next_open_time_ms=(row["lower_bound_discovery_next_open_time_ms"]),
+        latest_committed_open_time_ms=row["latest_committed_open_time_ms"],
+        last_audit_at_ms=row["last_audit_at_ms"],
+        last_rest_success_at_ms=row["last_rest_success_at_ms"],
+        last_ws_message_at_ms=row["last_ws_message_at_ms"],
+        last_error_code=row["last_error_code"],
+        last_error_detail=row["last_error_detail"],
+        state_changed_at_ms=row["state_changed_at_ms"],
+        updated_at_ms=row["updated_at_ms"],
+    )

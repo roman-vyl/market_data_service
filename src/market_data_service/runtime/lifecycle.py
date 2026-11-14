@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 
 from market_data_service.domain.identity import StreamKey
 from market_data_service.domain.stream_state import (
@@ -30,6 +30,11 @@ class RuntimeLifecycleRecorder:
     def snapshot(self, stream: StreamKey) -> StreamStateSnapshot:
         with measure_phase("snapshot", stream):
             return self._state_reader.get_stream_state(stream)
+
+    def snapshots(self, streams: Sequence[StreamKey]) -> tuple[StreamStateSnapshot, ...]:
+        # Counts read operations, not decoded rows, in existing diagnostics.
+        with measure_phase("snapshot"):
+            return self._state_reader.get_stream_states(streams)
 
     def prepare_for_bootstrap(self, stream: StreamKey) -> StreamStateSnapshot:
         snapshot = self.snapshot(stream)
